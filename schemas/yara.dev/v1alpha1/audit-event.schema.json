@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/audit-event.schema.json",
+  "title": "YARA AuditEvent v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "AuditEvent" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "occurredAt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "occurredAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "correlationId", "actor", "action", "subjects", "reason", "target", "outcome", "diagnosticCodes", "integrity"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1 },
+        "correlationId": { "type": "string", "minLength": 1 },
+        "causationId": { "type": "string", "minLength": 1 },
+        "actor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "type", "assurance"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "type": { "enum": ["user", "service", "executor"] },
+            "assurance": { "type": "string", "minLength": 1 }
+          }
+        },
+        "action": { "type": "string", "pattern": "^[a-z0-9-]+(?:\\.[a-z0-9-]+)+$" },
+        "subjects": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "digest"],
+            "properties": {
+              "kind": { "type": "string", "minLength": 1 },
+              "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]+$" }
+            }
+          }
+        },
+        "reason": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "reference"],
+          "properties": {
+            "type": { "type": "string", "minLength": 1 },
+            "reference": { "type": "string", "minLength": 1 }
+          }
+        },
+        "policyDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]+$" },
+        "target": { "type": "string", "minLength": 1 },
+        "outcome": { "enum": ["started", "success", "failed", "infeasible", "cancelled"] },
+        "diagnosticCodes": { "type": "array", "items": { "type": "string" } },
+        "integrity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["eventDigest"],
+          "properties": {
+            "previousEventDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]+$" },
+            "eventDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]+$" }
+          }
+        }
+      }
+    }
+  }
+}

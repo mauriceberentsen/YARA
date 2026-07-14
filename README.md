@@ -1,402 +1,167 @@
-YARA
-
-Your AI Runtime Architect
+# YARA
+
+> **Your AI Runtime Architect** — turn hardware, goals and policy constraints into an explainable, reproducible AI-platform plan.
+
+YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
+
+YARA is currently in its **pre-alpha implementation and validation phase**. The first CLI foundation can strictly validate v1alpha1 requests and inventories and verify a tamper-evident local audit chain. It does not generate or deploy a platform plan yet.
+
+## The problem
+
+A useful self-hosted AI platform is rarely one application. It is a system of components with coupled constraints:
+
+- models must fit the available accelerators and memory;
+- inference engines must support the selected model, quantization and hardware;
+- chat, coding, RAG and agent use cases require different capabilities;
+- identity, data residency, licensing and air-gap policies exclude some options;
+- concurrency, latency and availability objectives change the topology;
+- versions, drivers, protocols and APIs must remain compatible over time.
+
+Installation scripts can automate commands, but they cannot decide which architecture is appropriate. YARA's primary value is the knowledge and reasoning required to make that decision explicit, reviewable and repeatable.
+
+## The intended experience
+
+Users provide a desired state:
+
+```yaml
+apiVersion: yara.dev/v1alpha1
+kind: PlatformRequest
+metadata:
+  name: private-coding-assistant
+spec:
+  useCases: [chat, coding]
+  users:
+    expected: 25
+    peakConcurrent: 8
+  environment:
+    connectivity: air-gapped
+  policies:
+    openSourceOnly: true
+    telemetry: forbidden
+  objectives:
+    priority: quality
+```
+
+YARA combines this request with discovered or declared hardware, catalog data, compatibility constraints and policies. It returns a plan containing:
+
+- the selected architecture, components and models;
+- rejected alternatives and the reasons they were rejected;
+- assumptions, warnings and unresolved questions;
+- capacity estimates and confidence levels;
+- a dependency graph and ordered deployment stages;
+- a stable input and catalog fingerprint for reproducibility.
+
+Deployment and lifecycle management will consume this plan in later milestones. The planner never renders or applies infrastructure directly.
+
+## What makes YARA different
+
+- **Goal-driven:** users describe outcomes and constraints, not a shopping list of tools.
+- **Hardware-aware:** real compute, memory, storage and network limits are first-class inputs.
+- **Policy-aware:** privacy, licensing, connectivity and enterprise requirements are hard constraints where appropriate.
+- **Explainable:** every recommendation must cite the facts and rules that produced it.
+- **Auditable:** planning, policy, approval and lifecycle actions produce append-only evidence tied to immutable resource digests.
+- **Deterministic:** identical versioned inputs produce the same plan.
+- **Modular:** components, models, hardware and policies are catalog entries rather than hard-coded product branches.
+- **Lifecycle-oriented:** planning anticipates install, health, upgrade, backup, recovery and retirement.
+
+## Architecture at a glance
+
+```text
+PlatformRequest + Inventory + Policies
+                    |
+                    v
+          Normalize and validate
+                    |
+                    v
+          Derive required capabilities
+                    |
+                    v
+     Generate -> filter -> score candidates
+                    |
+                    v
+       Resolve dependencies and versions
+                    |
+                    v
+       Validate topology and capacity
+                    |
+                    v
+         Emit explainable PlatformPlan
+                    |
+          +---------+---------+
+          |                   |
+        review          future executors
+```
+
+The detailed design is in the [architecture documentation](docs/architecture/README.md).
+
+## Scope
+
+The project deliberately starts narrower than its long-term vision.
+
+**v0.1 will:**
 
-Deploy the best possible AI platform for your hardware, requirements and policies — automatically.
+- accept a versioned request and hardware inventory;
+- use a curated, schema-validated catalog;
+- plan one local, Linux-based, NVIDIA GPU deployment profile;
+- cover chat and coding use cases;
+- produce a deterministic plan with explanations and diagnostics;
+- perform no mutations to the target environment.
 
-⸻
+**v0.1 will not:**
 
-Why YARA exists
+- deploy Docker, Kubernetes or cloud resources;
+- claim globally optimal model or component selection;
+- dynamically ingest untrusted catalog data;
+- support every accelerator vendor or orchestration platform;
+- replace security, legal, capacity or architecture review.
 
-Deploying a modern AI platform is unnecessarily complex.
+See [product scope](docs/product/scope.md) for the complete boundary.
 
-Organizations have to choose between dozens of open-source projects:
+## Documentation
 
-* Open WebUI
-* LiteLLM
-* vLLM
-* Ollama
-* Qdrant
-* Milvus
-* Langfuse
-* SearXNG
-* PostgreSQL
-* Redis
-* Keycloak
-* Grafana
-* Prometheus
-* Traefik
-* and many more…
+Start at the [documentation index](docs/README.md). Important documents include:
 
-Choosing the right combination requires expertise in AI inference, infrastructure, Kubernetes, networking, storage, authentication, observability and model selection.
+- [Vision and principles](docs/vision.md)
+- [Product scope](docs/product/scope.md)
+- [System architecture](docs/architecture/system-overview.md)
+- [Domain model](docs/architecture/domain-model.md)
+- [Planning pipeline](docs/architecture/planning-pipeline.md)
+- [Catalog design](docs/catalogs/README.md)
+- [Security model](docs/architecture/security.md)
+- [Auditing model](docs/architecture/auditing.md)
+- [Roadmap](docs/roadmap.md)
+- [Architectural decisions](docs/adr/README.md)
 
-Most users don’t actually want to become experts in AI infrastructure.
+## Development
 
-They simply want an AI platform that works.
+The v0 implementation is written in Go and pins its toolchain through `go.mod`.
 
-YARA exists to bridge that gap.
+```bash
+make check
+go run ./cmd/yara version
+go run ./cmd/yara request validate docs/examples/platform-request.yaml
+go run ./cmd/yara inventory validate docs/examples/inventory.yaml
+```
 
-⸻
+Currently implemented:
 
-Vision
+- strict YAML and JSON decoding with unknown-field and input-size protection;
+- semantic validation for the first `PlatformRequest` and `Inventory` boundary;
+- stable machine-readable diagnostics and CLI exit classes;
+- public draft-2020-12 schemas for request, inventory and audit events;
+- deterministic SHA-256 content digests;
+- append-only audit-event chaining, tamper verification and `audit verify` CLI support.
 
-Instead of installing software manually…
+The next vertical slice adds the minimal catalog snapshot and planner described in the [implementation guide](docs/implementation/README.md).
 
-Install Open WebUI
-↓
-Configure LiteLLM
-↓
-Deploy vLLM
-↓
-Find compatible models
-↓
-Configure authentication
-↓
-Configure monitoring
-↓
-Configure storage
-↓
-Tune inference
-↓
-Hope everything works
+## Project status
 
-YARA allows users to describe what they want, not how to build it.
+YARA is pre-alpha. Validation and audit commands are working foundations, not a platform recommendation or deployment product. Proposed integrations and catalog examples remain illustrative until backed by manifests, tests and maintained compatibility evidence.
 
-Example:
+## Contributing
 
-Hardware
-2× RTX 4090
-128GB RAM
-Ubuntu
-Requirements
-✔ AI Chat
-✔ Coding Assistant
-✔ RAG
-✔ MCP
-✔ Air-gapped
-✔ 50 users
-✔ Azure AD
-Deploy
+Early contributions should improve falsifiability: clearer requirements, counterexamples, schemas, compatibility evidence, test scenarios and small proof-of-concept implementations. Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.
 
-YARA automatically generates and deploys the best architecture for that environment.
+## License
 
-⸻
-
-Core Principles
-
-Hardware First
-
-Everything starts with the available hardware.
-
-YARA detects:
-
-* CPU
-* RAM
-* GPU
-* VRAM
-* CUDA / ROCm
-* Storage
-* Networking
-* Kubernetes capabilities
-* Operating system
-
-Hardware determines what is realistically achievable.
-
-⸻
-
-Opinionated
-
-Users shouldn’t have to understand dozens of AI components.
-
-YARA selects sensible defaults based on best practices.
-
-Advanced users can override decisions.
-
-Most users never need to.
-
-⸻
-
-Modular
-
-Every supported application is a plugin.
-
-Examples:
-
-* Open WebUI
-* LiteLLM
-* vLLM
-* Ollama
-* Langfuse
-* Qdrant
-* Grafana
-
-New integrations should require minimal code.
-
-⸻
-
-Declarative
-
-Users describe their goals.
-
-YARA determines the implementation.
-
-Example:
-
-Goal
-Enterprise AI Coding Platform
-↓
-Planner
-↓
-Deployment Plan
-↓
-Infrastructure
-↓
-Running Platform
-
-⸻
-
-Architecture
-
-                   User Requirements
-                           │
-                           ▼
-                  Hardware Discovery
-                           │
-                           ▼
-                  Capability Analysis
-                           │
-                           ▼
-                    Decision Engine
-                           │
-                           ▼
-                  Deployment Planner
-                           │
-                           ▼
-               Component & Model Resolver
-                           │
-                           ▼
-                  Deployment Engine
-                           │
-                           ▼
-                  Running AI Platform
-
-⸻
-
-Major Components
-
-Hardware Analyzer
-
-Discovers the available infrastructure.
-
-Examples:
-
-* GPU inventory
-* VRAM
-* NUMA topology
-* CUDA compatibility
-* Kubernetes cluster
-* Storage performance
-
-⸻
-
-Decision Engine
-
-The intelligence behind YARA.
-
-Determines:
-
-* Which inference engine to use
-* Which models fit
-* Which vector database is appropriate
-* Which authentication provider fits
-* Which deployment strategy should be used
-
-⸻
-
-Component Catalog
-
-A knowledge base describing every supported application.
-
-Each component contains metadata such as:
-
-* Requirements
-* Dependencies
-* Capabilities
-* Upgrade strategy
-* Health checks
-* Supported platforms
-
-⸻
-
-Model Catalog
-
-Contains metadata for supported AI models.
-
-Including:
-
-* VRAM requirements
-* Context size
-* Quantizations
-* Coding quality
-* Reasoning quality
-* Vision support
-* License
-* Performance characteristics
-
-⸻
-
-Planner
-
-Transforms user requirements into an implementation plan.
-
-Input:
-
-Small Business
-↓
-1 GPU
-↓
-Coding Assistant
-↓
-Air-gapped
-
-Output:
-
-Open WebUI
-LiteLLM
-vLLM
-Qdrant
-Qwen Coder
-PostgreSQL
-Redis
-
-⸻
-
-Deployment Engine
-
-Responsible for provisioning infrastructure.
-
-Initially planned support:
-
-* Docker Compose
-* Kubernetes
-* K3s
-* RKE2
-* Talos Linux
-
-Future deployment targets may be added over time.
-
-⸻
-
-Supported Capabilities (Planned)
-
-* AI Chat
-* Coding Assistants
-* RAG
-* MCP
-* Agents
-* Image Generation
-* Voice
-* Speech-to-Text
-* Text-to-Speech
-* Observability
-* Authentication
-* High Availability
-* Air-gapped Deployments
-* Enterprise Security
-* GPU Scheduling
-* Multi-Model Routing
-
-⸻
-
-Enterprise Features
-
-YARA is designed with enterprise deployments in mind.
-
-Examples include:
-
-* RBAC
-* OIDC
-* Azure AD
-* Keycloak
-* LDAP
-* Audit Logging
-* Secrets Management
-* Monitoring
-* Offline Package Support
-* Private Model Registries
-* Multi-node Deployments
-
-⸻
-
-Long-term Roadmap
-
-Phase 1
-
-* Hardware Discovery
-* Component Catalog
-* Model Catalog
-* Decision Engine
-
-Phase 2
-
-* Deployment Planner
-* Kubernetes Deployment
-* Docker Deployment
-* Health Checks
-
-Phase 3
-
-* Management UI
-* Upgrade Engine
-* Backup & Restore
-* Marketplace
-
-Phase 4
-
-* Cluster Federation
-* Multi-site Deployments
-* Automated Capacity Planning
-* Cost Optimisation
-* Autonomous Platform Operations
-
-⸻
-
-Design Goals
-
-YARA should always:
-
-* Prefer proven open-source software over custom implementations.
-* Reuse existing projects instead of reinventing them.
-* Choose sensible defaults automatically.
-* Keep deployments reproducible.
-* Remain vendor neutral.
-* Support both hobbyists and enterprise environments.
-* Be modular enough to evolve with the AI ecosystem.
-
-⸻
-
-Project Status
-
-YARA is currently in the architecture and design phase.
-
-The initial focus is building the knowledge engine that can translate hardware and user requirements into optimal AI platform deployments.
-
-The deployment engine and management interface will evolve on top of this foundation.
-
-⸻
-
-License
-
-License to be determined.
-
-⸻
-
-Contributing
-
-Contributions are welcome.
-
-At this stage, design discussions, architecture proposals and component research are more valuable than code.
-
-The goal is not simply to build another AI installer.
-
-The goal is to build the platform that knows how to build the right AI platform.
+YARA is licensed under the [Apache License 2.0](LICENSE). Third-party software selected or managed by YARA retains its own license; catalog inclusion never changes or supersedes that license.
