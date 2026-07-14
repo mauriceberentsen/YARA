@@ -1,0 +1,61 @@
+apiVersion: yara.dev/v1alpha1
+kind: PlatformPlan
+metadata:
+  name: private-coding-assistant
+  planId: sha256:illustrative-only
+provenance:
+  requestDigest: sha256:illustrative-request
+  inventoryDigest: sha256:illustrative-inventory
+  policyDigest: sha256:illustrative-policy
+  catalogDigest: sha256:illustrative-catalog
+  plannerVersion: 0.1.0-design
+spec:
+  status: review-required
+  assumptions:
+    - id: assumption.driver-compatibility
+      severity: warning
+      message: Accelerator driver compatibility has not been discovered.
+  topology:
+    instances:
+      - id: user-interface
+        role: experience.chat
+        componentRef: core.placeholder-ui@1.0.0
+        placement: host-1
+      - id: api-gateway
+        role: integration.api.openai-chat
+        componentRef: core.placeholder-gateway@1.0.0
+        placement: host-1
+      - id: inference
+        role: inference.text-generation
+        componentRef: core.placeholder-runtime@1.0.0
+        modelRef: core.placeholder-coder-q4@1.0.0
+        placement: host-1/gpu-0
+    connections:
+      - from: user-interface
+        to: api-gateway
+        contract: core.openai-chat/v1
+      - from: api-gateway
+        to: inference
+        contract: core.openai-chat/v1
+    deploymentStages:
+      - [inference]
+      - [api-gateway]
+      - [user-interface]
+  decisions:
+    - id: decision.inference
+      selected: core.placeholder-runtime@1.0.0/core.placeholder-coder-q4@1.0.0
+      reasons:
+        - Fits declared accelerator memory with estimated headroom.
+        - Requires no external network access after artifact import.
+        - Supplies the required API contract through the gateway.
+      confidence: low
+      alternatives:
+        - id: core.placeholder-larger-model@1.0.0
+          outcome: rejected
+          code: YARA-HW-004
+          reason: Estimated memory exceeds allocatable accelerator memory.
+  diagnostics:
+    - code: YARA-INV-002
+      severity: warning
+      path: spec.hosts[0].accelerators[0].driverVersion
+      message: Driver compatibility must be verified before this plan can be applied.

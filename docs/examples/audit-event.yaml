@@ -1,0 +1,30 @@
+apiVersion: yara.dev/v1alpha1
+kind: AuditEvent
+metadata:
+  id: illustrative-event
+  occurredAt: 2026-07-14T10:00:00Z
+spec:
+  sequence: 4
+  correlationId: illustrative-planning-run
+  causationId: illustrative-start-event
+  actor:
+    id: local:operator
+    type: user
+    assurance: self-asserted-local
+  action: plan.create.completed
+  subjects:
+    - kind: PlatformRequest
+      digest: sha256:illustrative-request
+    - kind: PlatformPlan
+      digest: sha256:illustrative-plan
+  reason:
+    type: user-request
+    reference: cli
+  policyDigest: sha256:illustrative-policy
+  target: local
+  outcome: success
+  diagnosticCodes:
+    - YARA-INV-002
+  integrity:
+    previousEventDigest: sha256:illustrative-previous
+    eventDigest: sha256:illustrative-event
