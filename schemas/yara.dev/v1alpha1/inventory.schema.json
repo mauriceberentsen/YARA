@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/inventory.schema.json",
+  "title": "YARA Inventory v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "Inventory" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "hosts"],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "observedAt"],
+          "properties": {
+            "mode": { "enum": ["declared", "discovered", "imported"] },
+            "observedAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        "hosts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/host" }
+        },
+        "unknowns": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$" }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "platform", "cpu", "memory", "accelerators", "storage", "network"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["os", "architecture"],
+          "properties": {
+            "os": { "const": "linux" },
+            "architecture": { "enum": ["amd64", "arm64"] }
+          }
+        },
+        "cpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cores"],
+          "properties": { "cores": { "type": "integer", "minimum": 1 } }
+        },
+        "memory": { "$ref": "#/$defs/resourceCapacity" },
+        "accelerators": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "vendor", "model", "memoryGiB", "allocatableMemoryGiB", "driverVersion"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "vendor": { "const": "nvidia" },
+              "model": { "type": "string", "minLength": 1 },
+              "memoryGiB": { "type": "integer", "minimum": 1 },
+              "allocatableMemoryGiB": { "type": "integer", "minimum": 1 },
+              "driverVersion": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["capacityGiB", "allocatableGiB", "class"],
+          "properties": {
+            "capacityGiB": { "type": "integer", "minimum": 1 },
+            "allocatableGiB": { "type": "integer", "minimum": 1 },
+            "class": { "type": "string", "minLength": 1 }
+          }
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["externalEgress"],
+          "properties": { "externalEgress": { "type": "boolean" } }
+        }
+      }
+    },
+    "resourceCapacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["installedGiB", "allocatableGiB"],
+      "properties": {
+        "installedGiB": { "type": "integer", "minimum": 1 },
+        "allocatableGiB": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

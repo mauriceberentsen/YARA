@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/platform-request.schema.json",
+  "title": "YARA PlatformRequest v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "PlatformRequest" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["useCases", "workload", "environment", "policies", "objectives"],
+      "properties": {
+        "useCases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "required"],
+            "properties": {
+              "id": { "enum": ["chat", "coding"] },
+              "required": { "type": "boolean" }
+            }
+          }
+        },
+        "workload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedUsers", "peakConcurrentRequests", "maximumContextTokens"],
+          "properties": {
+            "expectedUsers": { "type": "integer", "minimum": 1 },
+            "peakConcurrentRequests": { "type": "integer", "minimum": 1 },
+            "maximumContextTokens": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["connectivity", "inventoryRef", "lifecycle"],
+          "properties": {
+            "connectivity": { "enum": ["local", "connected", "air-gapped"] },
+            "inventoryRef": { "type": "string", "minLength": 1 },
+            "lifecycle": { "enum": ["evaluation", "production"] }
+          }
+        },
+        "policies": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["openSourceOnly", "externalEgress", "telemetry", "artifactVerification"],
+          "properties": {
+            "openSourceOnly": { "type": "boolean" },
+            "externalEgress": { "enum": ["allowed", "forbidden"] },
+            "telemetry": { "enum": ["allowed", "forbidden"] },
+            "artifactVerification": { "enum": ["required", "preferred", "disabled"] }
+          }
+        },
+        "objectives": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["preset", "weights"],
+          "properties": {
+            "preset": { "enum": ["balanced", "custom"] },
+            "weights": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["quality", "latency", "throughput", "cost", "simplicity", "energy", "evidenceConfidence"],
+              "properties": {
+                "quality": { "$ref": "#/$defs/weight" },
+                "latency": { "$ref": "#/$defs/weight" },
+                "throughput": { "$ref": "#/$defs/weight" },
+                "cost": { "$ref": "#/$defs/weight" },
+                "simplicity": { "$ref": "#/$defs/weight" },
+                "energy": { "$ref": "#/$defs/weight" },
+                "evidenceConfidence": { "$ref": "#/$defs/weight" }
+              }
+            }
+          }
+        },
+        "preferences": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "deploymentTarget": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$" }
+      }
+    },
+    "weight": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

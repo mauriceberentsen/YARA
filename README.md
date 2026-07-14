@@ -4,7 +4,7 @@
 
 YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
 
-YARA is currently in its **design and validation phase**. It does not deploy a production platform yet. The first milestone is a deterministic planner that produces a validated plan and explains every material decision.
+YARA is currently in its **pre-alpha implementation and validation phase**. The first CLI foundation can strictly validate v1alpha1 requests and inventories and verify a tamper-evident local audit chain. It does not generate or deploy a platform plan yet.
 
 ## The problem
 
@@ -132,9 +132,31 @@ Start at the [documentation index](docs/README.md). Important documents include:
 - [Roadmap](docs/roadmap.md)
 - [Architectural decisions](docs/adr/README.md)
 
+## Development
+
+The v0 implementation is written in Go and pins its toolchain through `go.mod`.
+
+```bash
+make check
+go run ./cmd/yara version
+go run ./cmd/yara request validate docs/examples/platform-request.yaml
+go run ./cmd/yara inventory validate docs/examples/inventory.yaml
+```
+
+Currently implemented:
+
+- strict YAML and JSON decoding with unknown-field and input-size protection;
+- semantic validation for the first `PlatformRequest` and `Inventory` boundary;
+- stable machine-readable diagnostics and CLI exit classes;
+- public draft-2020-12 schemas for request, inventory and audit events;
+- deterministic SHA-256 content digests;
+- append-only audit-event chaining, tamper verification and `audit verify` CLI support.
+
+The next vertical slice adds the minimal catalog snapshot and planner described in the [implementation guide](docs/implementation/README.md).
+
 ## Project status
 
-YARA is pre-alpha. The current repository is a design contract for the implementation, not evidence of a working product. Proposed integrations and catalog examples are illustrative until backed by manifests, tests and maintained compatibility evidence.
+YARA is pre-alpha. Validation and audit commands are working foundations, not a platform recommendation or deployment product. Proposed integrations and catalog examples remain illustrative until backed by manifests, tests and maintained compatibility evidence.
 
 ## Contributing
 

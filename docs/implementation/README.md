@@ -4,6 +4,10 @@
 
 The foundational architecture is sufficiently defined to begin a thin v0.1 implementation. Open product questions remain, but they do not block the first vertical slice. The first code should test the architecture, not attempt the full catalog or planner.
 
+## Current implementation status
+
+The bootstrap now includes the Go module and CLI, strict request/inventory decoding and semantic validation, public schemas, stable diagnostics, canonical SHA-256 digests, audit-event chaining and `audit verify`. The catalog slice, planner, plan schema/validation and automatic planning-event emission remain the next work.
+
 ## Fixed decisions
 
 - Go CLI and planning core ([ADR-0008](../adr/0008-use-go-for-the-v0-cli-and-core.md)).
