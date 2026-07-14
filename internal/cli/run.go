@@ -40,6 +40,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 3 && args[0] == "audit" && args[1] == "verify" {
 		return verifyAudit(args[2], stdout)
 	}
+	if len(args) >= 2 && args[0] == "plan" && args[1] == "create" {
+		return createPlan(args[2:], stdout, stderr)
+	}
+	if len(args) == 3 && args[0] == "plan" && args[1] == "explain" {
+		return explainPlan(args[2], stdout)
+	}
 	if len(args) != 3 || args[1] != "validate" {
 		writeUsage(stderr)
 		return ExitInvalidInput
@@ -58,6 +64,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			return writeLoadError(stdout, "YARA-INV-004", err)
 		}
 		return writeValidation(stdout, inventory.APIVersion, inventory.Kind, inventory.Metadata.Name, inventory.Validate())
+	case "plan":
+		plan, err := resources.LoadPlatformPlan(args[2])
+		if err != nil {
+			return writeLoadError(stdout, "YARA-PLAN-004", err)
+		}
+		return writeValidation(stdout, plan.APIVersion, plan.Kind, plan.Metadata.Name, plan.Validate())
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -111,5 +123,8 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara version")
 	fmt.Fprintln(output, "  yara request validate <file>")
 	fmt.Fprintln(output, "  yara inventory validate <file>")
+	fmt.Fprintln(output, "  yara plan create --request <file> --inventory <file> --catalog <file> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara plan validate <file>")
+	fmt.Fprintln(output, "  yara plan explain <file>")
 	fmt.Fprintln(output, "  yara audit verify <file>")
 }

@@ -4,9 +4,8 @@ metadata:
   id: illustrative-event
   occurredAt: 2026-07-14T10:00:00Z
 spec:
-  sequence: 4
+  sequence: 1
   correlationId: illustrative-planning-run
-  causationId: illustrative-start-event
   actor:
     id: local:operator
     type: user
@@ -14,17 +13,16 @@ spec:
   action: plan.create.completed
   subjects:
     - kind: PlatformRequest
-      digest: sha256:illustrative-request
+      digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     - kind: PlatformPlan
-      digest: sha256:illustrative-plan
+      digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
   reason:
     type: user-request
     reference: cli
-  policyDigest: sha256:illustrative-policy
+  policyDigest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   target: local
   outcome: success
   diagnosticCodes:
     - YARA-INV-002
   integrity:
-    previousEventDigest: sha256:illustrative-previous
-    eventDigest: sha256:illustrative-event
+    eventDigest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

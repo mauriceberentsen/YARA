@@ -2,60 +2,50 @@ apiVersion: yara.dev/v1alpha1
 kind: PlatformPlan
 metadata:
   name: private-coding-assistant
-  planId: sha256:illustrative-only
+  planId: sha256:aafb3810b6517e95c9ec711529b4a17399167d8b3d019bafbb2f2b24dbf915c5
 provenance:
-  requestDigest: sha256:illustrative-request
-  inventoryDigest: sha256:illustrative-inventory
-  policyDigest: sha256:illustrative-policy
-  catalogDigest: sha256:illustrative-catalog
-  plannerVersion: 0.1.0-design
+  requestDigest: sha256:c90e734a40a7f140a6da736ecf414b49734559aab1ffe70cca3271d977523562
+  inventoryDigest: sha256:1fd03c0969798ca71c206bf06dbdfe284cd52d0024393ed2c09a8404117badbb
+  catalogDigest: sha256:ace370d196353256876e594bbe2434394fa1efe0f6ed0cf2a299e31bec13726a
+  plannerVersion: 0.1.0-dev
 spec:
   status: review-required
-  assumptions:
-    - id: assumption.driver-compatibility
-      severity: warning
-      message: Accelerator driver compatibility has not been discovered.
   topology:
     instances:
-      - id: user-interface
-        role: experience.chat
-        componentRef: core.placeholder-ui@1.0.0
-        placement: host-1
-      - id: api-gateway
-        role: integration.api.openai-chat
-        componentRef: core.placeholder-gateway@1.0.0
-        placement: host-1
       - id: inference
         role: inference.text-generation
-        componentRef: core.placeholder-runtime@1.0.0
+        runtimeRef: core.placeholder-runtime@1.0.0
         modelRef: core.placeholder-coder-q4@1.0.0
         placement: host-1/gpu-0
-    connections:
-      - from: user-interface
-        to: api-gateway
-        contract: core.openai-chat/v1
-      - from: api-gateway
-        to: inference
-        contract: core.openai-chat/v1
+        apiContract: integration.api.openai-chat/v1
+    connections: []
     deploymentStages:
       - [inference]
-      - [api-gateway]
-      - [user-interface]
+  allocations:
+    - instanceId: inference
+      acceleratorId: gpu-0
+      estimatedMemoryGiB: 19.2
+      allocatableMemoryGiB: 22
   decisions:
     - id: decision.inference
-      selected: core.placeholder-runtime@1.0.0/core.placeholder-coder-q4@1.0.0
+      selected: core.placeholder-coder-small
       reasons:
-        - Fits declared accelerator memory with estimated headroom.
-        - Requires no external network access after artifact import.
-        - Supplies the required API contract through the gateway.
-      confidence: low
+        - "Fits accelerator memory with cataloged headroom: 19.20 GiB required of 22.00 GiB allocatable."
+        - Satisfies all required capabilities and effective policies.
+        - Has the highest soft preference score among feasible candidates.
+      evidence:
+        - fixture.small-memory-model
       alternatives:
-        - id: core.placeholder-larger-model@1.0.0
+        - id: core.placeholder-coder-large
           outcome: rejected
           code: YARA-HW-004
-          reason: Estimated memory exceeds allocatable accelerator memory.
+          reason: Estimated accelerator memory 31.92 GiB exceeds 22.00 GiB allocatable memory.
+          estimatedGiB: 31.92
+          availableGiB: 22
+          preferenceScore: 0.95
   diagnostics:
     - code: YARA-INV-002
       severity: warning
-      path: spec.hosts[0].accelerators[0].driverVersion
-      message: Driver compatibility must be verified before this plan can be applied.
+      message: Accelerator driver compatibility must be verified before apply.
+      paths:
+        - spec.hosts[0].accelerators[0].driverVersion

@@ -28,6 +28,16 @@ func TestLoadExampleInventory(t *testing.T) {
 	}
 }
 
+func TestLoadExamplePlatformPlan(t *testing.T) {
+	plan, err := LoadPlatformPlan(filepath.Join("..", "..", "docs", "examples", "platform-plan.yaml"))
+	if err != nil {
+		t.Fatalf("load plan: %v", err)
+	}
+	if report := plan.Validate(); !report.Valid {
+		t.Fatalf("expected plan to be valid, got %#v", report.Diagnostics)
+	}
+}
+
 func TestLoadRejectsUnknownYAMLField(t *testing.T) {
 	path := writeTempResource(t, `
 apiVersion: yara.dev/v1alpha1
