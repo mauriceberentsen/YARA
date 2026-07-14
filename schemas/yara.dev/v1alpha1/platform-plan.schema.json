@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/platform-plan.schema.json",
+  "title": "YARA PlatformPlan v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "provenance", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "PlatformPlan" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "planId"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "planId": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestDigest", "inventoryDigest", "catalogDigest", "plannerVersion"],
+      "properties": {
+        "requestDigest": { "$ref": "#/$defs/digest" },
+        "inventoryDigest": { "$ref": "#/$defs/digest" },
+        "catalogDigest": { "$ref": "#/$defs/digest" },
+        "plannerVersion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "topology", "allocations", "decisions", "diagnostics"],
+      "properties": {
+        "status": { "const": "review-required" },
+        "topology": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["instances", "connections", "deploymentStages"],
+          "properties": {
+            "instances": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/instance" } },
+            "connections": { "type": "array", "items": { "$ref": "#/$defs/connection" } },
+            "deploymentStages": { "type": "array", "minItems": 1, "items": { "type": "array", "minItems": 1, "items": { "type": "string" } } }
+          }
+        },
+        "allocations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/allocation" } },
+        "decisions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/decision" } },
+        "diagnostics": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "runtimeRef", "modelRef", "placement", "apiContract"],
+      "properties": {
+        "id": { "type": "string" }, "role": { "type": "string" },
+        "runtimeRef": { "type": "string" }, "modelRef": { "type": "string" },
+        "placement": { "type": "string" }, "apiContract": { "type": "string" }
+      }
+    },
+    "connection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from", "to", "contract"],
+      "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "contract": { "type": "string" } }
+    },
+    "allocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["instanceId", "acceleratorId", "estimatedMemoryGiB", "allocatableMemoryGiB"],
+      "properties": {
+        "instanceId": { "type": "string" }, "acceleratorId": { "type": "string" },
+        "estimatedMemoryGiB": { "type": "number" }, "allocatableMemoryGiB": { "type": "number" }
+      }
+    },
+    "decision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "selected", "reasons", "evidence", "alternatives"],
+      "properties": {
+        "id": { "type": "string" }, "selected": { "type": "string" },
+        "reasons": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "evidence": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "alternatives": { "type": "array", "items": { "$ref": "#/$defs/alternative" } }
+      }
+    },
+    "alternative": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "outcome", "reason", "estimatedGiB", "availableGiB", "preferenceScore"],
+      "properties": {
+        "id": { "type": "string" }, "outcome": { "enum": ["rejected", "not-selected"] },
+        "code": { "type": "string" }, "reason": { "type": "string" },
+        "estimatedGiB": { "type": "number" }, "availableGiB": { "type": "number" },
+        "preferenceScore": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

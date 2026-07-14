@@ -4,7 +4,7 @@
 
 YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
 
-YARA is currently in its **pre-alpha implementation and validation phase**. The first CLI foundation can strictly validate v1alpha1 requests and inventories and verify a tamper-evident local audit chain. It does not generate or deploy a platform plan yet.
+YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate the first deterministic placeholder plan, explain its decision and verify its tamper-evident local audit chain. It does not deploy a platform yet.
 
 ## The problem
 
@@ -141,6 +141,12 @@ make check
 go run ./cmd/yara version
 go run ./cmd/yara request validate docs/examples/platform-request.yaml
 go run ./cmd/yara inventory validate docs/examples/inventory.yaml
+go run ./cmd/yara plan create \
+  --request docs/examples/platform-request.yaml \
+  --inventory docs/examples/inventory.yaml \
+  --catalog catalog/v0.1/snapshot.yaml \
+  --output plan.yaml \
+  --audit-output audit.jsonl
 ```
 
 Currently implemented:
@@ -148,11 +154,13 @@ Currently implemented:
 - strict YAML and JSON decoding with unknown-field and input-size protection;
 - semantic validation for the first `PlatformRequest` and `Inventory` boundary;
 - stable machine-readable diagnostics and CLI exit classes;
-- public draft-2020-12 schemas for request, inventory and audit events;
+- public draft-2020-12 schemas for request, inventory, catalog, plan and audit events;
 - deterministic SHA-256 content digests;
-- append-only audit-event chaining, tamper verification and `audit verify` CLI support.
+- append-only audit-event chaining, tamper verification and `audit verify` CLI support;
+- a two-candidate placeholder catalog and deterministic planner that applies hardware/policy constraints before scoring;
+- independently validated `PlatformPlan` output with explanations, rejected alternatives and content integrity.
 
-The next vertical slice adds the minimal catalog snapshot and planner described in the [implementation guide](docs/implementation/README.md).
+The next vertical slice replaces fixture-only catalog assumptions with richer capability and compatibility assertions while keeping the supported surface deliberately small.
 
 ## Project status
 

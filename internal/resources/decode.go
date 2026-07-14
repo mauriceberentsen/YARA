@@ -23,6 +23,10 @@ func LoadInventory(path string) (Inventory, error) {
 	return loadResource[Inventory](path)
 }
 
+func LoadPlatformPlan(path string) (PlatformPlan, error) {
+	return loadResource[PlatformPlan](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)
