@@ -2,7 +2,7 @@ apiVersion: yara.dev/v1alpha1
 kind: PlatformPlan
 metadata:
   name: private-coding-assistant
-  planId: sha256:aa4173d242ed1ed70622d0c148cfbd1bb026d2ec21be34fe462661658fd40705
+  planId: sha256:e05a7481868257bbcc586073597fb9e977f5cf203403f26f6592d6e6f48a9e4c
 provenance:
   requestDigest: sha256:c90e734a40a7f140a6da736ecf414b49734559aab1ffe70cca3271d977523562
   inventoryDigest: sha256:1fd03c0969798ca71c206bf06dbdfe284cd52d0024393ed2c09a8404117badbb
@@ -10,6 +10,45 @@ provenance:
   plannerVersion: 0.1.0-dev
 spec:
   status: review-required
+  search:
+    strategy: bounded-catalog-enumeration-v1
+    completeWithinBounds: true
+    truncated: false
+    globalOptimalityClaimed: false
+    evaluatedServingCandidates: 2
+    feasibleServingCandidates: 1
+    rejectedServingCandidates: 1
+    boundaries:
+      - catalog-snapshot-only
+      - chat-and-coding-use-cases-only
+      - first-matching-topology-template
+      - no-live-benchmark-evaluation
+      - single-host-homogeneous-nvidia
+  confidence:
+    level: low
+    method: minimum-factor-v1
+    factors:
+      - id: capacity-method
+        level: low
+        reasonCode: YARA-CONF-004
+        subjectRefs:
+          - core.placeholder-coder-small
+      - id: catalog-maturity
+        level: low
+        reasonCode: YARA-CONF-002
+        subjectRefs:
+          - sha256:33b3b6e03a86f80d9c51faf62e3f2504432371bbd7c717190549a1ba6cbbeb51
+      - id: inventory-assurance
+        level: low
+        reasonCode: YARA-CONF-003
+        subjectRefs:
+          - gpu-0
+      - id: serving-evidence
+        level: medium
+        reasonCode: YARA-CONF-001
+        subjectRefs:
+          - core.placeholder-coder-small
+          - fixture.small-memory-model
   topology:
     instances:
       - id: gateway

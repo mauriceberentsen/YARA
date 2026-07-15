@@ -19,4 +19,4 @@ Shared catalog metadata and provenance definitions live in `catalog-manifest-com
 - `PlatformPlan`
 - `PlatformPlanDiff`
 
-These schemas are alpha contracts and may change with an explicit migration before v0.1. Unknown fields are rejected. Catalog resources share mandatory lifecycle, ownership and provenance definitions. The Go tests parse every schema and validate the repository examples through the strict typed loader.
+These schemas are alpha contracts and may change with an explicit migration before v0.1. Unknown fields are rejected. Catalog resources share mandatory lifecycle, ownership and provenance definitions. `PlatformPlan` requires explicit bounded-search counts and ordinal confidence factors so feasibility is not presented as global or high-confidence optimization. The Go tests parse every schema and validate the repository examples through the strict typed loader.

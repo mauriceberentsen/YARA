@@ -49,6 +49,12 @@ func Compare(from, to resources.PlatformPlan) (resources.PlatformPlanDiff, error
 	if err := c.compareValue("metadata.name", resources.DiffClassificationPresentationOnly, resources.DiffImpactNone, "Plan display name changed.", from.Metadata.Name, to.Metadata.Name, false); err != nil {
 		return resources.PlatformPlanDiff{}, err
 	}
+	if err := c.compareValue("spec.search", resources.DiffClassificationProvenanceChange, resources.DiffImpactReview, "Planner search bounds or coverage changed.", from.Spec.Search, to.Spec.Search, false); err != nil {
+		return resources.PlatformPlanDiff{}, err
+	}
+	if err := c.compareValue("spec.confidence", resources.DiffClassificationProvenanceChange, resources.DiffImpactReview, "Recommendation confidence or its evidence factors changed.", from.Spec.Confidence, to.Spec.Confidence, false); err != nil {
+		return resources.PlatformPlanDiff{}, err
+	}
 	if err := c.compareInstances(from.Spec.Topology.Instances, to.Spec.Topology.Instances); err != nil {
 		return resources.PlatformPlanDiff{}, err
 	}

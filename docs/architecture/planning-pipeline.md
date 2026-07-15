@@ -119,7 +119,7 @@ Run validation against the serialized plan rather than trusting planner internal
 
 ## Backtracking and exhaustion
 
-If resolution invalidates the top-ranked candidate, the planner tries the next feasible candidate in deterministic order. Limits on candidate count, topology depth and execution time are explicit inputs. Exhaustion produces a diagnostic describing where the search was truncated.
+If resolution invalidates the top-ranked candidate, the planner tries the next feasible candidate in deterministic order. The current v0.1 slice evaluates every serving candidate compiled in the pinned snapshot, but selects the first matching topology template and does not perform a global product search or live benchmark evaluation. These boundaries and exact evaluated/feasible/rejected counts are stored in the plan. A successful v0.1 plan cannot claim completion when truncated; future configurable limits must produce an explicit exhaustion diagnostic or a separately specified partial-result contract.
 
 ## Deterministic ordering
 

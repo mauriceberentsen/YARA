@@ -19,6 +19,7 @@ YARA's long-term loop is **discover, plan, review, apply, observe, improve and r
 - Dependency and version resolution for cataloged combinations.
 - A versioned, deterministic `PlatformPlan`.
 - Human-readable explanations, rejected alternatives, warnings and confidence.
+- Exact serving-candidate search counts, explicit search boundaries and no global-optimality claim.
 - A local planning audit record containing input/output digests, actor assurance, engine/catalog versions and outcome.
 - Dry validation only; no system mutation.
 
@@ -35,6 +36,7 @@ v0.1 is complete only when:
 7. A domain expert review finds no known unsafe recommendation in the supported scenarios.
 8. The CLI can generate, explain and validate a plan without network access.
 9. Every planning run emits a schema-valid, secret-free audit record whose resource digests match its inputs and output.
+10. Every successful plan states whether its bounded serving-candidate search was complete and derives ordinal confidence from explicit evidence/method factors.
 
 ### Explicitly out of scope
 

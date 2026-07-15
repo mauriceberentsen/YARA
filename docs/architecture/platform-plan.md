@@ -36,6 +36,23 @@ provenance:
   plannerVersion: 0.1.0
 spec:
   status: review-required
+  search:
+    strategy: bounded-catalog-enumeration-v1
+    completeWithinBounds: true
+    truncated: false
+    globalOptimalityClaimed: false
+    evaluatedServingCandidates: 2
+    feasibleServingCandidates: 1
+    rejectedServingCandidates: 1
+    boundaries: [catalog-snapshot-only]
+  confidence:
+    level: low
+    method: minimum-factor-v1
+    factors:
+      - id: capacity-method
+        level: low
+        reasonCode: YARA-CONF-004
+        subjectRefs: [candidate-id]
   objectives: {}
   assumptions: []
   topology:
@@ -52,7 +69,22 @@ spec:
   diagnostics: []
 ```
 
-The exact schema will be established before implementation; examples in documentation are not yet normative fixtures.
+This outline also shows later fields that are not yet executable. The current normative wire contract is the public JSON Schema; repository examples are executable fixtures.
+
+## Search bounds and confidence
+
+A successful v0.1 plan records the complete evaluation count for all serving candidates compiled from its pinned catalog snapshot. `completeWithinBounds` means that bounded candidate list was exhausted; it does not mean every possible open-source stack was considered. The plan explicitly sets `globalOptimalityClaimed: false` and lists scope limits such as the first matching topology template, single-host NVIDIA hardware and absence of live benchmark evaluation.
+
+Recommendation confidence is ordinal rather than a misleading percentage. `minimum-factor-v1` sets the overall level to the weakest sorted factor. Current factors cover serving compatibility evidence, catalog maturity, inventory assurance and capacity methodology. Experimental catalog content, an unverified driver or the fixture-only capacity formula therefore prevents a high-confidence claim even when the selected candidate is feasible.
+
+`YARA-CONF-*` reason codes identify why a factor has its level; they are evidence labels, not error diagnostics and cannot override hard constraints. Search and confidence fields participate in the immutable plan ID and semantic diff.
+
+| Reason code | Current factor |
+|---|---|
+| `YARA-CONF-001` | Confidence of the selected serving-compatibility evidence |
+| `YARA-CONF-002` | Snapshot-wide catalog lifecycle maturity |
+| `YARA-CONF-003` | Assurance of the selected inventory accelerator facts |
+| `YARA-CONF-004` | Validation maturity of the capacity-estimation method |
 
 ## Instance model
 

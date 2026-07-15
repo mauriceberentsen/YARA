@@ -141,6 +141,23 @@ func TestCompareTreatsInstanceRemovalAsDestructive(t *testing.T) {
 	}
 }
 
+func TestCompareReportsSearchAndConfidenceChangeForReview(t *testing.T) {
+	from := loadExamplePlan(t)
+	to := loadExamplePlan(t)
+	to.Spec.Search.Boundaries = append(to.Spec.Search.Boundaries, "zz-additional-declared-boundary")
+	to.Spec.Confidence.Factors[0].SubjectRefs = []string{"core.placeholder-coder-small", "methodology.revision-2"}
+	to = assignPlanID(t, to)
+	diff, err := Compare(from, to)
+	if err != nil {
+		t.Fatalf("compare plans: %v", err)
+	}
+	if diff.Spec.HighestImpact != resources.DiffImpactReview {
+		t.Fatalf("search/confidence change must require review: %#v", diff.Spec)
+	}
+	findChange(t, diff.Spec.Changes, "spec.search")
+	findChange(t, diff.Spec.Changes, "spec.confidence")
+}
+
 func loadExamplePlan(t *testing.T) resources.PlatformPlan {
 	t.Helper()
 	plan, err := resources.LoadPlatformPlan(filepath.Join("..", "..", "docs", "examples", "platform-plan.yaml"))

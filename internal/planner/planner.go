@@ -120,8 +120,10 @@ func Create(request resources.PlatformRequest, inventory resources.Inventory, sn
 			CatalogDigest: catalogDigest, PlannerVersion: version.Version,
 		},
 		Spec: resources.PlatformPlanSpec{
-			Status:   "review-required",
-			Topology: resolvedTopology,
+			Status:     "review-required",
+			Search:     buildSearchSummary(evaluated, feasible),
+			Confidence: buildConfidenceSummary(selected, planDiagnostics, accelerator, catalogDigest),
+			Topology:   resolvedTopology,
 			Allocations: []resources.PlanAllocation{{
 				InstanceID: acceleratorInstanceID, AcceleratorID: accelerator.ID,
 				EstimatedMemoryGiB:   selected.EstimatedGiB,
@@ -139,6 +141,79 @@ func Create(request resources.PlatformRequest, inventory resources.Inventory, sn
 		return Result{Report: report}
 	}
 	return Result{Plan: plan, Report: diagnostics.NewReport()}
+}
+
+func buildSearchSummary(evaluated, feasible []evaluatedCandidate) resources.PlanSearchSummary {
+	boundaries := []string{
+		"catalog-snapshot-only",
+		"chat-and-coding-use-cases-only",
+		"first-matching-topology-template",
+		"no-live-benchmark-evaluation",
+		"single-host-homogeneous-nvidia",
+	}
+	return resources.PlanSearchSummary{
+		Strategy: "bounded-catalog-enumeration-v1", CompleteWithinBounds: true,
+		Truncated: false, GlobalOptimalityClaimed: false,
+		EvaluatedServingCandidates: len(evaluated), FeasibleServingCandidates: len(feasible),
+		RejectedServingCandidates: len(evaluated) - len(feasible), Boundaries: boundaries,
+	}
+}
+
+func buildConfidenceSummary(selected evaluatedCandidate, planDiagnostics []diagnostics.Diagnostic, accelerator resources.Accelerator, catalogDigest string) resources.PlanConfidenceSummary {
+	evidenceLevel := minimumEvidenceConfidence(selected.Candidate.Evidence)
+	evidenceRefs := make([]string, 0, len(selected.Candidate.Evidence)+1)
+	evidenceRefs = append(evidenceRefs, selected.Candidate.ID)
+	for _, evidence := range selected.Candidate.Evidence {
+		evidenceRefs = append(evidenceRefs, evidence.ID)
+	}
+	sort.Strings(evidenceRefs)
+	catalogLevel := "medium"
+	inventoryLevel := "medium"
+	for _, diagnostic := range planDiagnostics {
+		switch diagnostic.Code {
+		case "YARA-CAT-055":
+			catalogLevel = "low"
+		case "YARA-INV-002":
+			inventoryLevel = "low"
+		}
+	}
+	factors := []resources.PlanConfidenceFactor{
+		{ID: "capacity-method", Level: "low", ReasonCode: "YARA-CONF-004", SubjectRefs: []string{selected.Candidate.ID}},
+		{ID: "catalog-maturity", Level: catalogLevel, ReasonCode: "YARA-CONF-002", SubjectRefs: []string{catalogDigest}},
+		{ID: "inventory-assurance", Level: inventoryLevel, ReasonCode: "YARA-CONF-003", SubjectRefs: []string{accelerator.ID}},
+		{ID: "serving-evidence", Level: evidenceLevel, ReasonCode: "YARA-CONF-001", SubjectRefs: evidenceRefs},
+	}
+	level := "high"
+	for _, factor := range factors {
+		if confidenceRank(factor.Level) < confidenceRank(level) {
+			level = factor.Level
+		}
+	}
+	return resources.PlanConfidenceSummary{Level: level, Method: "minimum-factor-v1", Factors: factors}
+}
+
+func minimumEvidenceConfidence(evidence []catalog.EvidenceReference) string {
+	if len(evidence) == 0 {
+		return "low"
+	}
+	minimum := "high"
+	for _, item := range evidence {
+		if confidenceRank(item.Confidence) < confidenceRank(minimum) {
+			minimum = item.Confidence
+		}
+	}
+	return minimum
+}
+
+func confidenceRank(value string) int {
+	switch value {
+	case "medium":
+		return 1
+	case "high":
+		return 2
+	default:
+		return 0
+	}
 }
 
 func resolveTopology(request resources.PlatformRequest, host resources.Host, accelerator resources.Accelerator, template catalog.TopologyTemplate, selected evaluatedCandidate, snapshot catalog.Snapshot) (resources.PlanTopology, []resources.PlanDecision, diagnostics.Report) {
