@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/platform-plan-diff.schema.json",
+  "title": "YARA PlatformPlanDiff v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "PlatformPlanDiff" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["diffId", "fromPlanId", "toPlanId"],
+      "properties": {
+        "diffId": { "$ref": "#/$defs/digest" },
+        "fromPlanId": { "$ref": "#/$defs/digest" },
+        "toPlanId": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changed", "highestImpact", "causes", "changes"],
+      "properties": {
+        "changed": { "type": "boolean" },
+        "highestImpact": { "$ref": "#/$defs/impact" },
+        "causes": { "type": "array", "items": { "$ref": "#/$defs/cause" } },
+        "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "impact": { "enum": ["none", "review", "redeploy", "destructive"] },
+    "cause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "beforeDigest", "afterDigest"],
+      "properties": {
+        "kind": { "enum": ["request", "inventory", "catalog", "planner"] },
+        "beforeDigest": { "$ref": "#/$defs/digest" },
+        "afterDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "classification", "impact", "summary", "beforeDigest", "afterDigest", "decisionRefs"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^change-[0-9]{3,}$" },
+        "path": { "type": "string", "minLength": 1 },
+        "classification": {
+          "enum": [
+            "presentation-only",
+            "provenance-change",
+            "configuration-update",
+            "artifact-or-version-upgrade",
+            "scale-or-placement-change",
+            "stateful-migration",
+            "security-or-trust-boundary-change",
+            "destructive-replacement"
+          ]
+        },
+        "impact": { "$ref": "#/$defs/impact" },
+        "summary": { "type": "string", "minLength": 1 },
+        "beforeDigest": { "$ref": "#/$defs/digest" },
+        "afterDigest": { "$ref": "#/$defs/digest" },
+        "decisionRefs": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}

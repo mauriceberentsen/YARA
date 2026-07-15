@@ -1,0 +1,15 @@
+{
+  "apiVersion": "yara.dev/v1alpha1",
+  "kind": "PlatformPlanDiff",
+  "metadata": {
+    "diffId": "sha256:f7b890a87d46550cee03f4775445ec5ea7a6b81369f4267bbaea116aa3bffa6f",
+    "fromPlanId": "sha256:aa4173d242ed1ed70622d0c148cfbd1bb026d2ec21be34fe462661658fd40705",
+    "toPlanId": "sha256:aa4173d242ed1ed70622d0c148cfbd1bb026d2ec21be34fe462661658fd40705"
+  },
+  "spec": {
+    "changed": false,
+    "highestImpact": "none",
+    "causes": [],
+    "changes": []
+  }
+}

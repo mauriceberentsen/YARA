@@ -6,7 +6,7 @@ The foundational architecture is sufficiently defined to begin a thin v0.1 imple
 
 ## Current implementation status
 
-The bootstrap now includes strict resource decoding, public schemas, stable diagnostics, canonical digests and audit-event chaining. The catalog compiler resolves capability, component, model, hardware, compatibility and topology manifests. Every manifest declares lifecycle status, owners, evidence sources, confidence and a verification/review window. Freshness is evaluated deterministically against the immutable snapshot `publishedAt`; missing ownership, malformed provenance and expired evidence invalidate the snapshot. The bundled fixtures remain experimental and emit `YARA-CAT-055` into catalog output, plans and audit evidence. Compatibility quarantine, multi-component topology resolution and independent plan validation remain active. Validation commands can persist opt-in success/failure receipts; mandatory planning receipts also cover request, inventory and catalog load failures. Semantic plan diffing is the next slice.
+The bootstrap now includes strict resource decoding, public schemas, stable diagnostics, canonical digests and audit-event chaining. The catalog compiler resolves capability, component, model, hardware, compatibility and topology manifests. Every manifest declares lifecycle status, owners, evidence sources, confidence and a verification/review window. Freshness is evaluated deterministically against the immutable snapshot `publishedAt`; missing ownership, malformed provenance and expired evidence invalidate the snapshot. The bundled fixtures remain experimental and emit `YARA-CAT-055` into catalog output, plans, diffs and audit evidence. Compatibility quarantine, multi-component topology resolution and independent plan validation remain active. Validation commands can persist opt-in success/failure receipts; mandatory planning receipts cover input-load failures. `plan diff` now emits a deterministic `PlatformPlanDiff` and can persist matching success/failure audit evidence. Search-bound and confidence reporting is the next slice.
 
 ## Fixed decisions
 
@@ -73,6 +73,7 @@ internal/domain          validated immutable domain values
 internal/resources       v1alpha1 wire resources and conversion
 internal/catalog         snapshot loading and typed queries
 internal/planner         pure stages and decision construction
+internal/plandiff        pure semantic plan comparison and impact classification
 internal/diagnostics     stable codes and structured reports
 internal/audit           event construction, redaction and local sink
 internal/canonical       canonical JSON and content digests
@@ -90,11 +91,12 @@ yara plan create --request request.yaml --inventory inventory.yaml \
   --catalog catalog/ --output plan.yaml --audit-output audit.jsonl
 yara plan validate plan.yaml --audit-output plan-validation.audit.jsonl
 yara plan explain plan.yaml
+yara plan diff old-plan.yaml new-plan.yaml --audit-output plan-diff.audit.jsonl
 yara audit verify audit.jsonl
 ```
 
 Commands must work with networking disabled. Human output goes to stderr when structured output is written to stdout. Existing output files are not overwritten without an explicit flag.
 
-`--audit-output` remains optional for the read-only validation commands to preserve simple local inspection. When supplied, the command writes a two-event started/terminal chain and fails if that evidence cannot be persisted. `plan create` always requires audit output. Load failures record stable diagnostic codes and only content or opaque input-reference digests; resource bodies and local paths are never copied into audit evidence.
+`--audit-output` remains optional for read-only validation and diff commands to preserve simple local inspection. When supplied, the command writes a two-event started/terminal chain and fails if that evidence cannot be persisted. `plan create` always requires audit output. Load failures record stable diagnostic codes and only content or opaque input-reference digests; resource bodies and local paths are never copied into audit evidence.
 
 Continue with the [first vertical slice](first-vertical-slice.md).

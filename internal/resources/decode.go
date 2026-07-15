@@ -27,6 +27,10 @@ func LoadPlatformPlan(path string) (PlatformPlan, error) {
 	return loadResource[PlatformPlan](path)
 }
 
+func LoadPlatformPlanDiff(path string) (PlatformPlanDiff, error) {
+	return loadResource[PlatformPlanDiff](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

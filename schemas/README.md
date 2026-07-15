@@ -17,5 +17,6 @@ Shared catalog metadata and provenance definitions live in `catalog-manifest-com
 - `CompatibilityAssertion`
 - `TopologyTemplate`
 - `PlatformPlan`
+- `PlatformPlanDiff`
 
 These schemas are alpha contracts and may change with an explicit migration before v0.1. Unknown fields are rejected. Catalog resources share mandatory lifecycle, ownership and provenance definitions. The Go tests parse every schema and validate the repository examples through the strict typed loader.

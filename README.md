@@ -4,7 +4,7 @@
 
 YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
 
-YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs with optional audit receipts, generate the first deterministic placeholder plan, explain its decision and verify tamper-evident local audit chains. It does not deploy a platform yet.
+YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate the first deterministic placeholder plan, explain and semantically compare plans, and verify tamper-evident local audit chains. It does not deploy a platform yet.
 
 ## The problem
 
@@ -150,6 +150,8 @@ go run ./cmd/yara plan create \
   --catalog catalog/v0.1/snapshot.yaml \
   --output plan.yaml \
   --audit-output audit.jsonl
+go run ./cmd/yara plan diff docs/examples/platform-plan.yaml plan.yaml \
+  --audit-output plan-diff.audit.jsonl
 ```
 
 Currently implemented:
@@ -166,10 +168,11 @@ Currently implemented:
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;
 - a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;
 - independently validated multi-component `PlatformPlan` output with interface connections, dependency-safe deployment stages, explanations, rejected alternatives, governance diagnostics and content integrity;
+- deterministic, content-addressed `PlatformPlanDiff` output with provenance causes, decision references and conservative review/redeploy/destructive impact classification;
 - tamper-evident audit chains for validation plus successful, infeasible and input-rejected planning outcomes, containing available input identities and stable diagnostic codes, including material warnings;
-- fail-closed audit persistence for `plan create`, with path- and payload-minimized receipts for resources that cannot be decoded.
+- optional fail-closed validation and plan-diff audit receipts, plus mandatory fail-closed persistence for `plan create`, with path- and payload-minimized evidence for resources that cannot be decoded.
 
-All bundled manifests remain explicitly `experimental`; their warning is preserved in generated plans and audit evidence. The next vertical slice will add semantic `plan diff` with matching decision and audit coverage.
+All bundled manifests remain explicitly `experimental`; their warning is preserved in generated plans, diffs and audit evidence. The next vertical slice will add explicit planner search-bound and confidence reporting.
 
 ## Project status
 
