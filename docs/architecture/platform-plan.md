@@ -131,6 +131,8 @@ Material decisions are structured resources, not prose only. Each selected insta
 - useful remediation for a warning;
 - architecturally distinct.
 
+`yara plan explain <file>` emits the complete ordered decision list. Supplying `--decision <id>` returns exactly one structured decision, including its evidence and rejected alternatives; an unknown ID fails with `YARA-PLAN-040`. Optional audit evidence identifies the immutable plan and hashes the explanation content rather than copying potentially sensitive reasons into the event.
+
 ## Status
 
 Suggested states:
