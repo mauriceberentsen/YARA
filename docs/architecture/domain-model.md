@@ -112,7 +112,7 @@ Capabilities connect intent to implementations without hard-coded product names.
 
 ### CompatibilityAssertion
 
-A claim about a bounded combination, for example "runtime version range R serves model format F on accelerator stack A." Assertions specify subject, relation, object, conditions, evidence, confidence, verification date and expiry. Missing an assertion is **unknown**, not compatible.
+A claim about a bounded combination, for example "runtime version range R serves model format F on accelerator stack A." The executable v0.1 relation is explicitly `supported` or `unsupported`; absence remains **unknown**, not compatible. A negative assertion takes precedence over an overlapping positive assertion, and the conflicting tuple is quarantined until a later catalog snapshot resolves it. Assertions ultimately specify subject, relation, object, conditions, evidence, confidence, verification date and expiry.
 
 ### PlatformPlan
 

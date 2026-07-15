@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mauriceberentsen/YARA/internal/diagnostics"
 )
 
 func TestLoadFirstSnapshot(t *testing.T) {
@@ -19,6 +21,15 @@ func TestLoadFirstSnapshot(t *testing.T) {
 	if candidates[0].HardwareProfileRef == "" || len(candidates[0].HardwareModels) == 0 {
 		t.Fatalf("expected hardware compatibility to be compiled: %#v", candidates[0])
 	}
+	governance := snapshot.Diagnostics()
+	if len(governance) != 1 || governance[0].Code != "YARA-CAT-040" || governance[0].Severity != "warning" {
+		t.Fatalf("expected quarantined compatibility warning, got %#v", governance)
+	}
+	for _, candidate := range candidates {
+		if candidate.HardwareProfileRef == "core.placeholder-nvidia-conflicted" {
+			t.Fatalf("quarantined compatibility tuple became eligible: %#v", candidate)
+		}
+	}
 	digest, err := snapshot.Digest()
 	if err != nil {
 		t.Fatalf("digest catalog: %v", err)
@@ -26,6 +37,35 @@ func TestLoadFirstSnapshot(t *testing.T) {
 	if len(digest) != len("sha256:")+64 {
 		t.Fatalf("unexpected digest %q", digest)
 	}
+}
+
+func TestCatalogRejectsDuplicatePositiveCompatibilityTuple(t *testing.T) {
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.1", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	duplicate := snapshot.manifests.Compatibility[0]
+	for _, assertion := range snapshot.manifests.Compatibility {
+		if assertion.Metadata.ID == "core.placeholder-coder-small" {
+			duplicate = assertion
+			break
+		}
+	}
+	duplicate.Metadata.ID = "core.placeholder-coder-small-duplicate"
+	snapshot.manifests.Compatibility = append(snapshot.manifests.Compatibility, duplicate)
+	snapshot.candidates, snapshot.governanceDiagnostics = compileCandidates(snapshot.manifests)
+	if report := snapshot.Validate(); report.Valid || !containsDiagnostic(report.Diagnostics, "YARA-CAT-039") {
+		t.Fatalf("expected duplicate positive tuple error, got %#v", report.Diagnostics)
+	}
+}
+
+func containsDiagnostic(items []diagnostics.Diagnostic, code string) bool {
+	for _, item := range items {
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCatalogRejectsManifestPathTraversal(t *testing.T) {

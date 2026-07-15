@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/mauriceberentsen/YARA/internal/catalog"
+	"github.com/mauriceberentsen/YARA/internal/diagnostics"
 	"github.com/mauriceberentsen/YARA/internal/resources"
 )
 
@@ -30,6 +31,18 @@ func TestHigherScoringOversizedCandidateCannotWin(t *testing.T) {
 	if decision.Alternatives[0].PreferenceScore <= selectedScore {
 		t.Fatal("fixture must prove the rejected candidate had a higher preference score")
 	}
+	if !containsPlanDiagnostic(result.Plan.Spec.Diagnostics, "YARA-CAT-040") {
+		t.Fatalf("expected catalog governance diagnostic in plan: %#v", result.Plan.Spec.Diagnostics)
+	}
+}
+
+func containsPlanDiagnostic(items []diagnostics.Diagnostic, code string) bool {
+	for _, item := range items {
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPlanIsDeterministic(t *testing.T) {

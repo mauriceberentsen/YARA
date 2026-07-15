@@ -80,7 +80,7 @@ func Create(request resources.PlatformRequest, inventory resources.Inventory, sn
 		return internalFailure("catalog", err)
 	}
 
-	planDiagnostics := make([]diagnostics.Diagnostic, 0)
+	planDiagnostics := snapshot.Diagnostics()
 	if strings.Contains(strings.ToLower(accelerator.DriverVersion), "unverified") {
 		planDiagnostics = append(planDiagnostics, diagnostics.Diagnostic{
 			Code: "YARA-INV-002", Severity: diagnostics.SeverityWarning,

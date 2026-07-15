@@ -2,7 +2,7 @@ apiVersion: yara.dev/v1alpha1
 kind: CatalogSnapshot
 metadata:
   name: first-golden-scenario
-  version: 0.2.0
+  version: 0.3.0
 spec:
   manifests:
     - capabilities/chat.yaml
@@ -13,5 +13,8 @@ spec:
     - models/placeholder-coder-small.yaml
     - models/placeholder-coder-large.yaml
     - hardware/placeholder-nvidia-24gib.yaml
+    - hardware/placeholder-nvidia-conflicted.yaml
     - compatibility/placeholder-small.yaml
     - compatibility/placeholder-large.yaml
+    - compatibility/placeholder-conflicted-negative.yaml
+    - compatibility/placeholder-conflicted-positive.yaml

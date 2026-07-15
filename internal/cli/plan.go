@@ -140,6 +140,7 @@ func planningAudit(plan resources.PlatformPlan) ([]byte, error) {
 		{Kind: "PlatformPlan", Digest: plan.Metadata.PlanID},
 	})
 	completedSpec.CausationID = started.Metadata.ID
+	completedSpec.DiagnosticCodes = diagnosticCodes(plan.Spec.Diagnostics)
 	completed, err := chain.Append(audit.Event{
 		Metadata: audit.Metadata{ID: correlationID + "-completed", OccurredAt: now.Format(time.RFC3339Nano)},
 		Spec:     completedSpec,
@@ -167,15 +168,13 @@ func planningFailureAudit(request resources.PlatformRequest, inventory resources
 	if err != nil {
 		return nil, fmt.Errorf("digest planning catalog for audit: %w", err)
 	}
-	codes := make([]string, 0, len(report.Diagnostics))
+	codes := diagnosticCodes(report.Diagnostics)
 	action, outcome := "plan.create.failed", "failed"
 	for _, diagnostic := range report.Diagnostics {
-		codes = append(codes, diagnostic.Code)
 		if diagnostic.Code == "YARA-PLAN-001" {
 			action, outcome = "plan.create.infeasible", "infeasible"
 		}
 	}
-	sort.Strings(codes)
 	now := time.Now().UTC()
 	correlationID := fmt.Sprintf("plan-%d", now.UnixNano())
 	actorID, assurance := localActor()
@@ -213,6 +212,20 @@ func planningFailureAudit(request resources.PlatformRequest, inventory resources
 		return nil, err
 	}
 	return buffer.Bytes(), nil
+}
+
+func diagnosticCodes(items []diagnostics.Diagnostic) []string {
+	codes := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, diagnostic := range items {
+		if _, exists := seen[diagnostic.Code]; exists {
+			continue
+		}
+		seen[diagnostic.Code] = struct{}{}
+		codes = append(codes, diagnostic.Code)
+	}
+	sort.Strings(codes)
+	return codes
 }
 
 func mergeAuditSpec(base audit.Spec, action, outcome string, subjects []audit.Subject) audit.Spec {
