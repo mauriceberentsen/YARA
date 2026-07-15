@@ -61,7 +61,7 @@ Controls: bounded schema sizes, acyclic rule phases, search/evaluation limits, p
 
 Threats include values in plans, logs, command lines, generated files or diagnostic bundles.
 
-Controls: typed references only, provider-side retrieval, redaction at source, safe logging APIs, no secret hashing into plan IDs and user review before diagnostic export.
+Controls: typed references only, provider-side retrieval, redaction at source, safe logging APIs, no secret hashing into plan IDs and user review before diagnostic export. The v0.1 debug bundle is constructed from an allowlisted summary rather than redacting a copied plan, then scanned for common secret patterns; the scan is defense in depth and does not replace review.
 
 ### Unauthorized mutation
 

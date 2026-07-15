@@ -26,6 +26,7 @@ YARA/
     audit/
     catalog/
     domain/
+    debugbundle/
     plandiff/
     planner/
     policy/

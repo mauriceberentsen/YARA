@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/debug-bundle.schema.json",
+  "title": "YARA DebugBundle v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "DebugBundle" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundleId"],
+      "properties": { "bundleId": { "$ref": "#/$defs/digest" } }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator", "source", "contents", "summary", "redaction", "secretScan"],
+      "properties": {
+        "generator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version"],
+          "properties": { "version": { "type": "string", "minLength": 1 } }
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["planId", "requestDigest", "inventoryDigest", "catalogDigest", "plannerVersion"],
+          "properties": {
+            "planId": { "$ref": "#/$defs/digest" },
+            "requestDigest": { "$ref": "#/$defs/digest" },
+            "inventoryDigest": { "$ref": "#/$defs/digest" },
+            "catalogDigest": { "$ref": "#/$defs/digest" },
+            "plannerVersion": { "type": "string", "minLength": 1 }
+          }
+        },
+        "contents": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "classification", "digest"],
+            "properties": {
+              "name": { "enum": ["generator", "plan-source", "plan-summary", "redaction-report"] },
+              "classification": { "const": "support-metadata" },
+              "digest": { "$ref": "#/$defs/digest" }
+            }
+          }
+        },
+        "summary": { "$ref": "#/$defs/summary" },
+        "redaction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["profile", "omittedPaths"],
+          "properties": {
+            "profile": { "const": "support-minimal-v1" },
+            "omittedPaths": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "secretScan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ruleset", "status", "findings"],
+          "properties": {
+            "ruleset": { "const": "yara-secret-patterns-v1" },
+            "status": { "const": "passed" },
+            "findings": { "const": 0 }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "diagnosticCode": { "type": "string", "pattern": "^YARA-[A-Z]+-[0-9]{3}$" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "search", "confidence", "topology", "allocationCount", "decisionCount", "diagnosticCodes"],
+      "properties": {
+        "status": { "type": "string", "minLength": 1 },
+        "search": { "$ref": "#/$defs/search" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "topology": { "$ref": "#/$defs/topology" },
+        "allocationCount": { "type": "integer", "minimum": 1 },
+        "decisionCount": { "type": "integer", "minimum": 1 },
+        "diagnosticCodes": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/diagnosticCode" } }
+      }
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "completeWithinBounds", "truncated", "globalOptimalityClaimed", "evaluatedServingCandidates", "feasibleServingCandidates", "rejectedServingCandidates", "boundaryCount"],
+      "properties": {
+        "strategy": { "const": "bounded-catalog-enumeration-v1" },
+        "completeWithinBounds": { "type": "boolean" },
+        "truncated": { "type": "boolean" },
+        "globalOptimalityClaimed": { "type": "boolean" },
+        "evaluatedServingCandidates": { "type": "integer", "minimum": 1 },
+        "feasibleServingCandidates": { "type": "integer", "minimum": 1 },
+        "rejectedServingCandidates": { "type": "integer", "minimum": 0 },
+        "boundaryCount": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "method", "factors"],
+      "properties": {
+        "level": { "enum": ["low", "medium", "high"] },
+        "method": { "const": "minimum-factor-v1" },
+        "factors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "level", "reasonCode"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "level": { "enum": ["low", "medium", "high"] },
+              "reasonCode": { "type": "string", "pattern": "^YARA-CONF-[0-9]{3}$" }
+            }
+          }
+        }
+      }
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instanceCount", "connectionCount", "deploymentStageCount", "roles"],
+      "properties": {
+        "instanceCount": { "type": "integer", "minimum": 1 },
+        "connectionCount": { "type": "integer", "minimum": 0 },
+        "deploymentStageCount": { "type": "integer", "minimum": 1 },
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "count"],
+            "properties": {
+              "role": { "type": "string", "minLength": 1 },
+              "count": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

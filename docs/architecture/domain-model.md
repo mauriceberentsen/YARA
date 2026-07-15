@@ -138,6 +138,10 @@ A structured explanation for a material planner outcome:
 
 Future immutable record binding a plan, rendered artifact bundle, approval, executor version, target identity and result. It is operational evidence, not the active desired state.
 
+### DebugBundle
+
+Content-addressed local support metadata derived from a validated plan. The v0.1 form contains an allowlisted plan shape, source identities, redaction declaration, logical-section inventory and secret-scan assertion. It does not copy the source plan, gather host state or authorize upload. Future traces, health observations or logs require separate typed redaction contracts before inclusion.
+
 ### AuditEvent
 
 Append-only evidence of a security-relevant or state-changing action. An event identifies actor, action, subject/resource digests, reason, effective policy, target, outcome, correlation/causation IDs, time source and integrity metadata. Payloads contain references and redacted summaries, never secrets or full sensitive resources by default.
