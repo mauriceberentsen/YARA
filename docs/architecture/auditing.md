@@ -22,6 +22,7 @@ An audit event references a plan decision or receipt rather than copying its pot
 The local CLI currently emits two-event started/terminal chains for:
 
 - request, inventory, catalog and plan validation when `--audit-output` is supplied;
+- complete or targeted plan explanation when `--audit-output` is supplied, bound to the plan ID and exact explanation-content digest;
 - semantic plan comparison when `--audit-output` is supplied, including both plan IDs and the resulting diff ID;
 - planning started/completed/failed/infeasible, with audit output mandatory;
 - request, inventory and catalog load/decode rejection during planning.
@@ -83,6 +84,7 @@ catalog.validate.*
 policy.resolve.*
 plan.create.*
 plan.validate.*
+plan.explain.*
 plan.diff.*
 approval.record.*
 artifact.render.*
@@ -104,7 +106,7 @@ A future service uses durable append semantics, monotonically ordered sequences 
 ## Failure behavior
 
 - The current local `plan create` command requires an audit destination and fails closed if its start/terminal chain cannot be written.
-- Read-only validation and plan comparison do not require persistent audit by default; once `--audit-output` is supplied, failure to persist it fails the command.
+- Read-only validation, plan explanation and plan comparison do not require persistent audit by default; once `--audit-output` is supplied, failure to persist it fails the command.
 - A future explicit no-persistence planning mode, if accepted by policy, must report `auditPersistence: unavailable` prominently rather than silently omitting evidence.
 - Production mutation MUST NOT start if the required audit sink is unavailable.
 - A mutation is not reported successful until its terminal audit event and receipt are durably recorded.

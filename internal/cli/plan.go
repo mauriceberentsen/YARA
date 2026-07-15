@@ -267,22 +267,6 @@ func writeExclusive(path string, data []byte) error {
 	return nil
 }
 
-func explainPlan(path string, output io.Writer) int {
-	plan, err := resources.LoadPlatformPlan(path)
-	if err != nil {
-		return writeLoadError(output, "YARA-PLAN-004", err)
-	}
-	if report := plan.Validate(); !report.Valid {
-		return writeReport(output, report, ExitInvalidInput)
-	}
-	encoder := json.NewEncoder(output)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(plan.Spec.Decisions); err != nil {
-		return ExitInternal
-	}
-	return ExitSuccess
-}
-
 func writeReport(output io.Writer, report diagnostics.Report, exitCode int) int {
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")

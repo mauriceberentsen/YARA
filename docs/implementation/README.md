@@ -6,7 +6,7 @@ The foundational architecture is sufficiently defined to begin a thin v0.1 imple
 
 ## Current implementation status
 
-The bootstrap now includes strict resource decoding, public schemas, stable diagnostics, canonical digests and audit-event chaining. The catalog compiler resolves capability, component, model, hardware, compatibility and topology manifests. Every manifest declares lifecycle status, owners, evidence sources, confidence and a verification/review window. Freshness is evaluated deterministically against the immutable snapshot `publishedAt`; missing ownership, malformed provenance and expired evidence invalidate the snapshot. The bundled fixtures remain experimental and emit `YARA-CAT-055` into catalog output, plans, diffs and audit evidence. Compatibility quarantine, multi-component topology resolution and independent plan validation remain active. Validation commands can persist opt-in success/failure receipts; mandatory planning receipts cover input-load failures. `plan diff` emits deterministic, audited comparisons. Generated plans now state the bounded search strategy, complete serving-candidate counts, non-optimality claim and ordinal confidence factors. Targeted decision explanation is the next slice.
+The bootstrap now includes strict resource decoding, public schemas, stable diagnostics, canonical digests and audit-event chaining. The catalog compiler resolves capability, component, model, hardware, compatibility and topology manifests. Every manifest declares lifecycle status, owners, evidence sources, confidence and a verification/review window. Freshness is evaluated deterministically against the immutable snapshot `publishedAt`; missing ownership, malformed provenance and expired evidence invalidate the snapshot. The bundled fixtures remain experimental and emit `YARA-CAT-055` into catalog output, plans, explanations, diffs and audit evidence. Compatibility quarantine, multi-component topology resolution and independent plan validation remain active. Validation commands can persist opt-in success/failure receipts; mandatory planning receipts cover input-load failures. `plan diff` emits deterministic, audited comparisons. Generated plans now state the bounded search strategy, complete serving-candidate counts, non-optimality claim and ordinal confidence factors. `plan explain --decision` returns one auditable structured decision. A redacted debug bundle is the next slice.
 
 ## Fixed decisions
 
@@ -90,13 +90,14 @@ yara catalog validate catalog/v0.1/snapshot.yaml --audit-output catalog-validati
 yara plan create --request request.yaml --inventory inventory.yaml \
   --catalog catalog/ --output plan.yaml --audit-output audit.jsonl
 yara plan validate plan.yaml --audit-output plan-validation.audit.jsonl
-yara plan explain plan.yaml
+yara plan explain plan.yaml --decision decision.inference \
+  --audit-output plan-explanation.audit.jsonl
 yara plan diff old-plan.yaml new-plan.yaml --audit-output plan-diff.audit.jsonl
 yara audit verify audit.jsonl
 ```
 
 Commands must work with networking disabled. Human output goes to stderr when structured output is written to stdout. Existing output files are not overwritten without an explicit flag.
 
-`--audit-output` remains optional for read-only validation and diff commands to preserve simple local inspection. When supplied, the command writes a two-event started/terminal chain and fails if that evidence cannot be persisted. `plan create` always requires audit output. Load failures record stable diagnostic codes and only content or opaque input-reference digests; resource bodies and local paths are never copied into audit evidence.
+`--audit-output` remains optional for read-only validation, explanation and diff commands to preserve simple local inspection. When supplied, the command writes a two-event started/terminal chain and fails if that evidence cannot be persisted. Explanation events bind the plan ID and exact selected-decision or decision-list digest without copying the explanation. `plan create` always requires audit output. Load failures record stable diagnostic codes and only content or opaque input-reference digests; resource bodies and local paths are never copied into audit evidence.
 
 Continue with the [first vertical slice](first-vertical-slice.md).
