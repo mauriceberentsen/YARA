@@ -21,7 +21,13 @@ func TestHigherScoringOversizedCandidateCannotWin(t *testing.T) {
 	if len(decision.Alternatives) != 1 || decision.Alternatives[0].Code != "YARA-HW-004" {
 		t.Fatalf("expected YARA-HW-004 rejection, got %#v", decision.Alternatives)
 	}
-	if decision.Alternatives[0].PreferenceScore <= snapshot.Spec.Candidates[0].PreferenceScore {
+	selectedScore := 0.0
+	for _, candidate := range snapshot.Candidates() {
+		if candidate.ID == decision.Selected {
+			selectedScore = candidate.PreferenceScore
+		}
+	}
+	if decision.Alternatives[0].PreferenceScore <= selectedScore {
 		t.Fatal("fixture must prove the rejected candidate had a higher preference score")
 	}
 }
@@ -44,6 +50,15 @@ func TestNoFeasibleCandidateReturnsDiagnostic(t *testing.T) {
 	}
 	if result.Report.Diagnostics[0].Code != "YARA-PLAN-001" {
 		t.Fatalf("unexpected diagnostic: %#v", result.Report.Diagnostics)
+	}
+}
+
+func TestCandidateRequiresExplicitHardwareCompatibility(t *testing.T) {
+	request, inventory, snapshot := loadGoldenInputs(t)
+	inventory.Spec.Hosts[0].Accelerators[0].Model = "unasserted-device"
+	evaluated := evaluate(request, inventory.Spec.Hosts[0].Accelerators[0], snapshot.Candidates()[0])
+	if evaluated.Rejection == nil || evaluated.Rejection.Code != "YARA-HW-002" {
+		t.Fatalf("expected explicit hardware compatibility rejection, got %#v", evaluated.Rejection)
 	}
 }
 

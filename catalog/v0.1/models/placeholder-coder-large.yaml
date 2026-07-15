@@ -1,0 +1,14 @@
+apiVersion: yara.dev/v1alpha1
+kind: Model
+metadata:
+  id: core.placeholder-coder-large-q4
+  version: 1.0.0
+spec:
+  capabilities:
+    - chat
+    - coding
+  weightsGiB: 21
+  kvCachePerConcurrentRequestGiB: 0.6
+  headroomPercent: 20
+  openSource: true
+  preferenceScore: 0.95

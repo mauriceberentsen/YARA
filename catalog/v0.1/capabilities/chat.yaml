@@ -1,0 +1,7 @@
+apiVersion: yara.dev/v1alpha1
+kind: Capability
+metadata:
+  id: chat
+  version: 1.0.0
+spec:
+  description: Interactive multi-turn text chat.

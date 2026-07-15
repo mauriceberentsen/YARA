@@ -2,44 +2,16 @@ apiVersion: yara.dev/v1alpha1
 kind: CatalogSnapshot
 metadata:
   name: first-golden-scenario
-  version: 0.1.0
+  version: 0.2.0
 spec:
-  candidates:
-    - id: core.placeholder-coder-small
-      runtimeRef: core.placeholder-runtime@1.0.0
-      modelRef: core.placeholder-coder-q4@1.0.0
-      capabilities: [chat, coding]
-      apiContracts: [integration.api.openai-chat/v1]
-      memory:
-        weightsGiB: 12
-        runtimeOverheadGiB: 1
-        kvCachePerConcurrentRequestGiB: 0.5
-        headroomPercent: 20
-      policy:
-        openSource: true
-        externalEgress: false
-        telemetry: false
-        artifactVerified: true
-      preferenceScore: 0.75
-      evidence:
-        - id: fixture.small-memory-model
-          confidence: medium
-    - id: core.placeholder-coder-large
-      runtimeRef: core.placeholder-runtime@1.0.0
-      modelRef: core.placeholder-coder-large-q4@1.0.0
-      capabilities: [chat, coding]
-      apiContracts: [integration.api.openai-chat/v1]
-      memory:
-        weightsGiB: 21
-        runtimeOverheadGiB: 2
-        kvCachePerConcurrentRequestGiB: 0.6
-        headroomPercent: 20
-      policy:
-        openSource: true
-        externalEgress: false
-        telemetry: false
-        artifactVerified: true
-      preferenceScore: 0.95
-      evidence:
-        - id: fixture.large-memory-model
-          confidence: medium
+  manifests:
+    - capabilities/chat.yaml
+    - capabilities/coding.yaml
+    - capabilities/openai-chat.yaml
+    - capabilities/text-generation.yaml
+    - components/placeholder-runtime.yaml
+    - models/placeholder-coder-small.yaml
+    - models/placeholder-coder-large.yaml
+    - hardware/placeholder-nvidia-24gib.yaml
+    - compatibility/placeholder-small.yaml
+    - compatibility/placeholder-large.yaml

@@ -8,6 +8,11 @@ Current schemas:
 - `Inventory`
 - `AuditEvent`
 - `CatalogSnapshot`
+- `Capability`
+- `Component`
+- `Model`
+- `HardwareProfile`
+- `CompatibilityAssertion`
 - `PlatformPlan`
 
 These schemas are alpha contracts and may change with an explicit migration before v0.1. Unknown fields are rejected. The Go tests parse every schema and validate the repository examples through the strict typed loader.

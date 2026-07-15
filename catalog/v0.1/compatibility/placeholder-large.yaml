@@ -1,0 +1,14 @@
+apiVersion: yara.dev/v1alpha1
+kind: CompatibilityAssertion
+metadata:
+  id: core.placeholder-coder-large
+  version: 1.0.0
+spec:
+  runtimeRef: core.placeholder-runtime
+  modelRef: core.placeholder-coder-large-q4
+  hardwareProfileRef: core.placeholder-nvidia-24gib
+  supported: true
+  artifactVerified: true
+  evidence:
+    - id: fixture.large-memory-model
+      confidence: medium

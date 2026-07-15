@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -76,5 +77,49 @@ func TestPlanCreateDoesNotOverwriteOutput(t *testing.T) {
 	}
 	if !strings.Contains(secondOut.String(), "file exists") {
 		t.Fatalf("expected file exists diagnostic, got %s", secondOut.String())
+	}
+}
+
+func TestPlanCreateAuditsInfeasibleOutcome(t *testing.T) {
+	temp := t.TempDir()
+	root := filepath.Join("..", "..")
+	inventoryData, err := os.ReadFile(filepath.Join(root, "docs", "examples", "inventory.yaml"))
+	if err != nil {
+		t.Fatalf("read inventory: %v", err)
+	}
+	inventoryData = bytes.Replace(inventoryData, []byte("allocatableMemoryGiB: 22"), []byte("allocatableMemoryGiB: 1"), 1)
+	inventoryPath := filepath.Join(temp, "inventory.yaml")
+	if err := os.WriteFile(inventoryPath, inventoryData, 0o600); err != nil {
+		t.Fatalf("write inventory: %v", err)
+	}
+	planPath := filepath.Join(temp, "plan.yaml")
+	auditPath := filepath.Join(temp, "audit.jsonl")
+	args := []string{
+		"plan", "create",
+		"--request", filepath.Join(root, "docs", "examples", "platform-request.yaml"),
+		"--inventory", inventoryPath,
+		"--catalog", filepath.Join(root, "catalog", "v0.1", "snapshot.yaml"),
+		"--output", planPath,
+		"--audit-output", auditPath,
+	}
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(args, &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected infeasible exit, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(planPath); !os.IsNotExist(err) {
+		t.Fatalf("infeasible planning must not write a plan, stat error: %v", err)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load failure audit chain: %v", err)
+	}
+	if len(events) != 2 || events[1].Spec.Action != "plan.create.infeasible" || events[1].Spec.Outcome != "infeasible" {
+		t.Fatalf("unexpected terminal audit event: %#v", events)
+	}
+	if len(events[1].Spec.DiagnosticCodes) != 1 || events[1].Spec.DiagnosticCodes[0] != "YARA-PLAN-001" {
+		t.Fatalf("expected infeasibility diagnostic in audit event: %#v", events[1].Spec.DiagnosticCodes)
+	}
+	if _, err := audit.Verify(events); err != nil {
+		t.Fatalf("verify failure audit chain: %v", err)
 	}
 }

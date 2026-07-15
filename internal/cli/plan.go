@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"os/user"
+	"sort"
 	"time"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
+	"github.com/mauriceberentsen/YARA/internal/canonical"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/diagnostics"
 	"github.com/mauriceberentsen/YARA/internal/planner"
@@ -45,6 +47,13 @@ func createPlan(args []string, stdout, stderr io.Writer) int {
 	}
 	result := planner.Create(request, inventory, snapshot)
 	if !result.Report.Valid {
+		auditData, auditErr := planningFailureAudit(request, inventory, snapshot, result.Report)
+		if auditErr != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", auditErr)
+		}
+		if err := writeExclusive(options.auditPath, auditData); err != nil {
+			return writeLoadError(stdout, "YARA-AUD-005", err)
+		}
 		return writeReport(stdout, result.Report, ExitInfeasible)
 	}
 
@@ -140,6 +149,67 @@ func planningAudit(plan resources.PlatformPlan) ([]byte, error) {
 	}
 	var buffer bytes.Buffer
 	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, completed}); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func planningFailureAudit(request resources.PlatformRequest, inventory resources.Inventory, snapshot catalog.Snapshot, report diagnostics.Report) ([]byte, error) {
+	requestDigest, err := canonical.Digest(request)
+	if err != nil {
+		return nil, fmt.Errorf("digest planning request for audit: %w", err)
+	}
+	inventoryDigest, err := canonical.Digest(inventory)
+	if err != nil {
+		return nil, fmt.Errorf("digest planning inventory for audit: %w", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		return nil, fmt.Errorf("digest planning catalog for audit: %w", err)
+	}
+	codes := make([]string, 0, len(report.Diagnostics))
+	action, outcome := "plan.create.failed", "failed"
+	for _, diagnostic := range report.Diagnostics {
+		codes = append(codes, diagnostic.Code)
+		if diagnostic.Code == "YARA-PLAN-001" {
+			action, outcome = "plan.create.infeasible", "infeasible"
+		}
+	}
+	sort.Strings(codes)
+	now := time.Now().UTC()
+	correlationID := fmt.Sprintf("plan-%d", now.UnixNano())
+	actorID, assurance := localActor()
+	subjects := []audit.Subject{
+		{Kind: "PlatformRequest", Digest: requestDigest},
+		{Kind: "Inventory", Digest: inventoryDigest},
+		{Kind: "CatalogSnapshot", Digest: catalogDigest},
+	}
+	baseSpec := audit.Spec{
+		CorrelationID: correlationID,
+		Actor:         audit.Actor{ID: actorID, Type: "user", Assurance: assurance},
+		Reason:        audit.Reason{Type: "user-request", Reference: "cli"}, Target: "local",
+		DiagnosticCodes: []string{},
+	}
+	chain := audit.NewChain()
+	started, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: correlationID + "-started", OccurredAt: now.Format(time.RFC3339Nano)},
+		Spec:     mergeAuditSpec(baseSpec, "plan.create.started", "started", subjects),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create planning start audit event: %w", err)
+	}
+	terminalSpec := mergeAuditSpec(baseSpec, action, outcome, subjects)
+	terminalSpec.CausationID = started.Metadata.ID
+	terminalSpec.DiagnosticCodes = codes
+	terminal, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: correlationID + "-terminal", OccurredAt: now.Format(time.RFC3339Nano)},
+		Spec:     terminalSpec,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create planning terminal audit event: %w", err)
+	}
+	var buffer bytes.Buffer
+	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, terminal}); err != nil {
 		return nil, err
 	}
 	return buffer.Bytes(), nil

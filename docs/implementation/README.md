@@ -6,7 +6,7 @@ The foundational architecture is sufficiently defined to begin a thin v0.1 imple
 
 ## Current implementation status
 
-The bootstrap now includes the Go module and CLI, strict request/inventory decoding and semantic validation, public schemas, stable diagnostics, canonical SHA-256 digests and audit-event chaining. The first planner slice adds a two-candidate placeholder catalog, hard hardware/policy filtering, deterministic selection, independently validated plans, explanations and automatic success audit events. Failure-path audit coverage and richer compatibility assertions remain next work.
+The bootstrap now includes the Go module and CLI, strict request/inventory decoding and semantic validation, public schemas, stable diagnostics, canonical SHA-256 digests and audit-event chaining. The catalog slice compiles separate capability, component, model, hardware and evidence-backed compatibility manifests into bounded planner candidates. The planner applies asserted hardware compatibility and memory/policy constraints before deterministic scoring, emits independently validated plans and explanations, and persists tamper-evident success or infeasible audit chains. General catalog governance, negative assertions and audit coverage for validation/load failures remain next work.
 
 ## Fixed decisions
 
@@ -85,7 +85,7 @@ Package names can adjust during bootstrap, but dependency direction from the [re
 ```text
 yara request validate request.yaml
 yara inventory validate inventory.yaml
-yara catalog validate catalog/
+yara catalog validate catalog/v0.1/snapshot.yaml
 yara plan create --request request.yaml --inventory inventory.yaml \
   --catalog catalog/ --output plan.yaml --audit-output audit.jsonl
 yara plan validate plan.yaml

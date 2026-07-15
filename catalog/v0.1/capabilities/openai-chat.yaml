@@ -1,0 +1,7 @@
+apiVersion: yara.dev/v1alpha1
+kind: Capability
+metadata:
+  id: integration.api.openai-chat/v1
+  version: 1.0.0
+spec:
+  description: OpenAI-compatible chat completion API contract.

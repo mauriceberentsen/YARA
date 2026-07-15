@@ -1,0 +1,15 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata:
+  id: core.placeholder-runtime
+  version: 1.0.0
+spec:
+  provides:
+    - inference.text-generation
+  apiContracts:
+    - integration.api.openai-chat/v1
+  runtimeOverheadGiB: 1
+  policy:
+    openSource: true
+    externalEgress: false
+    telemetry: false

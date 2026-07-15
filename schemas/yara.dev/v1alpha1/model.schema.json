@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/model.schema.json",
+  "title": "YARA Model v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "Model" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": {
+      "type": "object", "additionalProperties": false,
+      "required": ["capabilities", "weightsGiB", "kvCachePerConcurrentRequestGiB", "headroomPercent", "openSource", "preferenceScore"],
+      "properties": {
+        "capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "weightsGiB": { "type": "number", "exclusiveMinimum": 0 },
+        "kvCachePerConcurrentRequestGiB": { "type": "number", "minimum": 0 },
+        "headroomPercent": { "type": "number", "minimum": 0, "exclusiveMaximum": 100 },
+        "openSource": { "type": "boolean" },
+        "preferenceScore": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "metadata": { "type": "object", "additionalProperties": false, "required": ["id", "version"], "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 } } }
+  }
+}

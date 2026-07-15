@@ -1,0 +1,7 @@
+apiVersion: yara.dev/v1alpha1
+kind: Capability
+metadata:
+  id: coding
+  version: 1.0.0
+spec:
+  description: Source-code understanding and generation.

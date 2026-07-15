@@ -33,6 +33,8 @@ schemas/
 
 The repository should introduce these directories only with executable schema validation and a small curated dataset. Documentation examples are not a substitute for that implementation.
 
+The executable v0.1 fixture follows this model under `catalog/v0.1/`. Its `CatalogSnapshot` is an index of relative manifest paths. The strict loader prevents path traversal, rejects unknown fields, validates typed references and compiles only positively supported compatibility assertions into planner candidates. This fixture is intentionally not a production support claim.
+
 ## Common envelope
 
 All manifests contain:
@@ -97,6 +99,8 @@ Release tooling should:
 6. generate indexes and coverage reports;
 7. create a content digest and optional signature;
 8. publish an immutable snapshot, never rewrite one.
+
+The current in-process compiler implements schema-shaped strict decoding, reference resolution, stable sorting and content digests. Ownership, freshness, contradictory-assertion handling, signatures and release publication remain required before any catalog entry can be labelled production-supported.
 
 ## Compatibility policy
 
