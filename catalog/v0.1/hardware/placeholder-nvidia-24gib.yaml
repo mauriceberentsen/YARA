@@ -1,0 +1,9 @@
+apiVersion: yara.dev/v1alpha1
+kind: HardwareProfile
+metadata:
+  id: core.placeholder-nvidia-24gib
+  version: 1.0.0
+spec:
+  vendor: nvidia
+  models:
+    - example-24gib-device

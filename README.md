@@ -141,6 +141,7 @@ make check
 go run ./cmd/yara version
 go run ./cmd/yara request validate docs/examples/platform-request.yaml
 go run ./cmd/yara inventory validate docs/examples/inventory.yaml
+go run ./cmd/yara catalog validate catalog/v0.1/snapshot.yaml
 go run ./cmd/yara plan create \
   --request docs/examples/platform-request.yaml \
   --inventory docs/examples/inventory.yaml \
@@ -154,13 +155,15 @@ Currently implemented:
 - strict YAML and JSON decoding with unknown-field and input-size protection;
 - semantic validation for the first `PlatformRequest` and `Inventory` boundary;
 - stable machine-readable diagnostics and CLI exit classes;
-- public draft-2020-12 schemas for request, inventory, catalog, plan and audit events;
+- public draft-2020-12 schemas for request, inventory, catalog manifests, plan and audit events;
 - deterministic SHA-256 content digests;
 - append-only audit-event chaining, tamper verification and `audit verify` CLI support;
-- a two-candidate placeholder catalog and deterministic planner that applies hardware/policy constraints before scoring;
+- a manifest-compiled placeholder catalog with capability, component, model, hardware and evidence-backed compatibility resources;
+- a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;
 - independently validated `PlatformPlan` output with explanations, rejected alternatives and content integrity.
+- tamper-evident success and infeasible planning audit chains containing input digests and stable diagnostic codes.
 
-The next vertical slice replaces fixture-only catalog assumptions with richer capability and compatibility assertions while keeping the supported surface deliberately small.
+The next vertical slice hardens catalog governance and negative compatibility assertions, then introduces the first abstract multi-component topology without broadening into deployment.
 
 ## Project status
 

@@ -1,7 +1,9 @@
 package catalog
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -10,8 +12,12 @@ func TestLoadFirstSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load catalog: %v", err)
 	}
-	if len(snapshot.Spec.Candidates) != 2 {
-		t.Fatalf("expected two candidates, got %d", len(snapshot.Spec.Candidates))
+	candidates := snapshot.Candidates()
+	if len(candidates) != 2 {
+		t.Fatalf("expected two candidates, got %d", len(candidates))
+	}
+	if candidates[0].HardwareProfileRef == "" || len(candidates[0].HardwareModels) == 0 {
+		t.Fatalf("expected hardware compatibility to be compiled: %#v", candidates[0])
 	}
 	digest, err := snapshot.Digest()
 	if err != nil {
@@ -22,13 +28,37 @@ func TestLoadFirstSnapshot(t *testing.T) {
 	}
 }
 
-func TestCatalogRejectsDuplicateCandidate(t *testing.T) {
-	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.1", "snapshot.yaml"))
-	if err != nil {
-		t.Fatalf("load catalog: %v", err)
+func TestCatalogRejectsManifestPathTraversal(t *testing.T) {
+	root := t.TempDir()
+	index := []byte("apiVersion: yara.dev/v1alpha1\nkind: CatalogSnapshot\nmetadata:\n  name: traversal\n  version: 0.1.0\nspec:\n  manifests: [../outside.yaml]\n")
+	path := filepath.Join(root, "snapshot.yaml")
+	if err := os.WriteFile(path, index, 0o600); err != nil {
+		t.Fatalf("write index: %v", err)
 	}
-	snapshot.Spec.Candidates[1].ID = snapshot.Spec.Candidates[0].ID
-	if report := snapshot.Validate(); report.Valid {
-		t.Fatal("expected duplicate candidate to be invalid")
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "escapes the catalog root") {
+		t.Fatalf("expected traversal rejection, got %v", err)
+	}
+}
+
+func TestCatalogRejectsManifestSymlinkEscape(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "catalog")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create catalog root: %v", err)
+	}
+	outside := filepath.Join(parent, "outside.yaml")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked.yaml")); err != nil {
+		t.Skipf("symbolic links unavailable: %v", err)
+	}
+	index := []byte("apiVersion: yara.dev/v1alpha1\nkind: CatalogSnapshot\nmetadata:\n  name: symlink\n  version: 0.1.0\nspec:\n  manifests: [linked.yaml]\n")
+	path := filepath.Join(root, "snapshot.yaml")
+	if err := os.WriteFile(path, index, 0o600); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("expected symlink escape rejection, got %v", err)
 	}
 }

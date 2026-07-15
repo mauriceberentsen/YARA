@@ -1,0 +1,7 @@
+apiVersion: yara.dev/v1alpha1
+kind: Capability
+metadata:
+  id: inference.text-generation
+  version: 1.0.0
+spec:
+  description: Runtime execution of text-generation models.

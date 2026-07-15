@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/hardware-profile.schema.json",
+  "title": "YARA HardwareProfile v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "HardwareProfile" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "spec": {
+      "type": "object", "additionalProperties": false, "required": ["vendor", "models"],
+      "properties": {
+        "vendor": { "type": "string", "minLength": 1 },
+        "models": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  },
+  "$defs": {
+    "metadata": { "type": "object", "additionalProperties": false, "required": ["id", "version"], "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 } } }
+  }
+}

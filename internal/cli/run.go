@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
+	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/diagnostics"
 	"github.com/mauriceberentsen/YARA/internal/resources"
 	"github.com/mauriceberentsen/YARA/internal/version"
@@ -30,6 +31,16 @@ type auditVerificationResult struct {
 	Valid      bool   `json:"valid"`
 	Events     int    `json:"events"`
 	HeadDigest string `json:"headDigest"`
+}
+
+type catalogValidationResult struct {
+	Valid      bool   `json:"valid"`
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Version    string `json:"version"`
+	Digest     string `json:"digest"`
+	Candidates int    `json:"candidates"`
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {
@@ -64,6 +75,25 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			return writeLoadError(stdout, "YARA-INV-004", err)
 		}
 		return writeValidation(stdout, inventory.APIVersion, inventory.Kind, inventory.Metadata.Name, inventory.Validate())
+	case "catalog":
+		snapshot, err := catalog.Load(args[2])
+		if err != nil {
+			return writeLoadError(stdout, "YARA-CAT-004", err)
+		}
+		digest, err := snapshot.Digest()
+		if err != nil {
+			return writeLoadError(stdout, "YARA-CAT-500", err)
+		}
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(catalogValidationResult{
+			Valid: true, APIVersion: snapshot.APIVersion, Kind: snapshot.Kind,
+			Name: snapshot.Metadata.Name, Version: snapshot.Metadata.Version,
+			Digest: digest, Candidates: len(snapshot.Candidates()),
+		}); err != nil {
+			return ExitInternal
+		}
+		return ExitSuccess
 	case "plan":
 		plan, err := resources.LoadPlatformPlan(args[2])
 		if err != nil {
@@ -123,6 +153,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara version")
 	fmt.Fprintln(output, "  yara request validate <file>")
 	fmt.Fprintln(output, "  yara inventory validate <file>")
+	fmt.Fprintln(output, "  yara catalog validate <snapshot-file>")
 	fmt.Fprintln(output, "  yara plan create --request <file> --inventory <file> --catalog <file> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara plan validate <file>")
 	fmt.Fprintln(output, "  yara plan explain <file>")

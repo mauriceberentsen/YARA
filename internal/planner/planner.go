@@ -40,9 +40,10 @@ func Create(request resources.PlatformRequest, inventory resources.Inventory, sn
 
 	host := inventory.Spec.Hosts[0]
 	accelerator := host.Accelerators[0]
-	evaluated := make([]evaluatedCandidate, 0, len(snapshot.Spec.Candidates))
-	feasible := make([]evaluatedCandidate, 0, len(snapshot.Spec.Candidates))
-	for _, candidate := range snapshot.Spec.Candidates {
+	candidates := snapshot.Candidates()
+	evaluated := make([]evaluatedCandidate, 0, len(candidates))
+	feasible := make([]evaluatedCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
 		item := evaluate(request, accelerator, candidate)
 		evaluated = append(evaluated, item)
 		if item.Rejection == nil {
@@ -130,6 +131,10 @@ func Create(request resources.PlatformRequest, inventory resources.Inventory, sn
 func evaluate(request resources.PlatformRequest, accelerator resources.Accelerator, candidate catalog.ServingCandidate) evaluatedCandidate {
 	estimated := estimateMemory(request.Spec.Workload.PeakConcurrentRequests, candidate.Memory)
 	item := evaluatedCandidate{Candidate: candidate, EstimatedGiB: estimated, AvailableGiB: float64(accelerator.AllocatableMemoryGiB)}
+	if !strings.EqualFold(accelerator.Vendor, candidate.HardwareVendor) || !slices.Contains(candidate.HardwareModels, accelerator.Model) {
+		item.Rejection = rejection("YARA-HW-002", "Candidate is not asserted compatible with the inventoried accelerator.")
+		return item
+	}
 
 	for _, useCase := range request.Spec.UseCases {
 		if useCase.Required && !slices.Contains(candidate.Capabilities, useCase.ID) {
