@@ -19,12 +19,13 @@ const (
 )
 
 type Snapshot struct {
-	APIVersion string           `json:"apiVersion" yaml:"apiVersion"`
-	Kind       string           `json:"kind" yaml:"kind"`
-	Metadata   SnapshotMetadata `json:"metadata" yaml:"metadata"`
-	Spec       SnapshotSpec     `json:"spec" yaml:"spec"`
-	manifests  manifestSet
-	candidates []ServingCandidate
+	APIVersion            string           `json:"apiVersion" yaml:"apiVersion"`
+	Kind                  string           `json:"kind" yaml:"kind"`
+	Metadata              SnapshotMetadata `json:"metadata" yaml:"metadata"`
+	Spec                  SnapshotSpec     `json:"spec" yaml:"spec"`
+	manifests             manifestSet
+	candidates            []ServingCandidate
+	governanceDiagnostics []diagnostics.Diagnostic
 }
 
 type SnapshotMetadata struct {
@@ -111,7 +112,7 @@ type CompatibilityAssertionSpec struct {
 	RuntimeRef         string              `json:"runtimeRef" yaml:"runtimeRef"`
 	ModelRef           string              `json:"modelRef" yaml:"modelRef"`
 	HardwareProfileRef string              `json:"hardwareProfileRef" yaml:"hardwareProfileRef"`
-	Supported          bool                `json:"supported" yaml:"supported"`
+	Compatibility      string              `json:"compatibility" yaml:"compatibility"`
 	ArtifactVerified   bool                `json:"artifactVerified" yaml:"artifactVerified"`
 	Evidence           []EvidenceReference `json:"evidence" yaml:"evidence"`
 }
@@ -169,12 +170,22 @@ func (s Snapshot) Candidates() []ServingCandidate {
 	return candidates
 }
 
+func (s Snapshot) Diagnostics() []diagnostics.Diagnostic {
+	items := slices.Clone(s.governanceDiagnostics)
+	for index := range items {
+		items[index].Paths = slices.Clone(items[index].Paths)
+		items[index].Remediation = slices.Clone(items[index].Remediation)
+	}
+	return items
+}
+
 func (s Snapshot) Validate() diagnostics.Report {
 	items := validateIndex(s)
 	if len(s.manifests.Capabilities) == 0 || len(s.manifests.Components) == 0 || len(s.manifests.Models) == 0 || len(s.manifests.Hardware) == 0 || len(s.manifests.Compatibility) == 0 {
 		items = append(items, diagnostics.Error("YARA-CAT-010", "Snapshot must compile capability, component, model, hardware and compatibility manifests.", "spec.manifests"))
 	}
 	items = append(items, validateManifestSet(s.manifests)...)
+	items = append(items, s.Diagnostics()...)
 	if len(s.candidates) == 0 {
 		items = append(items, diagnostics.Error("YARA-CAT-011", "No supported serving candidates could be compiled.", "spec.manifests"))
 	}
@@ -254,6 +265,9 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 		if assertion.APIVersion != APIVersion || assertion.Kind != "CompatibilityAssertion" || assertion.Metadata.ID == "" || assertion.Metadata.Version == "" {
 			items = append(items, diagnostics.Error("YARA-CAT-028", "Compatibility assertion envelope is incomplete.", assertion.Metadata.ID))
 		}
+		if !slices.Contains([]string{"supported", "unsupported"}, assertion.Spec.Compatibility) {
+			items = append(items, diagnostics.Error("YARA-CAT-038", "Compatibility must be supported or unsupported.", assertion.Metadata.ID))
+		}
 		if _, ok := components[assertion.Spec.RuntimeRef]; !ok {
 			items = append(items, diagnostics.Error("YARA-CAT-029", "Compatibility assertion references an unknown component.", assertion.Metadata.ID))
 		}
@@ -295,7 +309,13 @@ func addManifestID[T any](values map[string]T, id string, value T) bool {
 	return exists
 }
 
-func compileCandidates(set manifestSet) []ServingCandidate {
+type compatibilityKey struct {
+	RuntimeRef         string
+	ModelRef           string
+	HardwareProfileRef string
+}
+
+func compileCandidates(set manifestSet) ([]ServingCandidate, []diagnostics.Diagnostic) {
 	components := make(map[string]ComponentManifest, len(set.Components))
 	models := make(map[string]ModelManifest, len(set.Models))
 	hardware := make(map[string]HardwareProfileManifest, len(set.Hardware))
@@ -308,11 +328,61 @@ func compileCandidates(set manifestSet) []ServingCandidate {
 	for _, item := range set.Hardware {
 		hardware[item.Metadata.ID] = item
 	}
-	candidates := make([]ServingCandidate, 0, len(set.Compatibility))
+	groups := make(map[compatibilityKey][]CompatibilityAssertion, len(set.Compatibility))
 	for _, assertion := range set.Compatibility {
-		if !assertion.Spec.Supported {
+		key := compatibilityKey{
+			RuntimeRef: assertion.Spec.RuntimeRef, ModelRef: assertion.Spec.ModelRef,
+			HardwareProfileRef: assertion.Spec.HardwareProfileRef,
+		}
+		groups[key] = append(groups[key], assertion)
+	}
+	keys := make([]compatibilityKey, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		left := keys[i].RuntimeRef + "\x00" + keys[i].ModelRef + "\x00" + keys[i].HardwareProfileRef
+		right := keys[j].RuntimeRef + "\x00" + keys[j].ModelRef + "\x00" + keys[j].HardwareProfileRef
+		return left < right
+	})
+
+	candidates := make([]ServingCandidate, 0, len(set.Compatibility))
+	var governanceDiagnostics []diagnostics.Diagnostic
+	for _, key := range keys {
+		assertions := groups[key]
+		var supported, unsupported []CompatibilityAssertion
+		for _, assertion := range assertions {
+			switch assertion.Spec.Compatibility {
+			case "supported":
+				supported = append(supported, assertion)
+			case "unsupported":
+				unsupported = append(unsupported, assertion)
+			}
+		}
+		if len(supported) > 1 {
+			governanceDiagnostics = append(governanceDiagnostics, diagnostics.Error(
+				"YARA-CAT-039", "Multiple positive compatibility assertions describe the same runtime, model and hardware combination.", assertionIDs(supported)...,
+			))
+		}
+		if len(unsupported) > 0 {
+			if len(supported) > 0 {
+				ids := assertionIDs(append(slices.Clone(supported), unsupported...))
+				governanceDiagnostics = append(governanceDiagnostics, diagnostics.Diagnostic{
+					Code: "YARA-CAT-040", Severity: diagnostics.SeverityWarning,
+					Message:     "Conflicting compatibility assertions quarantined this runtime, model and hardware combination.",
+					Paths:       ids,
+					Remediation: []string{"Review the cited assertions and publish a new catalog snapshot with the conflict resolved."},
+				})
+			}
 			continue
 		}
+		if len(supported) > 1 {
+			continue
+		}
+		if len(supported) == 0 {
+			continue
+		}
+		assertion := supported[0]
 		component, componentOK := components[assertion.Spec.RuntimeRef]
 		model, modelOK := models[assertion.Spec.ModelRef]
 		profile, profileOK := hardware[assertion.Spec.HardwareProfileRef]
@@ -350,7 +420,16 @@ func compileCandidates(set manifestSet) []ServingCandidate {
 		candidates = append(candidates, candidate)
 	}
 	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
-	return candidates
+	return candidates, governanceDiagnostics
+}
+
+func assertionIDs(assertions []CompatibilityAssertion) []string {
+	ids := make([]string, 0, len(assertions))
+	for _, assertion := range assertions {
+		ids = append(ids, assertion.Metadata.ID)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func (s Snapshot) Digest() (string, error) {

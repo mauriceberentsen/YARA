@@ -159,11 +159,12 @@ Currently implemented:
 - deterministic SHA-256 content digests;
 - append-only audit-event chaining, tamper verification and `audit verify` CLI support;
 - a manifest-compiled placeholder catalog with capability, component, model, hardware and evidence-backed compatibility resources;
+- open-world compatibility governance where explicit negative evidence overrides positive claims and conflicts are quarantined;
 - a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;
-- independently validated `PlatformPlan` output with explanations, rejected alternatives and content integrity.
-- tamper-evident success and infeasible planning audit chains containing input digests and stable diagnostic codes.
+- independently validated `PlatformPlan` output with explanations, rejected alternatives, governance diagnostics and content integrity;
+- tamper-evident success and infeasible planning audit chains containing input digests and stable diagnostic codes, including material warnings.
 
-The next vertical slice hardens catalog governance and negative compatibility assertions, then introduces the first abstract multi-component topology without broadening into deployment.
+The next vertical slice introduces the first abstract multi-component topology without broadening into deployment.
 
 ## Project status
 

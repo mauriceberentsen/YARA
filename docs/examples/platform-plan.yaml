@@ -2,11 +2,11 @@ apiVersion: yara.dev/v1alpha1
 kind: PlatformPlan
 metadata:
   name: private-coding-assistant
-  planId: sha256:8869ec26a4ee5f469fd91756310f7dcca528ab03db5a2cc419698b6386e19b90
+  planId: sha256:054545f4dec3383a25b14f3e32df90514719eb5efcd0621170b4bc712aaa328c
 provenance:
   requestDigest: sha256:c90e734a40a7f140a6da736ecf414b49734559aab1ffe70cca3271d977523562
   inventoryDigest: sha256:1fd03c0969798ca71c206bf06dbdfe284cd52d0024393ed2c09a8404117badbb
-  catalogDigest: sha256:b5023f9ffee699cff8d399ecade18c0b5af7b46738638035ffb7199f2be2e993
+  catalogDigest: sha256:1b129be5751e746a1ae4438de74e6ab3ee457b81f4049d2175d03a529d2a8757
   plannerVersion: 0.1.0-dev
 spec:
   status: review-required
@@ -44,6 +44,14 @@ spec:
           availableGiB: 22
           preferenceScore: 0.95
   diagnostics:
+    - code: YARA-CAT-040
+      severity: warning
+      message: Conflicting compatibility assertions quarantined this runtime, model and hardware combination.
+      paths:
+        - core.placeholder-coder-conflicted-negative
+        - core.placeholder-coder-conflicted-positive
+      remediation:
+        - Review the cited assertions and publish a new catalog snapshot with the conflict resolved.
     - code: YARA-INV-002
       severity: warning
       message: Accelerator driver compatibility must be verified before apply.

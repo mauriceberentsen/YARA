@@ -6,7 +6,7 @@ The foundational architecture is sufficiently defined to begin a thin v0.1 imple
 
 ## Current implementation status
 
-The bootstrap now includes the Go module and CLI, strict request/inventory decoding and semantic validation, public schemas, stable diagnostics, canonical SHA-256 digests and audit-event chaining. The catalog slice compiles separate capability, component, model, hardware and evidence-backed compatibility manifests into bounded planner candidates. The planner applies asserted hardware compatibility and memory/policy constraints before deterministic scoring, emits independently validated plans and explanations, and persists tamper-evident success or infeasible audit chains. General catalog governance, negative assertions and audit coverage for validation/load failures remain next work.
+The bootstrap now includes the Go module and CLI, strict request/inventory decoding and semantic validation, public schemas, stable diagnostics, canonical SHA-256 digests and audit-event chaining. The catalog compiler resolves separate capability, component, model, hardware and evidence-backed compatibility manifests into bounded planner candidates. Compatibility uses an open-world model: only explicit positive assertions create candidates, explicit negative assertions win, and conflicting tuples are quarantined with stable diagnostics. The planner applies hardware, memory and policy constraints before deterministic scoring, propagates catalog warnings into plans, and persists them in tamper-evident success or infeasible audit chains. Audit coverage for validation/load failures remains future work.
 
 ## Fixed decisions
 

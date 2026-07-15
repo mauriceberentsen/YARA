@@ -1,0 +1,9 @@
+apiVersion: yara.dev/v1alpha1
+kind: HardwareProfile
+metadata:
+  id: core.placeholder-nvidia-conflicted
+  version: 1.0.0
+spec:
+  vendor: nvidia
+  models:
+    - example-conflicted-device

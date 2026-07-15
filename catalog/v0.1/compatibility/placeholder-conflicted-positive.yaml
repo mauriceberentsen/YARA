@@ -1,14 +1,14 @@
 apiVersion: yara.dev/v1alpha1
 kind: CompatibilityAssertion
 metadata:
-  id: core.placeholder-coder-small
+  id: core.placeholder-coder-conflicted-positive
   version: 1.0.0
 spec:
   runtimeRef: core.placeholder-runtime
   modelRef: core.placeholder-coder-q4
-  hardwareProfileRef: core.placeholder-nvidia-24gib
+  hardwareProfileRef: core.placeholder-nvidia-conflicted
   compatibility: supported
   artifactVerified: true
   evidence:
-    - id: fixture.small-memory-model
+    - id: fixture.conflicting-compatibility-claim
       confidence: medium

@@ -34,13 +34,14 @@ type auditVerificationResult struct {
 }
 
 type catalogValidationResult struct {
-	Valid      bool   `json:"valid"`
-	APIVersion string `json:"apiVersion"`
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
-	Version    string `json:"version"`
-	Digest     string `json:"digest"`
-	Candidates int    `json:"candidates"`
+	Valid       bool                     `json:"valid"`
+	APIVersion  string                   `json:"apiVersion"`
+	Kind        string                   `json:"kind"`
+	Name        string                   `json:"name"`
+	Version     string                   `json:"version"`
+	Digest      string                   `json:"digest"`
+	Candidates  int                      `json:"candidates"`
+	Diagnostics []diagnostics.Diagnostic `json:"diagnostics"`
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {
@@ -89,7 +90,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		if err := encoder.Encode(catalogValidationResult{
 			Valid: true, APIVersion: snapshot.APIVersion, Kind: snapshot.Kind,
 			Name: snapshot.Metadata.Name, Version: snapshot.Metadata.Version,
-			Digest: digest, Candidates: len(snapshot.Candidates()),
+			Digest: digest, Candidates: len(snapshot.Candidates()), Diagnostics: snapshot.Diagnostics(),
 		}); err != nil {
 			return ExitInternal
 		}

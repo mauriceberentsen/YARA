@@ -36,7 +36,7 @@ func Load(path string) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	snapshot.manifests = set
-	snapshot.candidates = compileCandidates(set)
+	snapshot.candidates, snapshot.governanceDiagnostics = compileCandidates(set)
 	if report := snapshot.Validate(); !report.Valid {
 		return Snapshot{}, fmt.Errorf("catalog snapshot is invalid: %s", report.Diagnostics[0].Code)
 	}

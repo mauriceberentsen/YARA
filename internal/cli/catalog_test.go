@@ -20,4 +20,7 @@ func TestCatalogValidateReportsCompiledSnapshot(t *testing.T) {
 	if !result.Valid || result.Candidates != 2 || result.Digest == "" {
 		t.Fatalf("unexpected validation result: %#v", result)
 	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "YARA-CAT-040" {
+		t.Fatalf("expected catalog quarantine warning: %#v", result.Diagnostics)
+	}
 }

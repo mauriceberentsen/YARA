@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -51,6 +52,9 @@ func TestPlanCreateWritesValidPlanAndAuditChain(t *testing.T) {
 	}
 	if events[1].Spec.Subjects[3].Digest != plan.Metadata.PlanID {
 		t.Fatal("completion event does not reference the generated plan")
+	}
+	if !slices.Contains(events[1].Spec.DiagnosticCodes, "YARA-CAT-040") || !slices.Contains(events[1].Spec.DiagnosticCodes, "YARA-INV-002") {
+		t.Fatalf("completion event must record material warnings: %#v", events[1].Spec.DiagnosticCodes)
 	}
 }
 

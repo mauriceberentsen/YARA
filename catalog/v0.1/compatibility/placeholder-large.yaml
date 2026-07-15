@@ -7,7 +7,7 @@ spec:
   runtimeRef: core.placeholder-runtime
   modelRef: core.placeholder-coder-large-q4
   hardwareProfileRef: core.placeholder-nvidia-24gib
-  supported: true
+  compatibility: supported
   artifactVerified: true
   evidence:
     - id: fixture.large-memory-model
