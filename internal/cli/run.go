@@ -55,6 +55,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "plan" && args[1] == "create" {
 		return createPlan(args[2:], stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "plan" && args[1] == "diff" {
+		return diffPlan(args[2:], stdout, stderr)
+	}
 	if len(args) == 3 && args[0] == "plan" && args[1] == "explain" {
 		return explainPlan(args[2], stdout)
 	}
@@ -177,5 +180,6 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara plan create --request <file> --inventory <file> --catalog <file> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara plan validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara plan explain <file>")
+	fmt.Fprintln(output, "  yara plan diff <from-file> <to-file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara audit verify <file>")
 }

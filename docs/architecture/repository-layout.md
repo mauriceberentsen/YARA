@@ -26,6 +26,7 @@ YARA/
     audit/
     catalog/
     domain/
+    plandiff/
     planner/
     policy/
     validation/

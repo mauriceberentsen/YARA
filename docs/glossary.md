@@ -20,6 +20,7 @@
 | Objective | A dimension to optimize, such as quality, latency, throughput, cost, simplicity or energy use. |
 | Override | An explicit user instruction replacing a planner choice; it remains subject to non-overridable safety policy unless policy permits an exception. |
 | PlatformPlan | Immutable intermediate representation of selected architecture, configuration intent, dependencies, decisions and provenance. |
+| PlatformPlanDiff | Immutable semantic comparison of two plan identities, containing classified changes, impact, causes and changed decision references. |
 | PlatformRequest | Versioned declaration of use cases, workload, environment, policies and objectives. |
 | Planner | Pure logical subsystem that transforms normalized inputs and a catalog snapshot into a `PlatformPlan`. |
 | Plugin | A versioned extension package contributing catalog data, rules or adapters through declared interfaces. |

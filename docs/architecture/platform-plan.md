@@ -113,17 +113,24 @@ Approval is not implemented by editing `status` in the plan. It is an external s
 
 ## Semantic diff
 
-A plan diff classifies changes:
+A `PlatformPlanDiff` is a versioned, content-addressed comparison result. It references the immutable old and new plan IDs, represents compared values by SHA-256 digest and records changed planner inputs as explicit causes. Fixed summaries are presentation text and therefore do not affect the semantic diff ID.
 
-- no-op/presentation only;
-- configuration update;
-- artifact or version upgrade;
-- scale or placement change;
-- stateful migration;
-- security/trust-boundary change;
-- destructive replacement.
+The classification vocabulary is:
 
-Each difference links to the decisions that changed and the input/evidence change that caused it.
+- `presentation-only`;
+- `provenance-change`;
+- `configuration-update`;
+- `artifact-or-version-upgrade`;
+- `scale-or-placement-change`;
+- `stateful-migration`;
+- `security-or-trust-boundary-change`;
+- `destructive-replacement`.
+
+Material differences link to changed decisions where the current plan contains that relationship. Changed request, inventory, catalog or planner identities are recorded separately as causes.
+
+The v0.1 engine currently derives presentation-only, provenance/evidence, configuration, artifact/model version, scale/placement and destructive topology changes. It treats set ordering as irrelevant and uses the highest classified impact as a review shortcut. `stateful-migration` and `security-or-trust-boundary-change` remain reserved: the engine must not emit them until the plan contains typed state and trust-boundary facts. This prevents a detailed label from overstating what the current plan can prove.
+
+`changed: false` with `highestImpact: none` is a semantic no-op. A presentation-only diff has `changed: true` but retains `highestImpact: none`, allowing interfaces to hide it without claiming the files are byte-identical.
 
 ## Validation
 
