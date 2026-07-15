@@ -4,11 +4,12 @@
   "title": "YARA Capability v1alpha1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "required": ["apiVersion", "kind", "metadata", "provenance", "spec"],
   "properties": {
     "apiVersion": { "const": "yara.dev/v1alpha1" },
     "kind": { "const": "Capability" },
-    "metadata": { "$ref": "#/$defs/metadata" },
+    "metadata": { "$ref": "catalog-manifest-common.schema.json#/$defs/metadata" },
+    "provenance": { "$ref": "catalog-manifest-common.schema.json#/$defs/provenance" },
     "spec": {
       "type": "object",
       "additionalProperties": false,

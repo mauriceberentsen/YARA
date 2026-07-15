@@ -2,7 +2,8 @@ apiVersion: yara.dev/v1alpha1
 kind: CatalogSnapshot
 metadata:
   name: first-golden-scenario
-  version: 0.4.0
+  version: 0.5.0
+  publishedAt: 2026-07-15T00:00:00Z
 spec:
   manifests:
     - capabilities/chat.yaml

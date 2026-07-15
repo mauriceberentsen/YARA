@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mauriceberentsen/YARA/internal/canonical"
 	"github.com/mauriceberentsen/YARA/internal/diagnostics"
@@ -29,8 +30,9 @@ type Snapshot struct {
 }
 
 type SnapshotMetadata struct {
-	Name    string `json:"name" yaml:"name"`
-	Version string `json:"version" yaml:"version"`
+	Name        string `json:"name" yaml:"name"`
+	Version     string `json:"version" yaml:"version"`
+	PublishedAt string `json:"publishedAt" yaml:"publishedAt"`
 }
 
 type SnapshotSpec struct {
@@ -38,14 +40,29 @@ type SnapshotSpec struct {
 }
 
 type ManifestMetadata struct {
-	ID      string `json:"id" yaml:"id"`
-	Version string `json:"version" yaml:"version"`
+	ID      string   `json:"id" yaml:"id"`
+	Version string   `json:"version" yaml:"version"`
+	Status  string   `json:"status" yaml:"status"`
+	Owners  []string `json:"owners" yaml:"owners"`
+}
+
+type ManifestProvenance struct {
+	Sources     []ProvenanceSource `json:"sources" yaml:"sources"`
+	VerifiedAt  string             `json:"verifiedAt" yaml:"verifiedAt"`
+	ReviewAfter string             `json:"reviewAfter" yaml:"reviewAfter"`
+	Confidence  string             `json:"confidence" yaml:"confidence"`
+}
+
+type ProvenanceSource struct {
+	Type string `json:"type" yaml:"type"`
+	Ref  string `json:"ref" yaml:"ref"`
 }
 
 type CapabilityManifest struct {
 	APIVersion string                 `json:"apiVersion" yaml:"apiVersion"`
 	Kind       string                 `json:"kind" yaml:"kind"`
 	Metadata   ManifestMetadata       `json:"metadata" yaml:"metadata"`
+	Provenance ManifestProvenance     `json:"provenance" yaml:"provenance"`
 	Spec       CapabilityManifestSpec `json:"spec" yaml:"spec"`
 }
 
@@ -57,6 +74,7 @@ type ComponentManifest struct {
 	APIVersion string                `json:"apiVersion" yaml:"apiVersion"`
 	Kind       string                `json:"kind" yaml:"kind"`
 	Metadata   ManifestMetadata      `json:"metadata" yaml:"metadata"`
+	Provenance ManifestProvenance    `json:"provenance" yaml:"provenance"`
 	Spec       ComponentManifestSpec `json:"spec" yaml:"spec"`
 }
 
@@ -77,10 +95,11 @@ type ComponentPolicy struct {
 }
 
 type ModelManifest struct {
-	APIVersion string            `json:"apiVersion" yaml:"apiVersion"`
-	Kind       string            `json:"kind" yaml:"kind"`
-	Metadata   ManifestMetadata  `json:"metadata" yaml:"metadata"`
-	Spec       ModelManifestSpec `json:"spec" yaml:"spec"`
+	APIVersion string             `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string             `json:"kind" yaml:"kind"`
+	Metadata   ManifestMetadata   `json:"metadata" yaml:"metadata"`
+	Provenance ManifestProvenance `json:"provenance" yaml:"provenance"`
+	Spec       ModelManifestSpec  `json:"spec" yaml:"spec"`
 }
 
 type ModelManifestSpec struct {
@@ -96,6 +115,7 @@ type HardwareProfileManifest struct {
 	APIVersion string                      `json:"apiVersion" yaml:"apiVersion"`
 	Kind       string                      `json:"kind" yaml:"kind"`
 	Metadata   ManifestMetadata            `json:"metadata" yaml:"metadata"`
+	Provenance ManifestProvenance          `json:"provenance" yaml:"provenance"`
 	Spec       HardwareProfileManifestSpec `json:"spec" yaml:"spec"`
 }
 
@@ -108,6 +128,7 @@ type CompatibilityAssertion struct {
 	APIVersion string                     `json:"apiVersion" yaml:"apiVersion"`
 	Kind       string                     `json:"kind" yaml:"kind"`
 	Metadata   ManifestMetadata           `json:"metadata" yaml:"metadata"`
+	Provenance ManifestProvenance         `json:"provenance" yaml:"provenance"`
 	Spec       CompatibilityAssertionSpec `json:"spec" yaml:"spec"`
 }
 
@@ -124,6 +145,7 @@ type TopologyTemplateManifest struct {
 	APIVersion string                       `json:"apiVersion" yaml:"apiVersion"`
 	Kind       string                       `json:"kind" yaml:"kind"`
 	Metadata   ManifestMetadata             `json:"metadata" yaml:"metadata"`
+	Provenance ManifestProvenance           `json:"provenance" yaml:"provenance"`
 	Spec       TopologyTemplateManifestSpec `json:"spec" yaml:"spec"`
 }
 
@@ -217,6 +239,7 @@ func (s Snapshot) Candidates() []ServingCandidate {
 
 func (s Snapshot) Diagnostics() []diagnostics.Diagnostic {
 	items := slices.Clone(s.governanceDiagnostics)
+	items = append(items, experimentalManifestDiagnostic(s.manifests)...)
 	for index := range items {
 		items[index].Paths = slices.Clone(items[index].Paths)
 		items[index].Remediation = slices.Clone(items[index].Remediation)
@@ -226,6 +249,9 @@ func (s Snapshot) Diagnostics() []diagnostics.Diagnostic {
 
 func (s Snapshot) SelectTopology(requiredUseCases []string) (TopologyTemplate, bool) {
 	for _, manifest := range s.manifests.Topologies {
+		if !selectableStatus(manifest.Metadata.Status) {
+			continue
+		}
 		if !isSubset(requiredUseCases, manifest.Spec.SatisfiesUseCases) {
 			continue
 		}
@@ -245,7 +271,7 @@ func (s Snapshot) SelectTopology(requiredUseCases []string) (TopologyTemplate, b
 func (s Snapshot) ComponentsForRole(role string) []ComponentCandidate {
 	var candidates []ComponentCandidate
 	for _, component := range s.manifests.Components {
-		if !slices.Contains(component.Spec.Roles, role) {
+		if !selectableStatus(component.Metadata.Status) || !slices.Contains(component.Spec.Roles, role) {
 			continue
 		}
 		candidates = append(candidates, ComponentCandidate{
@@ -263,7 +289,7 @@ func (s Snapshot) Validate() diagnostics.Report {
 	if len(s.manifests.Capabilities) == 0 || len(s.manifests.Components) == 0 || len(s.manifests.Models) == 0 || len(s.manifests.Hardware) == 0 || len(s.manifests.Compatibility) == 0 || len(s.manifests.Topologies) == 0 {
 		items = append(items, diagnostics.Error("YARA-CAT-010", "Snapshot must compile capability, component, model, hardware, compatibility and topology manifests.", "spec.manifests"))
 	}
-	items = append(items, validateManifestSet(s.manifests)...)
+	items = append(items, validateManifestSet(s.manifests, s.Metadata.PublishedAt)...)
 	items = append(items, s.Diagnostics()...)
 	if len(s.candidates) == 0 {
 		items = append(items, diagnostics.Error("YARA-CAT-011", "No supported serving candidates could be compiled.", "spec.manifests"))
@@ -279,8 +305,10 @@ func validateIndex(s Snapshot) []diagnostics.Diagnostic {
 	if s.Kind != Kind {
 		items = append(items, diagnostics.Error("YARA-CAT-002", "Catalog kind must be CatalogSnapshot.", "kind"))
 	}
-	if strings.TrimSpace(s.Metadata.Name) == "" || strings.TrimSpace(s.Metadata.Version) == "" {
-		items = append(items, diagnostics.Error("YARA-CAT-003", "Catalog name and version are required.", "metadata"))
+	if strings.TrimSpace(s.Metadata.Name) == "" || strings.TrimSpace(s.Metadata.Version) == "" || strings.TrimSpace(s.Metadata.PublishedAt) == "" {
+		items = append(items, diagnostics.Error("YARA-CAT-003", "Catalog name, version and publishedAt are required.", "metadata"))
+	} else if _, err := time.Parse(time.RFC3339, s.Metadata.PublishedAt); err != nil {
+		items = append(items, diagnostics.Error("YARA-CAT-007", "Catalog publishedAt must be an RFC 3339 timestamp.", "metadata.publishedAt"))
 	}
 	if len(s.Spec.Manifests) == 0 {
 		items = append(items, diagnostics.Error("YARA-CAT-004", "Snapshot must reference at least one manifest.", "spec.manifests"))
@@ -298,7 +326,7 @@ func validateIndex(s Snapshot) []diagnostics.Diagnostic {
 	return items
 }
 
-func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
+func validateManifestSet(set manifestSet, publishedAt string) []diagnostics.Diagnostic {
 	var items []diagnostics.Diagnostic
 	capabilities := make(map[string]CapabilityManifest)
 	components := make(map[string]ComponentManifest)
@@ -307,6 +335,7 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 	assertions := make(map[string]CompatibilityAssertion)
 	topologies := make(map[string]TopologyTemplateManifest)
 	for _, capability := range set.Capabilities {
+		items = append(items, validateManifestGovernance(capability.Metadata, capability.Provenance, publishedAt)...)
 		if addManifestID(capabilities, capability.Metadata.ID, capability) {
 			items = append(items, diagnostics.Error("YARA-CAT-020", "Duplicate capability ID.", capability.Metadata.ID))
 		}
@@ -315,6 +344,7 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 		}
 	}
 	for _, component := range set.Components {
+		items = append(items, validateManifestGovernance(component.Metadata, component.Provenance, publishedAt)...)
 		if addManifestID(components, component.Metadata.ID, component) {
 			items = append(items, diagnostics.Error("YARA-CAT-022", "Duplicate component ID.", component.Metadata.ID))
 		}
@@ -323,6 +353,7 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 		}
 	}
 	for _, model := range set.Models {
+		items = append(items, validateManifestGovernance(model.Metadata, model.Provenance, publishedAt)...)
 		if addManifestID(models, model.Metadata.ID, model) {
 			items = append(items, diagnostics.Error("YARA-CAT-024", "Duplicate model ID.", model.Metadata.ID))
 		}
@@ -331,6 +362,7 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 		}
 	}
 	for _, profile := range set.Hardware {
+		items = append(items, validateManifestGovernance(profile.Metadata, profile.Provenance, publishedAt)...)
 		if addManifestID(hardware, profile.Metadata.ID, profile) {
 			items = append(items, diagnostics.Error("YARA-CAT-026", "Duplicate hardware profile ID.", profile.Metadata.ID))
 		}
@@ -339,6 +371,7 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 		}
 	}
 	for _, assertion := range set.Compatibility {
+		items = append(items, validateManifestGovernance(assertion.Metadata, assertion.Provenance, publishedAt)...)
 		if addManifestID(assertions, assertion.Metadata.ID, assertion) {
 			items = append(items, diagnostics.Error("YARA-CAT-036", "Duplicate compatibility assertion ID.", assertion.Metadata.ID))
 		}
@@ -383,6 +416,7 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 		}
 	}
 	for _, topology := range set.Topologies {
+		items = append(items, validateManifestGovernance(topology.Metadata, topology.Provenance, publishedAt)...)
 		if addManifestID(topologies, topology.Metadata.ID, topology) {
 			items = append(items, diagnostics.Error("YARA-CAT-041", "Duplicate topology template ID.", topology.Metadata.ID))
 		}
@@ -432,6 +466,92 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 		}
 	}
 	return items
+}
+
+func validateManifestGovernance(metadata ManifestMetadata, provenance ManifestProvenance, publishedAt string) []diagnostics.Diagnostic {
+	var items []diagnostics.Diagnostic
+	path := metadata.ID
+	if !slices.Contains([]string{"known", "experimental", "supported", "deprecated", "quarantined"}, metadata.Status) {
+		items = append(items, diagnostics.Error("YARA-CAT-050", "Manifest status is not recognized.", path))
+	}
+	ownersValid := len(metadata.Owners) > 0
+	seenOwners := make(map[string]struct{}, len(metadata.Owners))
+	for _, owner := range metadata.Owners {
+		owner = strings.TrimSpace(owner)
+		if owner == "" {
+			ownersValid = false
+		}
+		if _, exists := seenOwners[owner]; exists {
+			ownersValid = false
+		}
+		seenOwners[owner] = struct{}{}
+	}
+	if !ownersValid {
+		items = append(items, diagnostics.Error("YARA-CAT-051", "Manifest requires at least one non-empty, unique owner.", path))
+	}
+	if len(provenance.Sources) == 0 || !slices.Contains([]string{"high", "medium", "low"}, provenance.Confidence) {
+		items = append(items, diagnostics.Error("YARA-CAT-052", "Manifest requires provenance sources and a valid confidence.", path))
+	}
+	for _, source := range provenance.Sources {
+		if strings.TrimSpace(source.Type) == "" || strings.TrimSpace(source.Ref) == "" {
+			items = append(items, diagnostics.Error("YARA-CAT-052", "Every provenance source requires a type and reference.", path))
+		}
+	}
+	verifiedAt, verifiedErr := time.Parse(time.RFC3339, provenance.VerifiedAt)
+	reviewAfter, reviewErr := time.Parse(time.RFC3339, provenance.ReviewAfter)
+	snapshotAt, snapshotErr := time.Parse(time.RFC3339, publishedAt)
+	if verifiedErr != nil || reviewErr != nil || !reviewAfter.After(verifiedAt) {
+		items = append(items, diagnostics.Error("YARA-CAT-053", "Manifest verification timestamps are invalid or unordered.", path))
+	} else if snapshotErr == nil && (verifiedAt.After(snapshotAt) || !reviewAfter.After(snapshotAt)) {
+		items = append(items, diagnostics.Error("YARA-CAT-054", "Manifest evidence is not current at the snapshot publication time.", path))
+	}
+	if metadata.Status == "supported" && provenance.Confidence == "low" {
+		items = append(items, diagnostics.Error("YARA-CAT-056", "Supported manifests cannot rely only on low-confidence provenance.", path))
+	}
+	return items
+}
+
+func experimentalManifestDiagnostic(set manifestSet) []diagnostics.Diagnostic {
+	ids := make(map[string]struct{})
+	add := func(metadata ManifestMetadata) {
+		if metadata.Status == "experimental" {
+			ids[metadata.ID] = struct{}{}
+		}
+	}
+	for _, item := range set.Capabilities {
+		add(item.Metadata)
+	}
+	for _, item := range set.Components {
+		add(item.Metadata)
+	}
+	for _, item := range set.Models {
+		add(item.Metadata)
+	}
+	for _, item := range set.Hardware {
+		add(item.Metadata)
+	}
+	for _, item := range set.Compatibility {
+		add(item.Metadata)
+	}
+	for _, item := range set.Topologies {
+		add(item.Metadata)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(ids))
+	for id := range ids {
+		paths = append(paths, id)
+	}
+	sort.Strings(paths)
+	return []diagnostics.Diagnostic{{
+		Code: "YARA-CAT-055", Severity: diagnostics.SeverityWarning,
+		Message: "The snapshot contains experimental manifests; generated plans require expert review.", Paths: paths,
+	}}
+}
+
+func selectableStatus(status string) bool {
+	return status == "experimental" || status == "supported"
 }
 
 func isSubset(required, available []string) bool {
@@ -509,6 +629,12 @@ func compileCandidates(set manifestSet) ([]ServingCandidate, []diagnostics.Diagn
 	}
 	groups := make(map[compatibilityKey][]CompatibilityAssertion, len(set.Compatibility))
 	for _, assertion := range set.Compatibility {
+		if assertion.Spec.Compatibility == "supported" && !selectableStatus(assertion.Metadata.Status) {
+			continue
+		}
+		if assertion.Spec.Compatibility == "unsupported" && assertion.Metadata.Status == "quarantined" {
+			continue
+		}
 		key := compatibilityKey{
 			RuntimeRef: assertion.Spec.RuntimeRef, ModelRef: assertion.Spec.ModelRef,
 			HardwareProfileRef: assertion.Spec.HardwareProfileRef,
@@ -565,7 +691,7 @@ func compileCandidates(set manifestSet) ([]ServingCandidate, []diagnostics.Diagn
 		component, componentOK := components[assertion.Spec.RuntimeRef]
 		model, modelOK := models[assertion.Spec.ModelRef]
 		profile, profileOK := hardware[assertion.Spec.HardwareProfileRef]
-		if !componentOK || !modelOK || !profileOK {
+		if !componentOK || !modelOK || !profileOK || !selectableStatus(component.Metadata.Status) || !selectableStatus(model.Metadata.Status) || !selectableStatus(profile.Metadata.Status) {
 			continue
 		}
 		candidate := ServingCandidate{

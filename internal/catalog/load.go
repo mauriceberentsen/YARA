@@ -19,6 +19,7 @@ type manifestHeader struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
 	Metadata   any    `yaml:"metadata"`
+	Provenance any    `yaml:"provenance"`
 	Spec       any    `yaml:"spec"`
 }
 

@@ -161,11 +161,12 @@ Currently implemented:
 - a manifest-compiled placeholder catalog with capability, component, model, hardware and evidence-backed compatibility resources;
 - open-world compatibility governance where explicit negative evidence overrides positive claims and conflicts are quarantined;
 - a catalog-authored abstract topology template resolved into gateway and inference component instances;
+- mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;
 - a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;
 - independently validated multi-component `PlatformPlan` output with interface connections, dependency-safe deployment stages, explanations, rejected alternatives, governance diagnostics and content integrity;
 - tamper-evident success and infeasible planning audit chains containing input digests and stable diagnostic codes, including material warnings.
 
-The next vertical slice adds catalog ownership, provenance and freshness gates before any fixture can progress toward a supported status.
+All bundled manifests remain explicitly `experimental`; their warning is preserved in generated plans and audit evidence. The next vertical slice will add audit receipts for validation and catalog-load failures.
 
 ## Project status
 

@@ -58,7 +58,7 @@ Each assertion class has a review window. Expired data remains available for rep
 - inferred from related evidence;
 - unverified/experimental.
 
-Catalog releases are immutable. Updating evidence creates a new snapshot and never changes an existing plan.
+Catalog releases are immutable. Updating evidence creates a new snapshot and never changes an existing plan. Freshness is evaluated against the snapshot's explicit publication timestamp, never the machine's current clock; replaying an old snapshot therefore produces the same result while a newly published snapshot must consciously renew or quarantine expired evidence.
 
 ## Provenance chain
 

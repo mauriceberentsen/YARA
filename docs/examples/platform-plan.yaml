@@ -2,11 +2,11 @@ apiVersion: yara.dev/v1alpha1
 kind: PlatformPlan
 metadata:
   name: private-coding-assistant
-  planId: sha256:c72148e57525654494cad2f4cd69d3f5291dcc4c63719af57b6e5d782f3f1b2f
+  planId: sha256:aa4173d242ed1ed70622d0c148cfbd1bb026d2ec21be34fe462661658fd40705
 provenance:
   requestDigest: sha256:c90e734a40a7f140a6da736ecf414b49734559aab1ffe70cca3271d977523562
   inventoryDigest: sha256:1fd03c0969798ca71c206bf06dbdfe284cd52d0024393ed2c09a8404117badbb
-  catalogDigest: sha256:b298dcab33c8e33ea82198dd2cd131c307b4002958a399fc4b2951ec12810d6f
+  catalogDigest: sha256:33b3b6e03a86f80d9c51faf62e3f2504432371bbd7c717190549a1ba6cbbeb51
   plannerVersion: 0.1.0-dev
 spec:
   status: review-required
@@ -77,6 +77,25 @@ spec:
         - core.placeholder-coder-conflicted-positive
       remediation:
         - Review the cited assertions and publish a new catalog snapshot with the conflict resolved.
+    - code: YARA-CAT-055
+      severity: warning
+      message: The snapshot contains experimental manifests; generated plans require expert review.
+      paths:
+        - chat
+        - coding
+        - core.placeholder-coder-conflicted-negative
+        - core.placeholder-coder-conflicted-positive
+        - core.placeholder-coder-large
+        - core.placeholder-coder-large-q4
+        - core.placeholder-coder-q4
+        - core.placeholder-coder-small
+        - core.placeholder-gateway
+        - core.placeholder-nvidia-24gib
+        - core.placeholder-nvidia-conflicted
+        - core.placeholder-runtime
+        - core.private-chat-coding
+        - inference.text-generation
+        - integration.api.openai-chat/v1
     - code: YARA-INV-002
       severity: warning
       message: Accelerator driver compatibility must be verified before apply.

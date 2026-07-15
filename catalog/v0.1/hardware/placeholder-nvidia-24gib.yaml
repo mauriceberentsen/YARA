@@ -3,6 +3,13 @@ kind: HardwareProfile
 metadata:
   id: core.placeholder-nvidia-24gib
   version: 1.0.0
+  status: experimental
+  owners: [yara-core]
+provenance:
+  sources: [{type: fixture, ref: local:hardware/placeholder-nvidia-24gib}]
+  verifiedAt: 2026-07-14T00:00:00Z
+  reviewAfter: 2026-10-14T00:00:00Z
+  confidence: medium
 spec:
   vendor: nvidia
   models:
