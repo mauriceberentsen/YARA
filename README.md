@@ -4,7 +4,7 @@
 
 YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
 
-YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate the first deterministic placeholder plan, explain its decision and verify its tamper-evident local audit chain. It does not deploy a platform yet.
+YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs with optional audit receipts, generate the first deterministic placeholder plan, explain its decision and verify tamper-evident local audit chains. It does not deploy a platform yet.
 
 ## The problem
 
@@ -139,9 +139,11 @@ The v0 implementation is written in Go and pins its toolchain through `go.mod`.
 ```bash
 make check
 go run ./cmd/yara version
-go run ./cmd/yara request validate docs/examples/platform-request.yaml
+go run ./cmd/yara request validate docs/examples/platform-request.yaml \
+  --audit-output request-validation.audit.jsonl
 go run ./cmd/yara inventory validate docs/examples/inventory.yaml
-go run ./cmd/yara catalog validate catalog/v0.1/snapshot.yaml
+go run ./cmd/yara catalog validate catalog/v0.1/snapshot.yaml \
+  --audit-output catalog-validation.audit.jsonl
 go run ./cmd/yara plan create \
   --request docs/examples/platform-request.yaml \
   --inventory docs/examples/inventory.yaml \
@@ -164,9 +166,10 @@ Currently implemented:
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;
 - a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;
 - independently validated multi-component `PlatformPlan` output with interface connections, dependency-safe deployment stages, explanations, rejected alternatives, governance diagnostics and content integrity;
-- tamper-evident success and infeasible planning audit chains containing input digests and stable diagnostic codes, including material warnings.
+- tamper-evident audit chains for validation plus successful, infeasible and input-rejected planning outcomes, containing available input identities and stable diagnostic codes, including material warnings;
+- fail-closed audit persistence for `plan create`, with path- and payload-minimized receipts for resources that cannot be decoded.
 
-All bundled manifests remain explicitly `experimental`; their warning is preserved in generated plans and audit evidence. The next vertical slice will add audit receipts for validation and catalog-load failures.
+All bundled manifests remain explicitly `experimental`; their warning is preserved in generated plans and audit evidence. The next vertical slice will add semantic `plan diff` with matching decision and audit coverage.
 
 ## Project status
 

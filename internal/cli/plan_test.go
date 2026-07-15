@@ -127,3 +127,46 @@ func TestPlanCreateAuditsInfeasibleOutcome(t *testing.T) {
 		t.Fatalf("verify failure audit chain: %v", err)
 	}
 }
+
+func TestPlanCreateAuditsCatalogLoadFailure(t *testing.T) {
+	temp := t.TempDir()
+	root := filepath.Join("..", "..")
+	catalogPath := filepath.Join(temp, "catalog.yaml")
+	if err := os.WriteFile(catalogPath, []byte("not: a catalog snapshot\n"), 0o600); err != nil {
+		t.Fatalf("write invalid catalog: %v", err)
+	}
+	planPath := filepath.Join(temp, "plan.yaml")
+	auditPath := filepath.Join(temp, "audit.jsonl")
+	args := []string{
+		"plan", "create",
+		"--request", filepath.Join(root, "docs", "examples", "platform-request.yaml"),
+		"--inventory", filepath.Join(root, "docs", "examples", "inventory.yaml"),
+		"--catalog", catalogPath,
+		"--output", planPath,
+		"--audit-output", auditPath,
+	}
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(args, &stdout, &stderr); exitCode != ExitInvalidInput {
+		t.Fatalf("expected invalid input, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(planPath); !os.IsNotExist(err) {
+		t.Fatalf("load failure must not write a plan, stat error: %v", err)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load audit: %v", err)
+	}
+	if _, err := audit.Verify(events); err != nil {
+		t.Fatalf("verify audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "plan.create.failed" || terminal.Spec.Outcome != "failed" {
+		t.Fatalf("unexpected terminal event: %#v", terminal.Spec)
+	}
+	if !slices.Contains(terminal.Spec.DiagnosticCodes, "YARA-CAT-004") {
+		t.Fatalf("catalog load diagnostic missing: %#v", terminal.Spec.DiagnosticCodes)
+	}
+	if len(terminal.Spec.Subjects) != 3 || terminal.Spec.Subjects[2].Kind != "CatalogSnapshotInput" {
+		t.Fatalf("expected available request, inventory and catalog input identities: %#v", terminal.Spec.Subjects)
+	}
+}
