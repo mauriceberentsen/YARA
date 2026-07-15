@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/user"
 	"sort"
 	"time"
 
@@ -35,15 +34,23 @@ func createPlan(args []string, stdout, stderr io.Writer) int {
 	}
 	request, err := resources.LoadPlatformRequest(options.requestPath)
 	if err != nil {
-		return writeLoadError(stdout, "YARA-REQ-004", err)
+		return writeAuditedLoadError(stdout, options.auditPath, "plan.create", "PlatformRequest", options.requestPath, "YARA-REQ-004", err, nil)
+	}
+	requestSubject, err := canonicalSubject("PlatformRequest", request)
+	if err != nil {
+		return writeLoadError(stdout, "YARA-AUD-500", err)
 	}
 	inventory, err := resources.LoadInventory(options.inventoryPath)
 	if err != nil {
-		return writeLoadError(stdout, "YARA-INV-004", err)
+		return writeAuditedLoadError(stdout, options.auditPath, "plan.create", "Inventory", options.inventoryPath, "YARA-INV-004", err, []audit.Subject{requestSubject})
+	}
+	inventorySubject, err := canonicalSubject("Inventory", inventory)
+	if err != nil {
+		return writeLoadError(stdout, "YARA-AUD-500", err)
 	}
 	snapshot, err := catalog.Load(options.catalogPath)
 	if err != nil {
-		return writeLoadError(stdout, "YARA-CAT-004", err)
+		return writeAuditedLoadError(stdout, options.auditPath, "plan.create", "CatalogSnapshot", options.catalogPath, "YARA-CAT-004", err, []audit.Subject{requestSubject, inventorySubject})
 	}
 	result := planner.Create(request, inventory, snapshot)
 	if !result.Report.Valid {
@@ -233,14 +240,6 @@ func mergeAuditSpec(base audit.Spec, action, outcome string, subjects []audit.Su
 	base.Outcome = outcome
 	base.Subjects = subjects
 	return base
-}
-
-func localActor() (string, string) {
-	current, err := user.Current()
-	if err != nil || current.Username == "" {
-		return "local:unknown", "unknown-local"
-	}
-	return "local:" + current.Username, "self-asserted-local"
 }
 
 func writeExclusive(path string, data []byte) error {

@@ -27,16 +27,20 @@ v0.1 implements the request, inventory, policy/catalog inputs, plan, diagnostics
 Proposed initial commands:
 
 ```text
-yara request validate <file>
+yara request validate <file> [--audit-output <file>]
 yara inventory inspect [--output <file>]
-yara catalog validate <path>
-yara plan create --request <file> --inventory <file> --catalog <path>
-yara plan validate <file>
+yara inventory validate <file> [--audit-output <file>]
+yara catalog validate <path> [--audit-output <file>]
+yara plan create --request <file> --inventory <file> --catalog <path> --output <file> --audit-output <file>
+yara plan validate <file> [--audit-output <file>]
 yara plan explain <file> [--decision <id>]
 yara plan diff <old> <new>
+yara audit verify <file>
 ```
 
 Commands write machine data to standard output or the requested file and human diagnostics to standard error. Exit codes are stable by class: success, invalid input, infeasible request, internal error and unsupported version.
+
+The read-only validation commands preserve their original positional input and optionally persist a local audit chain. Planning requires an audit destination. An audit write failure prevents a planning result from being reported as successful; validation with an explicitly requested audit destination follows the same fail-closed rule.
 
 ## Future service endpoints
 

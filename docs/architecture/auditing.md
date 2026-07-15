@@ -17,21 +17,19 @@ These records serve different questions:
 
 An audit event references a plan decision or receipt rather than copying its potentially sensitive payload.
 
-## Events in v0.1
+## Implemented local v0.1 coverage
 
-The local CLI emits audit events for:
+The local CLI currently emits two-event started/terminal chains for:
 
-- request validation attempted/completed/failed;
-- inventory discovery or declared inventory accepted;
-- catalog snapshot loaded or rejected;
-- effective policy resolved;
-- planning started/completed/failed/infeasible;
-- plan validated or diffed;
-- an override or policy exception used.
+- request, inventory, catalog and plan validation when `--audit-output` is supplied;
+- planning started/completed/failed/infeasible, with audit output mandatory;
+- request, inventory and catalog load/decode rejection during planning.
 
-For a successful planning run, the event records the request, inventory, effective-policy, catalog and semantic-plan digests plus planner/rule-engine versions. For an unsuccessful run it records available input digests and stable diagnostic codes.
+The remaining taxonomy below is architectural scope, not a claim of current implementation. Inventory discovery, policy resolution, semantic plan diff, approval, deployment and lifecycle events arrive with their corresponding use cases.
 
-The local actor comes from an explicit CLI value or local operating-system identity and is labelled with its assurance level. It must not be presented as cryptographically verified identity.
+For a successful planning run, the event records the request, inventory, catalog and semantic-plan digests. For an unsuccessful run it records available canonical input digests, a bounded raw-input digest or an opaque input-reference digest, plus stable diagnostic codes. The distinct subject kinds prevent an attempted-input reference from being mistaken for a validated resource identity. Effective-policy and planner/rule-engine version subjects are planned but not yet emitted because those versioned resources do not yet exist.
+
+The current local actor comes from the operating-system identity and is labelled `self-asserted-local` (or `unknown-local` when unavailable). A future authenticated service or explicit actor input may provide stronger provenance, but the current value must not be presented as cryptographically verified identity.
 
 ## Event envelope
 
@@ -77,8 +75,10 @@ Actions use stable namespaced verbs:
 
 ```text
 request.validate.*
+inventory.validate.*
 inventory.inspect.*
 catalog.load.*
+catalog.validate.*
 policy.resolve.*
 plan.create.*
 plan.validate.*
@@ -102,7 +102,9 @@ A future service uses durable append semantics, monotonically ordered sequences 
 
 ## Failure behavior
 
-- Pure local planning may complete when its audit file cannot be written only if the operator explicitly chose no persistent audit; output carries `auditPersistence: unavailable` prominently.
+- The current local `plan create` command requires an audit destination and fails closed if its start/terminal chain cannot be written.
+- Read-only validation does not require persistent audit by default; once `--audit-output` is supplied, failure to persist it fails the command.
+- A future explicit no-persistence planning mode, if accepted by policy, must report `auditPersistence: unavailable` prominently rather than silently omitting evidence.
 - Production mutation MUST NOT start if the required audit sink is unavailable.
 - A mutation is not reported successful until its terminal audit event and receipt are durably recorded.
 - Audit backpressure fails safely and cannot be bypassed by a renderer/plugin.
@@ -126,7 +128,7 @@ Retention is policy-based by event class and environment. Legal hold and organiz
 
 ## Time and identity assurance
 
-Every event states time-source and actor assurance. Local clock plus OS username is low assurance. A team service can use authenticated identity and trusted time; an executor can add workload/host attestation. Consumers must not compare events as equally authoritative when their assurance differs.
+Every event states actor assurance. Current local events use the process clock for `occurredAt`; the v1alpha1 envelope does not yet carry an explicit time-source field, so their timestamp is low assurance. A future schema revision must make time-source assurance explicit before a team service claims trusted time. Such a service can use authenticated identity and trusted time; an executor can add workload/host attestation. Consumers must not compare events as equally authoritative when their assurance differs.
 
 ## Audit coverage tests
 

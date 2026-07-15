@@ -58,32 +58,47 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 3 && args[0] == "plan" && args[1] == "explain" {
 		return explainPlan(args[2], stdout)
 	}
-	if len(args) != 3 || args[1] != "validate" {
+	if len(args) < 2 || args[1] != "validate" {
 		writeUsage(stderr)
+		return ExitInvalidInput
+	}
+	options, ok := parseValidationOptions(args[2:], stderr)
+	if !ok {
 		return ExitInvalidInput
 	}
 
 	switch args[0] {
 	case "request":
-		request, err := resources.LoadPlatformRequest(args[2])
+		request, err := resources.LoadPlatformRequest(options.inputPath)
 		if err != nil {
-			return writeLoadError(stdout, "YARA-REQ-004", err)
+			return writeAuditedLoadError(stdout, options.auditPath, "request.validate", "PlatformRequest", options.inputPath, "YARA-REQ-004", err, nil)
 		}
-		return writeValidation(stdout, request.APIVersion, request.Kind, request.Metadata.Name, request.Validate())
+		subject, err := canonicalSubject("PlatformRequest", request)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "request.validate", subject, request.APIVersion, request.Kind, request.Metadata.Name, request.Validate())
 	case "inventory":
-		inventory, err := resources.LoadInventory(args[2])
+		inventory, err := resources.LoadInventory(options.inputPath)
 		if err != nil {
-			return writeLoadError(stdout, "YARA-INV-004", err)
+			return writeAuditedLoadError(stdout, options.auditPath, "inventory.validate", "Inventory", options.inputPath, "YARA-INV-004", err, nil)
 		}
-		return writeValidation(stdout, inventory.APIVersion, inventory.Kind, inventory.Metadata.Name, inventory.Validate())
-	case "catalog":
-		snapshot, err := catalog.Load(args[2])
+		subject, err := canonicalSubject("Inventory", inventory)
 		if err != nil {
-			return writeLoadError(stdout, "YARA-CAT-004", err)
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "inventory.validate", subject, inventory.APIVersion, inventory.Kind, inventory.Metadata.Name, inventory.Validate())
+	case "catalog":
+		snapshot, err := catalog.Load(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "catalog.validate", "CatalogSnapshot", options.inputPath, "YARA-CAT-004", err, nil)
 		}
 		digest, err := snapshot.Digest()
 		if err != nil {
 			return writeLoadError(stdout, "YARA-CAT-500", err)
+		}
+		if err := writeCatalogValidationAudit(options.auditPath, audit.Subject{Kind: "CatalogSnapshot", Digest: digest}, snapshot.Diagnostics()); err != nil {
+			return writeLoadError(stdout, "YARA-AUD-005", err)
 		}
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
@@ -96,11 +111,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		return ExitSuccess
 	case "plan":
-		plan, err := resources.LoadPlatformPlan(args[2])
+		plan, err := resources.LoadPlatformPlan(options.inputPath)
 		if err != nil {
-			return writeLoadError(stdout, "YARA-PLAN-004", err)
+			return writeAuditedLoadError(stdout, options.auditPath, "plan.validate", "PlatformPlan", options.inputPath, "YARA-PLAN-004", err, nil)
 		}
-		return writeValidation(stdout, plan.APIVersion, plan.Kind, plan.Metadata.Name, plan.Validate())
+		subject, err := canonicalSubject("PlatformPlan", plan)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "plan.validate", subject, plan.APIVersion, plan.Kind, plan.Metadata.Name, plan.Validate())
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -152,11 +171,11 @@ func writeLoadError(output io.Writer, code string, err error) int {
 func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "usage:")
 	fmt.Fprintln(output, "  yara version")
-	fmt.Fprintln(output, "  yara request validate <file>")
-	fmt.Fprintln(output, "  yara inventory validate <file>")
-	fmt.Fprintln(output, "  yara catalog validate <snapshot-file>")
+	fmt.Fprintln(output, "  yara request validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara inventory validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara catalog validate <snapshot-file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara plan create --request <file> --inventory <file> --catalog <file> --output <file> --audit-output <file>")
-	fmt.Fprintln(output, "  yara plan validate <file>")
+	fmt.Fprintln(output, "  yara plan validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara plan explain <file>")
 	fmt.Fprintln(output, "  yara audit verify <file>")
 }
