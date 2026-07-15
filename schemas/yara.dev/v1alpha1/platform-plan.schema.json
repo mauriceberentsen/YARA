@@ -31,9 +31,11 @@
     "spec": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "topology", "allocations", "decisions", "diagnostics"],
+      "required": ["status", "search", "confidence", "topology", "allocations", "decisions", "diagnostics"],
       "properties": {
         "status": { "const": "review-required" },
+        "search": { "$ref": "#/$defs/search" },
+        "confidence": { "$ref": "#/$defs/confidence" },
         "topology": {
           "type": "object",
           "additionalProperties": false,
@@ -52,6 +54,40 @@
   },
   "$defs": {
     "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "search": {
+      "type": "object", "additionalProperties": false,
+      "required": ["strategy", "completeWithinBounds", "truncated", "globalOptimalityClaimed", "evaluatedServingCandidates", "feasibleServingCandidates", "rejectedServingCandidates", "boundaries"],
+      "properties": {
+        "strategy": { "const": "bounded-catalog-enumeration-v1" },
+        "completeWithinBounds": { "const": true },
+        "truncated": { "const": false },
+        "globalOptimalityClaimed": { "const": false },
+        "evaluatedServingCandidates": { "type": "integer", "minimum": 1 },
+        "feasibleServingCandidates": { "type": "integer", "minimum": 1 },
+        "rejectedServingCandidates": { "type": "integer", "minimum": 0 },
+        "boundaries": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "confidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["level", "method", "factors"],
+      "properties": {
+        "level": { "$ref": "#/$defs/confidenceLevel" },
+        "method": { "const": "minimum-factor-v1" },
+        "factors": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/confidenceFactor" } }
+      }
+    },
+    "confidenceLevel": { "enum": ["low", "medium", "high"] },
+    "confidenceFactor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "level", "reasonCode", "subjectRefs"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "level": { "$ref": "#/$defs/confidenceLevel" },
+        "reasonCode": { "type": "string", "pattern": "^YARA-CONF-[0-9]{3}$" },
+        "subjectRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
     "instance": {
       "type": "object",
       "additionalProperties": false,

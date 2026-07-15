@@ -167,12 +167,12 @@ Currently implemented:
 - a catalog-authored abstract topology template resolved into gateway and inference component instances;
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;
 - a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;
-- independently validated multi-component `PlatformPlan` output with interface connections, dependency-safe deployment stages, explanations, rejected alternatives, governance diagnostics and content integrity;
+- independently validated multi-component `PlatformPlan` output with interface connections, dependency-safe deployment stages, explanations, rejected alternatives, explicit search bounds, ordinal confidence factors, governance diagnostics and content integrity;
 - deterministic, content-addressed `PlatformPlanDiff` output with provenance causes, decision references and conservative review/redeploy/destructive impact classification;
 - tamper-evident audit chains for validation plus successful, infeasible and input-rejected planning outcomes, containing available input identities and stable diagnostic codes, including material warnings;
 - optional fail-closed validation and plan-diff audit receipts, plus mandatory fail-closed persistence for `plan create`, with path- and payload-minimized evidence for resources that cannot be decoded.
 
-All bundled manifests remain explicitly `experimental`; their warning is preserved in generated plans, diffs and audit evidence. The next vertical slice will add explicit planner search-bound and confidence reporting.
+All bundled manifests remain explicitly `experimental`; their warning caps recommendation confidence and is preserved in generated plans, diffs and audit evidence. The next vertical slice will add targeted decision explanation through `plan explain --decision` with audit coverage.
 
 ## Project status
 

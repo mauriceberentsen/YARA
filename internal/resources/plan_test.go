@@ -55,6 +55,15 @@ func validPlan(t *testing.T) PlatformPlan {
 		},
 		Spec: PlatformPlanSpec{
 			Status: "review-required",
+			Search: PlanSearchSummary{
+				Strategy: "bounded-catalog-enumeration-v1", CompleteWithinBounds: true,
+				EvaluatedServingCandidates: 1, FeasibleServingCandidates: 1, RejectedServingCandidates: 0,
+				Boundaries: []string{"test-fixture-only"},
+			},
+			Confidence: PlanConfidenceSummary{
+				Level: "medium", Method: "minimum-factor-v1",
+				Factors: []PlanConfidenceFactor{{ID: "test-evidence", Level: "medium", ReasonCode: "YARA-CONF-001", SubjectRefs: []string{"candidate"}}},
+			},
 			Topology: PlanTopology{
 				Instances:   []PlanInstance{{ID: "inference", Role: "inference.text-generation", ComponentRef: "runtime", ModelRef: "model", Placement: "host/gpu", APIContracts: []string{"api"}}},
 				Connections: []PlanConnection{}, DeploymentStages: [][]string{{"inference"}},
@@ -69,4 +78,17 @@ func validPlan(t *testing.T) PlatformPlan {
 		t.Fatalf("assign plan ID: %v", err)
 	}
 	return assigned
+}
+
+func TestPlatformPlanRejectsInconsistentSearchAndConfidence(t *testing.T) {
+	plan := validPlan(t)
+	plan.Spec.Search.EvaluatedServingCandidates = 2
+	plan.Spec.Confidence.Level = "high"
+	plan, err := plan.AssignPlanID()
+	if err != nil {
+		t.Fatalf("assign plan ID: %v", err)
+	}
+	report := plan.Validate()
+	assertDiagnostic(t, report, "YARA-PLAN-026", "spec.search")
+	assertDiagnostic(t, report, "YARA-PLAN-037", "spec.confidence.level")
 }

@@ -3,6 +3,7 @@ package resources
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/mauriceberentsen/YARA/internal/canonical"
@@ -10,6 +11,7 @@ import (
 )
 
 var sha256DigestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+var confidenceReasonCodePattern = regexp.MustCompile(`^YARA-CONF-[0-9]{3}$`)
 
 type PlatformPlan struct {
 	APIVersion string           `json:"apiVersion" yaml:"apiVersion"`
@@ -33,10 +35,36 @@ type PlanProvenance struct {
 
 type PlatformPlanSpec struct {
 	Status      string                   `json:"status" yaml:"status"`
+	Search      PlanSearchSummary        `json:"search" yaml:"search"`
+	Confidence  PlanConfidenceSummary    `json:"confidence" yaml:"confidence"`
 	Topology    PlanTopology             `json:"topology" yaml:"topology"`
 	Allocations []PlanAllocation         `json:"allocations" yaml:"allocations"`
 	Decisions   []PlanDecision           `json:"decisions" yaml:"decisions"`
 	Diagnostics []diagnostics.Diagnostic `json:"diagnostics" yaml:"diagnostics"`
+}
+
+type PlanSearchSummary struct {
+	Strategy                   string   `json:"strategy" yaml:"strategy"`
+	CompleteWithinBounds       bool     `json:"completeWithinBounds" yaml:"completeWithinBounds"`
+	Truncated                  bool     `json:"truncated" yaml:"truncated"`
+	GlobalOptimalityClaimed    bool     `json:"globalOptimalityClaimed" yaml:"globalOptimalityClaimed"`
+	EvaluatedServingCandidates int      `json:"evaluatedServingCandidates" yaml:"evaluatedServingCandidates"`
+	FeasibleServingCandidates  int      `json:"feasibleServingCandidates" yaml:"feasibleServingCandidates"`
+	RejectedServingCandidates  int      `json:"rejectedServingCandidates" yaml:"rejectedServingCandidates"`
+	Boundaries                 []string `json:"boundaries" yaml:"boundaries"`
+}
+
+type PlanConfidenceSummary struct {
+	Level   string                 `json:"level" yaml:"level"`
+	Method  string                 `json:"method" yaml:"method"`
+	Factors []PlanConfidenceFactor `json:"factors" yaml:"factors"`
+}
+
+type PlanConfidenceFactor struct {
+	ID          string   `json:"id" yaml:"id"`
+	Level       string   `json:"level" yaml:"level"`
+	ReasonCode  string   `json:"reasonCode" yaml:"reasonCode"`
+	SubjectRefs []string `json:"subjectRefs" yaml:"subjectRefs"`
 }
 
 type PlanTopology struct {
@@ -107,6 +135,8 @@ func (p PlatformPlan) Validate() diagnostics.Report {
 	if p.Spec.Status != "review-required" {
 		items = append(items, diagnostics.Error("YARA-PLAN-011", "A newly generated plan must require review.", "spec.status"))
 	}
+	items = append(items, validatePlanSearch(p.Spec.Search)...)
+	items = append(items, validatePlanConfidence(p.Spec.Confidence)...)
 	if len(p.Spec.Topology.Instances) == 0 || len(p.Spec.Decisions) == 0 || len(p.Spec.Allocations) == 0 {
 		items = append(items, diagnostics.Error("YARA-PLAN-012", "Plan topology, allocation and decision must be present.", "spec"))
 	}
@@ -121,6 +151,95 @@ func (p PlatformPlan) Validate() diagnostics.Report {
 		}
 	}
 	return diagnostics.NewReport(items...)
+}
+
+func validatePlanSearch(search PlanSearchSummary) []diagnostics.Diagnostic {
+	var items []diagnostics.Diagnostic
+	if search.Strategy != "bounded-catalog-enumeration-v1" {
+		items = append(items, diagnostics.Error("YARA-PLAN-025", "Search strategy must identify the supported bounded enumeration contract.", "spec.search.strategy"))
+	}
+	if search.EvaluatedServingCandidates <= 0 || search.FeasibleServingCandidates <= 0 || search.RejectedServingCandidates < 0 || search.EvaluatedServingCandidates != search.FeasibleServingCandidates+search.RejectedServingCandidates {
+		items = append(items, diagnostics.Error("YARA-PLAN-026", "Search candidate counts are inconsistent.", "spec.search"))
+	}
+	if search.Truncated || !search.CompleteWithinBounds {
+		items = append(items, diagnostics.Error("YARA-PLAN-027", "A successful v0.1 plan requires an untruncated search complete within its declared bounds.", "spec.search"))
+	}
+	if search.GlobalOptimalityClaimed {
+		items = append(items, diagnostics.Error("YARA-PLAN-028", "v0.1 must not claim global optimality.", "spec.search.globalOptimalityClaimed"))
+	}
+	if len(search.Boundaries) == 0 || !slices.IsSorted(search.Boundaries) {
+		items = append(items, diagnostics.Error("YARA-PLAN-029", "Search boundaries must be present in deterministic order.", "spec.search.boundaries"))
+	}
+	seen := make(map[string]struct{}, len(search.Boundaries))
+	for _, boundary := range search.Boundaries {
+		if strings.TrimSpace(boundary) == "" {
+			items = append(items, diagnostics.Error("YARA-PLAN-030", "Search boundaries must not be empty.", "spec.search.boundaries"))
+		}
+		if _, exists := seen[boundary]; exists {
+			items = append(items, diagnostics.Error("YARA-PLAN-031", "Search boundaries must be unique.", "spec.search.boundaries"))
+		}
+		seen[boundary] = struct{}{}
+	}
+	return items
+}
+
+func validatePlanConfidence(confidence PlanConfidenceSummary) []diagnostics.Diagnostic {
+	var items []diagnostics.Diagnostic
+	if confidence.Method != "minimum-factor-v1" || !validConfidenceLevel(confidence.Level) || len(confidence.Factors) == 0 {
+		items = append(items, diagnostics.Error("YARA-PLAN-032", "Confidence requires the supported method, level and at least one factor.", "spec.confidence"))
+	}
+	minimum := "high"
+	seen := make(map[string]struct{}, len(confidence.Factors))
+	previousID := ""
+	for index, factor := range confidence.Factors {
+		path := fmt.Sprintf("spec.confidence.factors[%d]", index)
+		if factor.ID == "" || !confidenceReasonCodePattern.MatchString(factor.ReasonCode) || !validConfidenceLevel(factor.Level) || len(factor.SubjectRefs) == 0 {
+			items = append(items, diagnostics.Error("YARA-PLAN-033", "Confidence factors require an ID, level, reason code and subject reference.", path))
+		}
+		if _, exists := seen[factor.ID]; exists {
+			items = append(items, diagnostics.Error("YARA-PLAN-034", "Confidence factor IDs must be unique.", path+".id"))
+		}
+		seen[factor.ID] = struct{}{}
+		if previousID > factor.ID {
+			items = append(items, diagnostics.Error("YARA-PLAN-035", "Confidence factors must use deterministic ID order.", "spec.confidence.factors"))
+		}
+		previousID = factor.ID
+		if confidenceRank(factor.Level) < confidenceRank(minimum) {
+			minimum = factor.Level
+		}
+		if !slices.IsSorted(factor.SubjectRefs) {
+			items = append(items, diagnostics.Error("YARA-PLAN-036", "Confidence subject references must use deterministic order.", path+".subjectRefs"))
+		}
+		subjects := make(map[string]struct{}, len(factor.SubjectRefs))
+		for _, reference := range factor.SubjectRefs {
+			if strings.TrimSpace(reference) == "" {
+				items = append(items, diagnostics.Error("YARA-PLAN-038", "Confidence subject references must not be empty.", path+".subjectRefs"))
+			}
+			if _, exists := subjects[reference]; exists {
+				items = append(items, diagnostics.Error("YARA-PLAN-039", "Confidence subject references must be unique.", path+".subjectRefs"))
+			}
+			subjects[reference] = struct{}{}
+		}
+	}
+	if validConfidenceLevel(confidence.Level) && confidence.Level != minimum {
+		items = append(items, diagnostics.Error("YARA-PLAN-037", "Overall confidence must equal the least-confident factor.", "spec.confidence.level"))
+	}
+	return items
+}
+
+func validConfidenceLevel(value string) bool {
+	return value == "low" || value == "medium" || value == "high"
+}
+
+func confidenceRank(value string) int {
+	switch value {
+	case "medium":
+		return 1
+	case "high":
+		return 2
+	default:
+		return 0
+	}
 }
 
 func validatePlanTopology(topology PlanTopology) []diagnostics.Diagnostic {

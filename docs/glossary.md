@@ -9,6 +9,7 @@
 | Capability | A normalized function such as `chat.ui`, `inference.text-generation` or `identity.oidc`. |
 | Catalog | Versioned manifests describing known components, models, hardware, policies and compatibility evidence. |
 | Constraint | A condition that must hold for a plan to be valid. Hard constraints eliminate candidates; soft constraints influence ranking. |
+| Confidence factor | Ordinal, evidence-linked assessment of one recommendation input or method; overall plan confidence equals the weakest current factor. |
 | Decision | A selected option plus alternatives, facts, rules, scores, assumptions and explanation. |
 | Desired state | What the user wants to achieve, independent of products or deployment syntax. |
 | Discovery | Collection of facts about an environment. Discovery reports evidence; it does not make recommendations. |
@@ -27,6 +28,7 @@
 | Policy | An organizational or user constraint such as no telemetry, approved licenses or data residency. |
 | Renderer | Pure transformation from a `PlatformPlan` to target-specific artifacts. It performs no mutation. |
 | Rule | A versioned expression that derives a fact, rejects a candidate, adds a requirement or changes a score. |
+| Search boundary | Explicit limit defining which candidate space a planning run did and did not evaluate. |
 | Runtime manager | Future subsystem that observes a deployed plan and coordinates health, drift and lifecycle actions. |
 | Semantic plan | The normalized meaning of a plan excluding volatile presentation fields such as timestamps. |
 | Supported | A versioned combination backed by required metadata, evidence, automated tests and maintenance ownership. |

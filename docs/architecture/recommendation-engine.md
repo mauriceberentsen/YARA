@@ -114,7 +114,7 @@ Would change if: expected concurrent contexts increases above 6
 
 ## Avoiding false optimization
 
-YARA does not claim a global optimum. Catalog coverage is incomplete, workload data is uncertain and quality metrics are context-dependent. Output uses "preferred among evaluated supported candidates" and includes search bounds and catalog snapshot.
+YARA does not claim a global optimum. Catalog coverage is incomplete, workload data is uncertain and quality metrics are context-dependent. Output uses "preferred among evaluated supported candidates" and includes the pinned catalog, exact serving-candidate counts, completion/truncation state and declared search boundaries. v0.1 also reports ordinal confidence using the least-confident evidence/method factor; it does not manufacture a percentage from missing benchmark data.
 
 ## Future learning
 

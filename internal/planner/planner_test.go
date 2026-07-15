@@ -47,6 +47,17 @@ func TestHigherScoringOversizedCandidateCannotWin(t *testing.T) {
 	if topology.DeploymentStages[0][0] != "inference" || topology.DeploymentStages[1][0] != "gateway" {
 		t.Fatalf("dependency stages are unsafe: %#v", topology.DeploymentStages)
 	}
+	search := result.Plan.Spec.Search
+	if !search.CompleteWithinBounds || search.Truncated || search.GlobalOptimalityClaimed || search.EvaluatedServingCandidates != 2 || search.FeasibleServingCandidates != 1 || search.RejectedServingCandidates != 1 {
+		t.Fatalf("unexpected search summary: %#v", search)
+	}
+	confidence := result.Plan.Spec.Confidence
+	if confidence.Level != "low" || confidence.Method != "minimum-factor-v1" || len(confidence.Factors) != 4 {
+		t.Fatalf("unexpected confidence summary: %#v", confidence)
+	}
+	if confidence.Factors[3].ID != "serving-evidence" || confidence.Factors[3].Level != "medium" {
+		t.Fatalf("serving evidence confidence was not preserved: %#v", confidence.Factors)
+	}
 }
 
 func containsPlanDiagnostic(items []diagnostics.Diagnostic, code string) bool {
