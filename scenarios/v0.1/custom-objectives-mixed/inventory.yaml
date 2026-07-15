@@ -1,0 +1,35 @@
+apiVersion: yara.dev/v1alpha1
+kind: Inventory
+metadata:
+    name: custom-objectives-mixed-inventory
+spec:
+    source:
+        mode: declared
+        observedAt: "2026-07-14T00:00:00Z"
+    hosts:
+        - id: custom-objectives-mixed-host
+          platform:
+            os: linux
+            architecture: amd64
+          cpu:
+            cores: 16
+          memory:
+            installedGiB: 128
+            allocatableGiB: 112
+          accelerators:
+            - id: gpu-0
+              vendor: nvidia
+              model: example-24gib-device
+              memoryGiB: 24
+              allocatableMemoryGiB: 22
+              driverVersion: declared-but-unverified
+          storage:
+            capacityGiB: 2000
+            allocatableGiB: 1500
+            class: local-ssd
+          network:
+            externalEgress: false
+    unknowns:
+        - storage.measuredThroughput
+        - accelerator.interconnect
+        - existingPeakUtilization

@@ -10,15 +10,22 @@ A reviewer must not be the author of the scenario expectations or the planner ch
 
 ## Required procedure
 
-1. Verify the `GoldenScenario` identity and run `yara scenario validate` offline.
-2. Confirm the request and inventory are internally plausible and within v0.1 scope.
-3. Review every required selection and forbidden outcome independently of the expected plan ID.
-4. Inspect `plan explain` for each required decision and challenge evidence, alternatives and capacity claims.
-5. Confirm search boundaries and ordinal confidence do not overstate coverage or quality.
-6. Inspect catalog ownership, provenance, lifecycle state and material warnings.
-7. Verify audit and debug-bundle outputs minimize sensitive data and bind the expected identities.
-8. Record safety-critical, material and advisory findings. Unresolved safety-critical findings require `changes-required`.
-9. State one verdict: `approved`, `changes-required` or `abstained`.
+1. Run `yara scenario validate-all scenarios/v0.1` and confirm the suite reports ten technically conformant cases, zero completed reviews and `releaseEligible: false`.
+2. Verify the individual `GoldenScenario` identity and run `yara scenario validate` offline.
+3. Confirm the request and inventory are internally plausible and within v0.1 scope.
+4. Review every required selection and forbidden outcome independently of the expected plan ID.
+5. Inspect `plan explain` for each required decision and challenge evidence, alternatives and capacity claims.
+6. Confirm search boundaries and ordinal confidence do not overstate coverage or quality.
+7. Inspect catalog ownership, provenance, lifecycle state and material warnings.
+8. Verify audit and debug-bundle outputs minimize sensitive data and bind the expected identities.
+9. Record safety-critical, material and advisory findings. Unresolved safety-critical findings require `changes-required`.
+10. State one verdict: `approved`, `changes-required` or `abstained`.
+
+## Suggested review order
+
+Review the three fail-closed cases first: `unasserted-accelerator`, `insufficient-vram` and `concurrency-capacity-exceeded`. They challenge the safety boundary. Then review `private-chat-coding` as the baseline feasible plan, followed by the remaining six feasible variations.
+
+For every case, complete its `review.md` without changing the pinned scenario or plan identity. Record reviewer identity or approved pseudonym, relevant role, assurance method, date, conflicts, verdict and concrete findings. Do not replace findings with a bare approval.
 
 ## Evidence rules
 

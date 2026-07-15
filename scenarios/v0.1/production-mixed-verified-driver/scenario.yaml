@@ -1,0 +1,40 @@
+apiVersion: yara.dev/v1alpha1
+kind: GoldenScenario
+metadata:
+    name: production-mixed-verified-driver
+    scenarioId: sha256:38b1617cc2b98ee2308c258e0ebc60469f55a75eb1315cd8f60dac3bfcf2e119
+spec:
+    inputs:
+        request:
+            path: request.yaml
+            digest: sha256:281f9e674eea4b2dc7d06726b849f67cb2aeaf9a7ef7c72f345c2f1356091ede
+        inventory:
+            path: inventory.yaml
+            digest: sha256:abfa99ef5e5f794107561b4f695b5e1fc82ffad6ced7df69ed7368f908bdd348
+        catalog:
+            path: ../../../catalog/v0.1/snapshot.yaml
+            digest: sha256:33b3b6e03a86f80d9c51faf62e3f2504432371bbd7c717190549a1ba6cbbeb51
+    expected:
+        outcome: planned
+        planId: sha256:0f8ae61851ce0d75b6e7bebfbc503b1457d7ab13b7fdae4dacd1f55189d78a7e
+        requiredDecisionIds:
+            - decision.gateway
+            - decision.inference
+            - decision.topology
+        requiredSelections:
+            - decisionId: decision.gateway
+              selected: core.placeholder-gateway
+            - decisionId: decision.inference
+              selected: core.placeholder-coder-small
+            - decisionId: decision.topology
+              selected: core.private-chat-coding
+        forbiddenSelections:
+            - core.placeholder-coder-conflicted
+            - core.placeholder-coder-large
+        requiredDiagnosticCodes:
+            - YARA-CAT-040
+            - YARA-CAT-055
+    reviewRequirements:
+        minimumIndependentReviewers: 1
+        requiredRoles:
+            - ai-platform-architect

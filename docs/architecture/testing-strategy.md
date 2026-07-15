@@ -43,7 +43,9 @@ Each scenario contains:
 - expected diagnostics and key decision factors;
 - expert reviewer and review date.
 
-`GoldenScenario` validates exact input digests, semantic plan ID, required decisions/selections, forbidden outcomes and diagnostic codes offline. Golden tests compare semantic plans. Presentation text can change through separately reviewed snapshots. The CLI reports technical conformance separately from pending independent review and release eligibility.
+`GoldenScenario` validates exact input digests, semantic plan ID, required decisions/selections, forbidden outcomes and diagnostic codes offline. Golden tests compare semantic plans. Presentation text can change through separately reviewed snapshots. The suite validator requires at least ten unique cases, deterministic discovery order and conformance of every case; the v0.1 suite contains seven planned and three infeasible outcomes. The CLI reports technical conformance separately from pending independent review and release eligibility.
+
+Every implemented hard constraint has a focused failing counterexample that first satisfies all earlier constraints. This prevents a negative test from appearing to cover a rule while actually failing at an unrelated earlier gate. Adding or reordering a hard constraint requires updating the counterexample table.
 
 ### Compatibility contract tests
 

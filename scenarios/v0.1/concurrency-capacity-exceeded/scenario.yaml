@@ -1,0 +1,27 @@
+apiVersion: yara.dev/v1alpha1
+kind: GoldenScenario
+metadata:
+    name: concurrency-capacity-exceeded
+    scenarioId: sha256:6582d3a9fe19d6b6edcbe23a277e809963eddda8bcdbf4d313475e6306c85502
+spec:
+    inputs:
+        request:
+            path: request.yaml
+            digest: sha256:9e96867ed4b2090e8317dc7220a755fea943fe6fcb319f5c81385eec02ec2d14
+        inventory:
+            path: inventory.yaml
+            digest: sha256:d95113fe52325f46e0e065200bf6c579e4e27287c259d4cc64859e332626c81b
+        catalog:
+            path: ../../../catalog/v0.1/snapshot.yaml
+            digest: sha256:33b3b6e03a86f80d9c51faf62e3f2504432371bbd7c717190549a1ba6cbbeb51
+    expected:
+        outcome: infeasible
+        requiredDecisionIds: []
+        requiredSelections: []
+        forbiddenSelections: []
+        requiredDiagnosticCodes:
+            - YARA-PLAN-001
+    reviewRequirements:
+        minimumIndependentReviewers: 1
+        requiredRoles:
+            - ai-platform-architect

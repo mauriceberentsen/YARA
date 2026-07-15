@@ -6,7 +6,7 @@ The foundational architecture is sufficiently defined to begin a thin v0.1 imple
 
 ## Current implementation status
 
-The bootstrap now includes strict resource decoding, public schemas, stable diagnostics, canonical digests and audit-event chaining. The catalog compiler resolves capability, component, model, hardware, compatibility and topology manifests. Every manifest declares lifecycle status, owners, evidence sources, confidence and a verification/review window. Freshness is evaluated deterministically against the immutable snapshot `publishedAt`; missing ownership, malformed provenance and expired evidence invalidate the snapshot. The bundled fixtures remain experimental and emit `YARA-CAT-055` into catalog output, plans, explanations, diffs, debug bundles, scenarios and audit evidence. Compatibility quarantine, multi-component topology resolution and independent plan validation remain active. Generated plans state bounded search and ordinal confidence; explanation, diff and debug-bundle paths are auditable. `scenario validate` now proves exact offline conformance for one content-addressed golden scenario while explicitly withholding review approval. Nine additional representative scenarios and independent domain-expert evidence remain required.
+The bootstrap now includes strict resource decoding, public schemas, stable diagnostics, canonical digests and audit-event chaining. The catalog compiler resolves capability, component, model, hardware, compatibility and topology manifests. Every manifest declares lifecycle status, owners, evidence sources, confidence and a verification/review window. Freshness is evaluated deterministically against the immutable snapshot `publishedAt`; missing ownership, malformed provenance and expired evidence invalidate the snapshot. The bundled fixtures remain experimental and emit `YARA-CAT-055` into catalog output, plans, explanations, diffs, debug bundles, scenarios and audit evidence. Compatibility quarantine, multi-component topology resolution and independent plan validation remain active. Generated plans state bounded search and ordinal confidence; explanation, diff and debug-bundle paths are auditable. `scenario validate-all` proves exact offline technical conformance for ten content-addressed cases—seven planned and three infeasible—while explicitly withholding review approval. Independent domain-expert evidence remains required for all ten. See the [v0.1 acceptance ledger](v0.1-acceptance-status.md).
 
 ## Fixed decisions
 
@@ -99,6 +99,8 @@ yara debug bundle --plan plan.yaml --output debug-bundle.json \
   --audit-output debug-bundle.audit.jsonl
 yara scenario validate scenarios/v0.1/private-chat-coding/scenario.yaml \
   --audit-output scenario-validation.audit.jsonl
+yara scenario validate-all scenarios/v0.1 \
+  --audit-output v0.1-scenario-suite.audit.jsonl
 yara audit verify audit.jsonl
 ```
 

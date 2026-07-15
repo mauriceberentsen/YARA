@@ -1,0 +1,41 @@
+apiVersion: yara.dev/v1alpha1
+kind: GoldenScenario
+metadata:
+    name: custom-objectives-mixed
+    scenarioId: sha256:0656f9a62575e5d4018987934f8909ce563518c632e5f97fc7d78a56eaa60e33
+spec:
+    inputs:
+        request:
+            path: request.yaml
+            digest: sha256:40104b74d9e80e56c000f3a85ac5663211a4d0683b9dfd2c4b011ecc63e49d4e
+        inventory:
+            path: inventory.yaml
+            digest: sha256:a5ab1b1de9e00a965f4b55ac618693f506307ca041abf7462bdffc7036f8fde9
+        catalog:
+            path: ../../../catalog/v0.1/snapshot.yaml
+            digest: sha256:33b3b6e03a86f80d9c51faf62e3f2504432371bbd7c717190549a1ba6cbbeb51
+    expected:
+        outcome: planned
+        planId: sha256:bc753af74f4eda309648a83965cf3ad99f8b07dfc33477f2e25432add659d468
+        requiredDecisionIds:
+            - decision.gateway
+            - decision.inference
+            - decision.topology
+        requiredSelections:
+            - decisionId: decision.gateway
+              selected: core.placeholder-gateway
+            - decisionId: decision.inference
+              selected: core.placeholder-coder-small
+            - decisionId: decision.topology
+              selected: core.private-chat-coding
+        forbiddenSelections:
+            - core.placeholder-coder-conflicted
+            - core.placeholder-coder-large
+        requiredDiagnosticCodes:
+            - YARA-CAT-040
+            - YARA-CAT-055
+            - YARA-INV-002
+    reviewRequirements:
+        minimumIndependentReviewers: 1
+        requiredRoles:
+            - ai-platform-architect

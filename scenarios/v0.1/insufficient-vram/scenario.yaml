@@ -1,0 +1,27 @@
+apiVersion: yara.dev/v1alpha1
+kind: GoldenScenario
+metadata:
+    name: insufficient-vram
+    scenarioId: sha256:da6b90617256b5dd1fa436209ed0324057608128b52737af6c6bb0fa613d95a1
+spec:
+    inputs:
+        request:
+            path: request.yaml
+            digest: sha256:7dba6dbd92db0619a334e71520c0786158eb64a1af46110494ba0a8dc6c7e172
+        inventory:
+            path: inventory.yaml
+            digest: sha256:10b8818d2b8ae6a033206fef60c00bd63e0be74ce53f91291c5c5eee5de36e7d
+        catalog:
+            path: ../../../catalog/v0.1/snapshot.yaml
+            digest: sha256:33b3b6e03a86f80d9c51faf62e3f2504432371bbd7c717190549a1ba6cbbeb51
+    expected:
+        outcome: infeasible
+        requiredDecisionIds: []
+        requiredSelections: []
+        forbiddenSelections: []
+        requiredDiagnosticCodes:
+            - YARA-PLAN-001
+    reviewRequirements:
+        minimumIndependentReviewers: 1
+        requiredRoles:
+            - ai-platform-architect

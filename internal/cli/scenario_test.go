@@ -104,3 +104,60 @@ func TestScenarioValidateAuditsConformanceFailure(t *testing.T) {
 		t.Fatalf("failure absent from audit: %#v", terminal.Spec)
 	}
 }
+
+func TestScenarioValidateAllReportsTechnicalCoverageWithoutReviewApproval(t *testing.T) {
+	root := filepath.Join("..", "..", "scenarios", "v0.1")
+	auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"scenario", "validate-all", root, "--audit-output", auditPath}, &stdout, &stderr); exitCode != ExitSuccess {
+		t.Fatalf("scenario validate-all failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	var result scenarioSuiteValidationResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode suite result: %v", err)
+	}
+	if !result.Valid || !result.TechnicalCoverageComplete || result.ScenarioCount != 10 || result.TechnicallyConformant != 10 {
+		t.Fatalf("unexpected technical coverage: %#v", result)
+	}
+	if result.IndependentReviewsComplete != 0 || result.IndependentReviewStatus != "required" || result.ReleaseEligible {
+		t.Fatalf("suite overstated human review: %#v", result)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load suite audit: %v", err)
+	}
+	if _, err := audit.Verify(events); err != nil {
+		t.Fatalf("verify suite audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "scenario.validate-all.completed" || terminal.Spec.Outcome != "success" || len(terminal.Spec.Subjects) != 17 {
+		t.Fatalf("unexpected suite terminal event: %#v", terminal.Spec)
+	}
+	if !slices.Contains(terminal.Spec.DiagnosticCodes, "YARA-PLAN-001") || !slices.Contains(terminal.Spec.DiagnosticCodes, "YARA-CAT-055") {
+		t.Fatalf("suite audit omits material outcomes: %#v", terminal.Spec.DiagnosticCodes)
+	}
+}
+
+func TestScenarioValidateAllAuditsIncompleteSuiteWithoutExposingPath(t *testing.T) {
+	root := filepath.Join("..", "..", "scenarios", "v0.1", "private-chat-coding")
+	auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	exitCode := Run([]string{"scenario", "validate-all", root, "--audit-output", auditPath}, &stdout, &stderr)
+	if exitCode != ExitInvalidInput || !strings.Contains(stdout.String(), "YARA-SCN-042") {
+		t.Fatalf("expected incomplete-suite failure, got %d: %s", exitCode, stdout.String())
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load suite failure audit: %v", err)
+	}
+	if _, err := audit.Verify(events); err != nil {
+		t.Fatalf("verify suite failure audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "scenario.validate-all.failed" || terminal.Spec.Outcome != "failed" || !slices.Contains(terminal.Spec.DiagnosticCodes, "YARA-SCN-042") {
+		t.Fatalf("unexpected suite failure event: %#v", terminal.Spec)
+	}
+	if len(terminal.Spec.Subjects) != 1 || terminal.Spec.Subjects[0].Kind != "GoldenScenarioSuiteInputReference" || strings.Contains(terminal.Spec.Subjects[0].Digest, root) {
+		t.Fatalf("suite failure audit exposed or mislabeled input: %#v", terminal.Spec.Subjects)
+	}
+}

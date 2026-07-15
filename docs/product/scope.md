@@ -40,6 +40,8 @@ v0.1 is complete only when:
 10. Every successful plan states whether its bounded serving-candidate search was complete and derives ordinal confidence from explicit evidence/method factors.
 11. A debug bundle contains no raw request, inventory, plan prose, placement or environment data and is not produced when its bounded secret-pattern gate finds a match.
 
+Current executable evidence and outstanding human gates are tracked in the [v0.1 acceptance-status ledger](../implementation/v0.1-acceptance-status.md). Technical suite success alone does not complete criteria 1 or 7.
+
 ### Explicitly out of scope
 
 - Applying Docker Compose, Helm, Terraform or Kubernetes resources.

@@ -1,0 +1,27 @@
+apiVersion: yara.dev/v1alpha1
+kind: GoldenScenario
+metadata:
+    name: unasserted-accelerator
+    scenarioId: sha256:6a84869ea9c27564da06bdb68f243ea005b4ff523f9a3ab5a5e057e44240349d
+spec:
+    inputs:
+        request:
+            path: request.yaml
+            digest: sha256:6664c60a3f0f2adc9b97161b2b5f25fccae2561c9cb7ad988dac2b72b08255ba
+        inventory:
+            path: inventory.yaml
+            digest: sha256:37f2a77db4c10ddb85cc270fa9cfb5ef74b9deb610557162258c9c7872b7539c
+        catalog:
+            path: ../../../catalog/v0.1/snapshot.yaml
+            digest: sha256:33b3b6e03a86f80d9c51faf62e3f2504432371bbd7c717190549a1ba6cbbeb51
+    expected:
+        outcome: infeasible
+        requiredDecisionIds: []
+        requiredSelections: []
+        forbiddenSelections: []
+        requiredDiagnosticCodes:
+            - YARA-PLAN-001
+    reviewRequirements:
+        minimumIndependentReviewers: 1
+        requiredRoles:
+            - ai-platform-architect

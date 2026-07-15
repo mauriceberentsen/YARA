@@ -1,0 +1,33 @@
+apiVersion: yara.dev/v1alpha1
+kind: PlatformRequest
+metadata:
+    name: airgapped-coding-low-concurrency
+spec:
+    useCases:
+        - id: coding
+          required: true
+    workload:
+        expectedUsers: 10
+        peakConcurrentRequests: 2
+        maximumContextTokens: 16384
+    environment:
+        connectivity: air-gapped
+        inventoryRef: airgapped-coding-low-concurrency-inventory
+        lifecycle: evaluation
+    policies:
+        openSourceOnly: true
+        externalEgress: forbidden
+        telemetry: forbidden
+        artifactVerification: required
+    objectives:
+        preset: balanced
+        weights:
+            quality: 0.3
+            latency: 0.1
+            throughput: 0.1
+            cost: 0.05
+            simplicity: 0.3
+            energy: 0.05
+            evidenceConfidence: 0.1
+    preferences:
+        deploymentTarget: local-containers
