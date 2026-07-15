@@ -16,6 +16,31 @@ func TestPlatformPlanValidationDetectsTampering(t *testing.T) {
 	assertDiagnostic(t, report, "YARA-PLAN-014", "metadata.planId")
 }
 
+func TestPlatformPlanRejectsUnsafeDeploymentOrder(t *testing.T) {
+	plan := validPlan(t)
+	plan.Spec.Topology.Instances = append(plan.Spec.Topology.Instances, PlanInstance{
+		ID: "gateway", Role: "gateway", ComponentRef: "gateway", Placement: "host", APIContracts: []string{"api"},
+	})
+	plan.Spec.Topology.Connections = []PlanConnection{{From: "gateway", To: "inference", Contract: "api"}}
+	plan.Spec.Topology.DeploymentStages = [][]string{{"gateway"}, {"inference"}}
+	plan, err := plan.AssignPlanID()
+	if err != nil {
+		t.Fatalf("assign plan ID: %v", err)
+	}
+	if report := plan.Validate(); report.Valid || !hasDiagnostic(report.Diagnostics, "YARA-PLAN-022") {
+		t.Fatalf("expected unsafe deployment order diagnostic, got %#v", report.Diagnostics)
+	}
+}
+
+func hasDiagnostic(items []diagnostics.Diagnostic, code string) bool {
+	for _, item := range items {
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func validPlan(t *testing.T) PlatformPlan {
 	t.Helper()
 	plan := PlatformPlan{
@@ -31,7 +56,7 @@ func validPlan(t *testing.T) PlatformPlan {
 		Spec: PlatformPlanSpec{
 			Status: "review-required",
 			Topology: PlanTopology{
-				Instances:   []PlanInstance{{ID: "inference", Role: "inference.text-generation", RuntimeRef: "runtime", ModelRef: "model", Placement: "host/gpu", APIContract: "api"}},
+				Instances:   []PlanInstance{{ID: "inference", Role: "inference.text-generation", ComponentRef: "runtime", ModelRef: "model", Placement: "host/gpu", APIContracts: []string{"api"}}},
 				Connections: []PlanConnection{}, DeploymentStages: [][]string{{"inference"}},
 			},
 			Allocations: []PlanAllocation{{InstanceID: "inference", AcceleratorID: "gpu", EstimatedMemoryGiB: 1, AllocatableMemoryGiB: 2}},

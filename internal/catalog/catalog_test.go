@@ -25,6 +25,10 @@ func TestLoadFirstSnapshot(t *testing.T) {
 	if len(governance) != 1 || governance[0].Code != "YARA-CAT-040" || governance[0].Severity != "warning" {
 		t.Fatalf("expected quarantined compatibility warning, got %#v", governance)
 	}
+	topology, ok := snapshot.SelectTopology([]string{"chat", "coding"})
+	if !ok || topology.ID != "core.private-chat-coding" || len(topology.Roles) != 2 || len(topology.DeploymentStages) != 2 {
+		t.Fatalf("expected compiled multi-component topology, got %#v", topology)
+	}
 	for _, candidate := range candidates {
 		if candidate.HardwareProfileRef == "core.placeholder-nvidia-conflicted" {
 			t.Fatalf("quarantined compatibility tuple became eligible: %#v", candidate)
@@ -36,6 +40,21 @@ func TestLoadFirstSnapshot(t *testing.T) {
 	}
 	if len(digest) != len("sha256:")+64 {
 		t.Fatalf("unexpected digest %q", digest)
+	}
+}
+
+func TestCatalogRejectsCyclicTopology(t *testing.T) {
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.1", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	topology := snapshot.manifests.Topologies[0]
+	topology.Spec.Connections = append(topology.Spec.Connections, TopologyConnection{
+		From: "inference", To: "gateway", Contract: "integration.api.openai-chat/v1",
+	})
+	snapshot.manifests.Topologies[0] = topology
+	if report := snapshot.Validate(); report.Valid || !containsDiagnostic(report.Diagnostics, "YARA-CAT-047") {
+		t.Fatalf("expected topology cycle error, got %#v", report.Diagnostics)
 	}
 }
 

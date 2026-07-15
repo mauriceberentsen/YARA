@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -45,12 +46,12 @@ type PlanTopology struct {
 }
 
 type PlanInstance struct {
-	ID          string `json:"id" yaml:"id"`
-	Role        string `json:"role" yaml:"role"`
-	RuntimeRef  string `json:"runtimeRef" yaml:"runtimeRef"`
-	ModelRef    string `json:"modelRef" yaml:"modelRef"`
-	Placement   string `json:"placement" yaml:"placement"`
-	APIContract string `json:"apiContract" yaml:"apiContract"`
+	ID           string   `json:"id" yaml:"id"`
+	Role         string   `json:"role" yaml:"role"`
+	ComponentRef string   `json:"componentRef" yaml:"componentRef"`
+	ModelRef     string   `json:"modelRef,omitempty" yaml:"modelRef,omitempty"`
+	Placement    string   `json:"placement" yaml:"placement"`
+	APIContracts []string `json:"apiContracts" yaml:"apiContracts"`
 }
 
 type PlanConnection struct {
@@ -109,6 +110,7 @@ func (p PlatformPlan) Validate() diagnostics.Report {
 	if len(p.Spec.Topology.Instances) == 0 || len(p.Spec.Decisions) == 0 || len(p.Spec.Allocations) == 0 {
 		items = append(items, diagnostics.Error("YARA-PLAN-012", "Plan topology, allocation and decision must be present.", "spec"))
 	}
+	items = append(items, validatePlanTopology(p.Spec.Topology)...)
 	if p.Metadata.PlanID != "" {
 		claimedID := p.Metadata.PlanID
 		recomputed, err := p.AssignPlanID()
@@ -119,6 +121,56 @@ func (p PlatformPlan) Validate() diagnostics.Report {
 		}
 	}
 	return diagnostics.NewReport(items...)
+}
+
+func validatePlanTopology(topology PlanTopology) []diagnostics.Diagnostic {
+	var items []diagnostics.Diagnostic
+	instances := make(map[string]PlanInstance, len(topology.Instances))
+	for index, instance := range topology.Instances {
+		path := fmt.Sprintf("spec.topology.instances[%d]", index)
+		if instance.ID == "" || instance.Role == "" || instance.ComponentRef == "" || instance.Placement == "" || len(instance.APIContracts) == 0 {
+			items = append(items, diagnostics.Error("YARA-PLAN-015", "Plan instance is incomplete.", path))
+		}
+		if _, exists := instances[instance.ID]; exists {
+			items = append(items, diagnostics.Error("YARA-PLAN-016", "Plan instance IDs must be unique.", path+".id"))
+		}
+		instances[instance.ID] = instance
+	}
+	for index, connection := range topology.Connections {
+		path := fmt.Sprintf("spec.topology.connections[%d]", index)
+		from, fromExists := instances[connection.From]
+		to, toExists := instances[connection.To]
+		if !fromExists || !toExists || connection.From == connection.To || connection.Contract == "" {
+			items = append(items, diagnostics.Error("YARA-PLAN-017", "Plan connection has invalid endpoints or contract.", path))
+			continue
+		}
+		if !contains(from.APIContracts, connection.Contract) || !contains(to.APIContracts, connection.Contract) {
+			items = append(items, diagnostics.Error("YARA-PLAN-018", "Both connection endpoints must implement the declared contract.", path+".contract"))
+		}
+	}
+	staged := make(map[string]int, len(instances))
+	for stageIndex, stage := range topology.DeploymentStages {
+		for _, id := range stage {
+			if _, exists := instances[id]; !exists {
+				items = append(items, diagnostics.Error("YARA-PLAN-019", "Deployment stage references an unknown instance.", "spec.topology.deploymentStages"))
+			}
+			if _, exists := staged[id]; exists {
+				items = append(items, diagnostics.Error("YARA-PLAN-020", "Each instance must occur in exactly one deployment stage.", "spec.topology.deploymentStages"))
+			}
+			staged[id] = stageIndex
+		}
+	}
+	if len(staged) != len(instances) {
+		items = append(items, diagnostics.Error("YARA-PLAN-021", "Deployment stages must include every plan instance.", "spec.topology.deploymentStages"))
+	}
+	for _, connection := range topology.Connections {
+		fromStage, fromExists := staged[connection.From]
+		toStage, toExists := staged[connection.To]
+		if fromExists && toExists && toStage >= fromStage {
+			items = append(items, diagnostics.Error("YARA-PLAN-022", "A connection target must be deployed before its caller.", "spec.topology.deploymentStages"))
+		}
+	}
+	return items
 }
 
 func (p PlatformPlan) AssignPlanID() (PlatformPlan, error) {
