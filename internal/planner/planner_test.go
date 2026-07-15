@@ -99,6 +99,73 @@ func TestCandidateRequiresExplicitHardwareCompatibility(t *testing.T) {
 	}
 }
 
+func TestEveryServingHardConstraintHasFailingCounterexample(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected string
+		mutate   func(*resources.PlatformRequest, *resources.Inventory, *catalog.ServingCandidate)
+	}{
+		{"hardware assertion", "YARA-HW-002", func(_ *resources.PlatformRequest, inventory *resources.Inventory, _ *catalog.ServingCandidate) {
+			inventory.Spec.Hosts[0].Accelerators[0].Model = "unasserted-device"
+		}},
+		{"required capability", "YARA-CAP-001", func(_ *resources.PlatformRequest, _ *resources.Inventory, candidate *catalog.ServingCandidate) {
+			candidate.Capabilities = []string{"chat"}
+		}},
+		{"open source", "YARA-POL-010", func(_ *resources.PlatformRequest, _ *resources.Inventory, candidate *catalog.ServingCandidate) {
+			candidate.Policy.OpenSource = false
+		}},
+		{"external egress", "YARA-POL-011", func(_ *resources.PlatformRequest, _ *resources.Inventory, candidate *catalog.ServingCandidate) {
+			candidate.Policy.ExternalEgress = true
+		}},
+		{"telemetry", "YARA-POL-012", func(_ *resources.PlatformRequest, _ *resources.Inventory, candidate *catalog.ServingCandidate) {
+			candidate.Policy.Telemetry = true
+		}},
+		{"artifact verification", "YARA-POL-013", func(_ *resources.PlatformRequest, _ *resources.Inventory, candidate *catalog.ServingCandidate) {
+			candidate.Policy.ArtifactVerified = false
+		}},
+		{"accelerator memory", "YARA-HW-004", func(_ *resources.PlatformRequest, inventory *resources.Inventory, _ *catalog.ServingCandidate) {
+			inventory.Spec.Hosts[0].Accelerators[0].AllocatableMemoryGiB = 1
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request, inventory, snapshot := loadGoldenInputs(t)
+			candidate := snapshot.Candidates()[0]
+			test.mutate(&request, &inventory, &candidate)
+			result := evaluate(request, inventory.Spec.Hosts[0].Accelerators[0], candidate)
+			if result.Rejection == nil || result.Rejection.Code != test.expected {
+				t.Fatalf("expected %s, got %#v", test.expected, result.Rejection)
+			}
+		})
+	}
+}
+
+func TestEveryGatewayPolicyConstraintHasFailingCounterexample(t *testing.T) {
+	request, _, snapshot := loadGoldenInputs(t)
+	components := snapshot.ComponentsForRole("gateway.openai-compatible")
+	if len(components) != 1 {
+		t.Fatalf("expected one gateway fixture, got %d", len(components))
+	}
+	tests := []struct {
+		name   string
+		mutate func(*catalog.ComponentCandidate)
+	}{
+		{"open source", func(component *catalog.ComponentCandidate) { component.Policy.OpenSource = false }},
+		{"external egress", func(component *catalog.ComponentCandidate) { component.Policy.ExternalEgress = true }},
+		{"telemetry", func(component *catalog.ComponentCandidate) { component.Policy.Telemetry = true }},
+		{"artifact verification", func(component *catalog.ComponentCandidate) { component.Policy.ArtifactVerified = false }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			component := components[0]
+			test.mutate(&component)
+			if componentAllowed(request, component) {
+				t.Fatal("policy-incompatible gateway was allowed")
+			}
+		})
+	}
+}
+
 func loadGoldenInputs(t *testing.T) (resources.PlatformRequest, resources.Inventory, catalog.Snapshot) {
 	t.Helper()
 	request, err := resources.LoadPlatformRequest(filepath.Join("..", "..", "docs", "examples", "platform-request.yaml"))

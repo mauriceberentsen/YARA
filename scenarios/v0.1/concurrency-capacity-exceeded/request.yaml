@@ -1,0 +1,35 @@
+apiVersion: yara.dev/v1alpha1
+kind: PlatformRequest
+metadata:
+    name: concurrency-capacity-exceeded
+spec:
+    useCases:
+        - id: chat
+          required: true
+        - id: coding
+          required: true
+    workload:
+        expectedUsers: 25
+        peakConcurrentRequests: 11
+        maximumContextTokens: 16384
+    environment:
+        connectivity: local
+        inventoryRef: concurrency-capacity-exceeded-inventory
+        lifecycle: evaluation
+    policies:
+        openSourceOnly: true
+        externalEgress: forbidden
+        telemetry: forbidden
+        artifactVerification: required
+    objectives:
+        preset: balanced
+        weights:
+            quality: 0.3
+            latency: 0.1
+            throughput: 0.1
+            cost: 0.05
+            simplicity: 0.3
+            energy: 0.05
+            evidenceConfidence: 0.1
+    preferences:
+        deploymentTarget: local-containers

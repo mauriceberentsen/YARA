@@ -1,0 +1,35 @@
+apiVersion: yara.dev/v1alpha1
+kind: PlatformRequest
+metadata:
+    name: custom-objectives-mixed
+spec:
+    useCases:
+        - id: chat
+          required: true
+        - id: coding
+          required: true
+    workload:
+        expectedUsers: 30
+        peakConcurrentRequests: 5
+        maximumContextTokens: 16384
+    environment:
+        connectivity: connected
+        inventoryRef: custom-objectives-mixed-inventory
+        lifecycle: evaluation
+    policies:
+        openSourceOnly: true
+        externalEgress: allowed
+        telemetry: forbidden
+        artifactVerification: preferred
+    objectives:
+        preset: custom
+        weights:
+            quality: 0.45
+            latency: 0.15
+            throughput: 0.1
+            cost: 0.1
+            simplicity: 0.05
+            energy: 0.05
+            evidenceConfidence: 0.1
+    preferences:
+        deploymentTarget: local-containers

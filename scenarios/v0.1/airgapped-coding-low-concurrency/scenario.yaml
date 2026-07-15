@@ -1,0 +1,41 @@
+apiVersion: yara.dev/v1alpha1
+kind: GoldenScenario
+metadata:
+    name: airgapped-coding-low-concurrency
+    scenarioId: sha256:798e87249d0fcb2dd78e594efc749884cc79588eeafd396e66af51eea61a10fd
+spec:
+    inputs:
+        request:
+            path: request.yaml
+            digest: sha256:5187ee494fe0ccd35a5a5a2bf9d48004e61be65e837265a0ce21f108f617a88f
+        inventory:
+            path: inventory.yaml
+            digest: sha256:0f5c9b04dc0e98dcd559d6805b197388d0ed899718d12f1a82bcb09d23177696
+        catalog:
+            path: ../../../catalog/v0.1/snapshot.yaml
+            digest: sha256:33b3b6e03a86f80d9c51faf62e3f2504432371bbd7c717190549a1ba6cbbeb51
+    expected:
+        outcome: planned
+        planId: sha256:8262774ffd9d5810cd27a056a29bbaac651a98c451ec535632649dcd67f5d388
+        requiredDecisionIds:
+            - decision.gateway
+            - decision.inference
+            - decision.topology
+        requiredSelections:
+            - decisionId: decision.gateway
+              selected: core.placeholder-gateway
+            - decisionId: decision.inference
+              selected: core.placeholder-coder-small
+            - decisionId: decision.topology
+              selected: core.private-chat-coding
+        forbiddenSelections:
+            - core.placeholder-coder-conflicted
+            - core.placeholder-coder-large
+        requiredDiagnosticCodes:
+            - YARA-CAT-040
+            - YARA-CAT-055
+            - YARA-INV-002
+    reviewRequirements:
+        minimumIndependentReviewers: 1
+        requiredRoles:
+            - ai-platform-architect

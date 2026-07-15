@@ -39,6 +39,7 @@ yara plan explain <file> [--decision <id>] [--audit-output <file>]
 yara plan diff <old> <new> [--audit-output <file>]
 yara debug bundle --plan <file> --output <file> --audit-output <file>
 yara scenario validate <file> [--audit-output <file>]
+yara scenario validate-all <directory> [--audit-output <file>]
 yara audit verify <file>
 ```
 
@@ -46,7 +47,7 @@ Commands write machine data to standard output or the requested file and human d
 
 The read-only validation, plan-explanation and plan-diff commands preserve positional inputs and optionally persist a local audit chain. Without `--decision`, explanation returns the complete ordered decision list for compatibility; with it, the command returns exactly one `PlanDecision` or `YARA-PLAN-040`. Planning and debug-bundle generation require an audit destination. An audit write failure prevents either artifact from being reported as successful; a read-only command with an explicitly requested audit destination follows the same fail-closed rule.
 
-Scenario validation proves pinned technical conformance only. Success always reports independent review as required and `releaseEligible: false`; the CLI cannot manufacture or infer human approval.
+Scenario validation proves pinned technical conformance only. `scenario validate-all` discovers a bounded, sorted suite, rejects duplicate scenario identities, requires at least ten cases and fails when any case is nonconformant. Its summary separates planned and infeasible results. Success always reports independent review as required, zero machine-counted approvals and `releaseEligible: false`; the CLI cannot manufacture or infer human approval.
 
 ## Future service endpoints
 

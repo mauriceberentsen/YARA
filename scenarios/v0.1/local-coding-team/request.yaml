@@ -1,0 +1,33 @@
+apiVersion: yara.dev/v1alpha1
+kind: PlatformRequest
+metadata:
+    name: local-coding-team
+spec:
+    useCases:
+        - id: coding
+          required: true
+    workload:
+        expectedUsers: 20
+        peakConcurrentRequests: 8
+        maximumContextTokens: 16384
+    environment:
+        connectivity: local
+        inventoryRef: local-coding-team-inventory
+        lifecycle: evaluation
+    policies:
+        openSourceOnly: true
+        externalEgress: forbidden
+        telemetry: forbidden
+        artifactVerification: required
+    objectives:
+        preset: balanced
+        weights:
+            quality: 0.3
+            latency: 0.1
+            throughput: 0.1
+            cost: 0.05
+            simplicity: 0.3
+            energy: 0.05
+            evidenceConfidence: 0.1
+    preferences:
+        deploymentTarget: local-containers

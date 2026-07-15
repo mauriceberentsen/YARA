@@ -26,6 +26,7 @@ The local CLI currently emits two-event started/terminal chains for:
 - semantic plan comparison when `--audit-output` is supplied, including both plan IDs and the resulting diff ID;
 - redacted debug-bundle generation, with mandatory audit evidence binding the source plan ID and resulting bundle ID;
 - golden-scenario validation when `--audit-output` is supplied, binding the scenario ID and generated plan ID without claiming review approval;
+- golden-scenario suite validation when `--audit-output` is supplied, binding every scenario ID and every generated plan ID without claiming or counting human approval;
 - planning started/completed/failed/infeasible, with audit output mandatory;
 - request, inventory and catalog load/decode rejection during planning.
 
@@ -90,6 +91,7 @@ plan.explain.*
 plan.diff.*
 debug.bundle.*
 scenario.validate.*
+scenario.validate-all.*
 approval.record.*
 artifact.render.*
 deployment.apply.*
