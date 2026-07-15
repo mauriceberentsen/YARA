@@ -37,7 +37,7 @@ Measure:
 
 ### 3. Golden scenarios
 
-Convert reviewed cases into anonymized planner fixtures. Each scenario must include expected selections, forbidden outcomes, acceptable alternatives and unresolved uncertainties. These become executable acceptance tests.
+Convert reviewed cases into anonymized `GoldenScenario` fixtures. Each scenario pins exact input digests, expected selections and plan identity, forbidden outcomes, required diagnostics and independent-review roles. `scenario validate` proves technical conformance offline but always keeps review and release status pending until separate human evidence exists.
 
 ### 4. Planner prototype
 

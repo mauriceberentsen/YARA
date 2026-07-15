@@ -43,7 +43,7 @@ Each scenario contains:
 - expected diagnostics and key decision factors;
 - expert reviewer and review date.
 
-Golden tests compare semantic plans. Presentation text can change through separately reviewed snapshots.
+`GoldenScenario` validates exact input digests, semantic plan ID, required decisions/selections, forbidden outcomes and diagnostic codes offline. Golden tests compare semantic plans. Presentation text can change through separately reviewed snapshots. The CLI reports technical conformance separately from pending independent review and release eligibility.
 
 ### Compatibility contract tests
 

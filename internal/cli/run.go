@@ -64,6 +64,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "debug" && args[1] == "bundle" {
 		return createDebugBundle(args[2:], stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "scenario" && args[1] == "validate" {
+		return validateScenario(args[2:], stdout, stderr)
+	}
 	if len(args) < 2 || args[1] != "validate" {
 		writeUsage(stderr)
 		return ExitInvalidInput
@@ -185,5 +188,6 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara plan explain <file> [--decision <id>] [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara plan diff <from-file> <to-file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara debug bundle --plan <file> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara scenario validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara audit verify <file>")
 }

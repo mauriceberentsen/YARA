@@ -17,6 +17,7 @@
 | Evidence | A sourced fact with provenance, collection time, scope and confidence. |
 | Executor | A backend that applies an approved plan or rendered artifacts to a target environment. |
 | Fact | A normalized value derived from user input, discovery or catalog data. |
+| GoldenScenario | Content-addressed executable case that pins planner inputs, expected and forbidden outcomes, diagnostics and independent-review requirements without representing review approval. |
 | Inventory | A point-in-time description of hardware, software and platform resources available to YARA. |
 | Knowledge base | The set of catalogs, relationships, rules, provenance and validation needed by the planner. |
 | Objective | A dimension to optimize, such as quality, latency, throughput, cost, simplicity or energy use. |
