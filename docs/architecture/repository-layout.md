@@ -29,6 +29,7 @@ YARA/
     debugbundle/
     plandiff/
     planner/
+    scenario/
     policy/
     validation/
   adapters/                # versioned discovery/renderer/executor adapters

@@ -35,6 +35,10 @@ func LoadDebugBundle(path string) (DebugBundle, error) {
 	return loadResource[DebugBundle](path)
 }
 
+func LoadGoldenScenario(path string) (GoldenScenario, error) {
+	return loadResource[GoldenScenario](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

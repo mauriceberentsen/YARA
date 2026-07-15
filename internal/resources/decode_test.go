@@ -48,6 +48,16 @@ func TestLoadExampleDebugBundle(t *testing.T) {
 	}
 }
 
+func TestLoadGoldenScenario(t *testing.T) {
+	golden, err := LoadGoldenScenario(filepath.Join("..", "..", "scenarios", "v0.1", "private-chat-coding", "scenario.yaml"))
+	if err != nil {
+		t.Fatalf("load golden scenario: %v", err)
+	}
+	if report := golden.Validate(); !report.Valid {
+		t.Fatalf("expected golden scenario to be valid, got %#v", report.Diagnostics)
+	}
+}
+
 func TestLoadRejectsUnknownYAMLField(t *testing.T) {
 	path := writeTempResource(t, `
 apiVersion: yara.dev/v1alpha1
