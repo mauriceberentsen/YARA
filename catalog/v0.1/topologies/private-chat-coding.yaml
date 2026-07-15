@@ -3,6 +3,13 @@ kind: TopologyTemplate
 metadata:
   id: core.private-chat-coding
   version: 1.0.0
+  status: experimental
+  owners: [yara-core]
+provenance:
+  sources: [{type: fixture, ref: local:topology/private-chat-coding}]
+  verifiedAt: 2026-07-14T00:00:00Z
+  reviewAfter: 2026-10-14T00:00:00Z
+  confidence: medium
 spec:
   satisfiesUseCases:
     - chat

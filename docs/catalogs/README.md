@@ -100,7 +100,9 @@ Release tooling should:
 7. create a content digest and optional signature;
 8. publish an immutable snapshot, never rewrite one.
 
-The current in-process compiler implements schema-shaped strict decoding, reference resolution, stable sorting, content digests and deterministic contradiction quarantine. Ownership, freshness, signatures and release publication remain required before any catalog entry can be labelled production-supported.
+The current in-process compiler implements schema-shaped strict decoding, reference resolution, stable sorting, content digests and deterministic contradiction quarantine. These checks alone do not make a catalog entry production-supported.
+
+Ownership and freshness are now executable v0.1 gates. Every manifest requires at least one owner and a provenance record containing sources, confidence, `verifiedAt` and `reviewAfter`. A snapshot provides `publishedAt`; validation compares evidence to that timestamp rather than the operator's wall clock. This preserves offline reproducibility. Evidence verified after publication or due for review at publication fails with `YARA-CAT-054`. The remaining production gates are signed releases, immutable upstream artifacts and contract-test-backed evidence.
 
 ## Compatibility policy
 

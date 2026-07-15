@@ -22,7 +22,7 @@ func TestLoadFirstSnapshot(t *testing.T) {
 		t.Fatalf("expected hardware compatibility to be compiled: %#v", candidates[0])
 	}
 	governance := snapshot.Diagnostics()
-	if len(governance) != 1 || governance[0].Code != "YARA-CAT-040" || governance[0].Severity != "warning" {
+	if !containsDiagnostic(governance, "YARA-CAT-040") || !containsDiagnostic(governance, "YARA-CAT-055") {
 		t.Fatalf("expected quarantined compatibility warning, got %#v", governance)
 	}
 	topology, ok := snapshot.SelectTopology([]string{"chat", "coding"})
@@ -40,6 +40,28 @@ func TestLoadFirstSnapshot(t *testing.T) {
 	}
 	if len(digest) != len("sha256:")+64 {
 		t.Fatalf("unexpected digest %q", digest)
+	}
+}
+
+func TestCatalogRejectsStaleManifestAtSnapshotTime(t *testing.T) {
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.1", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	snapshot.manifests.Components[0].Provenance.ReviewAfter = snapshot.Metadata.PublishedAt
+	if report := snapshot.Validate(); report.Valid || !containsDiagnostic(report.Diagnostics, "YARA-CAT-054") {
+		t.Fatalf("expected stale evidence error, got %#v", report.Diagnostics)
+	}
+}
+
+func TestCatalogRejectsMissingManifestOwner(t *testing.T) {
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.1", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	snapshot.manifests.Models[0].Metadata.Owners = nil
+	if report := snapshot.Validate(); report.Valid || !containsDiagnostic(report.Diagnostics, "YARA-CAT-051") {
+		t.Fatalf("expected ownership error, got %#v", report.Diagnostics)
 	}
 }
 
@@ -89,7 +111,7 @@ func containsDiagnostic(items []diagnostics.Diagnostic, code string) bool {
 
 func TestCatalogRejectsManifestPathTraversal(t *testing.T) {
 	root := t.TempDir()
-	index := []byte("apiVersion: yara.dev/v1alpha1\nkind: CatalogSnapshot\nmetadata:\n  name: traversal\n  version: 0.1.0\nspec:\n  manifests: [../outside.yaml]\n")
+	index := []byte("apiVersion: yara.dev/v1alpha1\nkind: CatalogSnapshot\nmetadata:\n  name: traversal\n  version: 0.1.0\n  publishedAt: 2026-07-15T00:00:00Z\nspec:\n  manifests: [../outside.yaml]\n")
 	path := filepath.Join(root, "snapshot.yaml")
 	if err := os.WriteFile(path, index, 0o600); err != nil {
 		t.Fatalf("write index: %v", err)
@@ -112,7 +134,7 @@ func TestCatalogRejectsManifestSymlinkEscape(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "linked.yaml")); err != nil {
 		t.Skipf("symbolic links unavailable: %v", err)
 	}
-	index := []byte("apiVersion: yara.dev/v1alpha1\nkind: CatalogSnapshot\nmetadata:\n  name: symlink\n  version: 0.1.0\nspec:\n  manifests: [linked.yaml]\n")
+	index := []byte("apiVersion: yara.dev/v1alpha1\nkind: CatalogSnapshot\nmetadata:\n  name: symlink\n  version: 0.1.0\n  publishedAt: 2026-07-15T00:00:00Z\nspec:\n  manifests: [linked.yaml]\n")
 	path := filepath.Join(root, "snapshot.yaml")
 	if err := os.WriteFile(path, index, 0o600); err != nil {
 		t.Fatalf("write index: %v", err)

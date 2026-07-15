@@ -3,6 +3,13 @@ kind: CompatibilityAssertion
 metadata:
   id: core.placeholder-coder-conflicted-negative
   version: 1.0.0
+  status: experimental
+  owners: [yara-core]
+provenance:
+  sources: [{type: fixture, ref: local:compatibility/placeholder-conflicted-negative}]
+  verifiedAt: 2026-07-14T00:00:00Z
+  reviewAfter: 2026-10-14T00:00:00Z
+  confidence: high
 spec:
   runtimeRef: core.placeholder-runtime
   modelRef: core.placeholder-coder-q4

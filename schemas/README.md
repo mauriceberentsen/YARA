@@ -4,6 +4,8 @@ This directory contains the first executable `v1alpha1` wire contracts. JSON Sch
 
 Current schemas:
 
+Shared catalog metadata and provenance definitions live in `catalog-manifest-common.schema.json`.
+
 - `PlatformRequest`
 - `Inventory`
 - `AuditEvent`
@@ -16,4 +18,4 @@ Current schemas:
 - `TopologyTemplate`
 - `PlatformPlan`
 
-These schemas are alpha contracts and may change with an explicit migration before v0.1. Unknown fields are rejected. The Go tests parse every schema and validate the repository examples through the strict typed loader.
+These schemas are alpha contracts and may change with an explicit migration before v0.1. Unknown fields are rejected. Catalog resources share mandatory lifecycle, ownership and provenance definitions. The Go tests parse every schema and validate the repository examples through the strict typed loader.

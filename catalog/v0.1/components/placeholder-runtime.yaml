@@ -3,6 +3,13 @@ kind: Component
 metadata:
   id: core.placeholder-runtime
   version: 1.0.0
+  status: experimental
+  owners: [yara-core]
+provenance:
+  sources: [{type: fixture, ref: local:component/placeholder-runtime}]
+  verifiedAt: 2026-07-14T00:00:00Z
+  reviewAfter: 2026-10-14T00:00:00Z
+  confidence: medium
 spec:
   roles:
     - inference.text-generation

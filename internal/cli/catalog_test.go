@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+
+	"github.com/mauriceberentsen/YARA/internal/diagnostics"
 )
 
 func TestCatalogValidateReportsCompiledSnapshot(t *testing.T) {
@@ -20,7 +22,16 @@ func TestCatalogValidateReportsCompiledSnapshot(t *testing.T) {
 	if !result.Valid || result.Candidates != 2 || result.Digest == "" {
 		t.Fatalf("unexpected validation result: %#v", result)
 	}
-	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "YARA-CAT-040" {
+	if !hasCode(result.Diagnostics, "YARA-CAT-040") || !hasCode(result.Diagnostics, "YARA-CAT-055") {
 		t.Fatalf("expected catalog quarantine warning: %#v", result.Diagnostics)
 	}
+}
+
+func hasCode(items []diagnostics.Diagnostic, code string) bool {
+	for _, item := range items {
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
 }

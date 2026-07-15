@@ -34,6 +34,9 @@ func TestHigherScoringOversizedCandidateCannotWin(t *testing.T) {
 	if !containsPlanDiagnostic(result.Plan.Spec.Diagnostics, "YARA-CAT-040") {
 		t.Fatalf("expected catalog governance diagnostic in plan: %#v", result.Plan.Spec.Diagnostics)
 	}
+	if !containsPlanDiagnostic(result.Plan.Spec.Diagnostics, "YARA-CAT-055") {
+		t.Fatalf("expected experimental catalog warning in plan: %#v", result.Plan.Spec.Diagnostics)
+	}
 	topology := result.Plan.Spec.Topology
 	if len(topology.Instances) != 2 || len(topology.Connections) != 1 || len(topology.DeploymentStages) != 2 {
 		t.Fatalf("expected two-role topology, got %#v", topology)

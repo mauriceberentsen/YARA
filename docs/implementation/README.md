@@ -6,7 +6,7 @@ The foundational architecture is sufficiently defined to begin a thin v0.1 imple
 
 ## Current implementation status
 
-The bootstrap now includes the Go module and CLI, strict resource decoding, public schemas, stable diagnostics, canonical SHA-256 digests and audit-event chaining. The catalog compiler resolves capability, component, model, hardware, compatibility and topology manifests. Compatibility is open-world: explicit negative assertions win and conflicts are quarantined. A product-neutral topology template is resolved into gateway and inference components, an interface connection and dependency-safe deployment stages. The planner applies hardware, memory and policy constraints, propagates catalog warnings into independently validated plans and persists material outcomes in tamper-evident audit chains. Catalog ownership/freshness gates and audit coverage for validation/load failures remain future work.
+The bootstrap now includes strict resource decoding, public schemas, stable diagnostics, canonical digests and audit-event chaining. The catalog compiler resolves capability, component, model, hardware, compatibility and topology manifests. Every manifest declares lifecycle status, owners, evidence sources, confidence and a verification/review window. Freshness is evaluated deterministically against the immutable snapshot `publishedAt`; missing ownership, malformed provenance and expired evidence invalidate the snapshot. The bundled fixtures remain experimental and emit `YARA-CAT-055` into catalog output, plans and audit evidence. Compatibility quarantine, multi-component topology resolution and independent plan validation remain active. Audit coverage for validation and catalog-load failures is the next slice.
 
 ## Fixed decisions
 
