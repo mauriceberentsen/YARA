@@ -11,6 +11,7 @@
 | Constraint | A condition that must hold for a plan to be valid. Hard constraints eliminate candidates; soft constraints influence ranking. |
 | Confidence factor | Ordinal, evidence-linked assessment of one recommendation input or method; overall plan confidence equals the weakest current factor. |
 | Decision | A selected option plus alternatives, facts, rules, scores, assumptions and explanation. |
+| DebugBundle | Content-addressed, locally generated support metadata derived through an allowlisted redaction profile and secret-pattern gate; never an automatic upload or a copy of source resources. |
 | Desired state | What the user wants to achieve, independent of products or deployment syntax. |
 | Discovery | Collection of facts about an environment. Discovery reports evidence; it does not make recommendations. |
 | Evidence | A sourced fact with provenance, collection time, scope and confidence. |

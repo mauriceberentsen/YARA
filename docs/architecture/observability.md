@@ -11,7 +11,7 @@ They may integrate, but access and retention policies can differ.
 
 ## Planner diagnostics
 
-Planning is primarily observable through structured traces, not runtime metrics. A trace records stage duration, candidate counts, eliminations by reason, rule evaluations, evidence lookups and search truncation. Default user output is concise; a debug bundle includes the full redacted trace.
+Planning is primarily observable through structured decisions and diagnostics rather than runtime metrics. A future trace can record stage duration, candidate counts, eliminations by reason, rule evaluations, evidence lookups and search truncation. Default user output remains concise.
 
 Semantic decisions are not buried in free-form logs. They live in `PlatformPlan.decisions` and remain stable after the process exits.
 
@@ -55,7 +55,11 @@ Prompts, completions, retrieved documents, code, tokens, user identifiers and ho
 
 ## Diagnostic bundles
 
-A bundle contains versions, plan/receipt IDs, redacted configuration shape, health results and relevant logs. Generation shows an inventory of included files and scans for secret-like content. The operator approves export; local generation does not upload it.
+The implemented v0.1 `DebugBundle` is a deterministic, content-addressed JSON artifact derived from a validated plan. It includes generator/planner versions, source digests, bounded-search and confidence summaries, topology counts and roles, diagnostic codes, an inventory of its four logical sections, and an explicit list of omitted plan paths. It excludes the plan name, component/model references, placement, allocations, decision reasons, diagnostic text and raw inputs.
+
+Generation scans the complete candidate artifact for a bounded set of secret-like patterns and fails without writing a bundle when it finds one. This heuristic is defense in depth, not proof that arbitrary future inputs are safe. The current command requires fail-closed local audit evidence, never uploads the result and does not collect environment variables. Operators must inspect the JSON before sharing it.
+
+Logs, traces, receipts and health observations are not included because v0.1 does not produce those resources yet. Adding any of them requires typed redaction, classification, bounded size and secret-canary tests before they enter the bundle contract.
 
 ## Service objectives
 

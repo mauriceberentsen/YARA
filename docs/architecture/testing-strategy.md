@@ -21,7 +21,8 @@ YARA's tests must prove more than code execution: supported recommendations are 
 - resource estimate arithmetic and headroom;
 - objective normalization and deterministic ties;
 - graph construction and cycle detection;
-- redaction and diagnostic stability.
+- redaction and diagnostic stability;
+- deterministic debug-bundle identity, allowlisted section digests and secret-pattern false-positive/false-negative fixtures.
 
 Property/metamorphic examples:
 
@@ -82,6 +83,7 @@ Passing once does not guarantee permanent support; evidence freshness policy app
 - catalog namespace and signature violations;
 - plugin timeout and permission denial;
 - secret canaries through plans, logs and bundles;
+- debug-bundle output rollback when required audit persistence fails;
 - supply-chain digest substitution;
 - authorization and separation-of-duties checks;
 - required audit event, ordering, redaction, integrity-chain and audit-sink failure tests;

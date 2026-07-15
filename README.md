@@ -4,7 +4,7 @@
 
 YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
 
-YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate the first deterministic placeholder plan, explain and semantically compare plans, and verify tamper-evident local audit chains. It does not deploy a platform yet.
+YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate the first deterministic placeholder plan, explain and semantically compare plans, produce a redacted local debug bundle, and verify tamper-evident local audit chains. It does not deploy a platform yet.
 
 ## The problem
 
@@ -152,6 +152,10 @@ go run ./cmd/yara plan create \
   --audit-output audit.jsonl
 go run ./cmd/yara plan diff docs/examples/platform-plan.yaml plan.yaml \
   --audit-output plan-diff.audit.jsonl
+go run ./cmd/yara debug bundle \
+  --plan docs/examples/platform-plan.yaml \
+  --output debug-bundle.json \
+  --audit-output debug-bundle.audit.jsonl
 ```
 
 Currently implemented:
@@ -170,10 +174,11 @@ Currently implemented:
 - independently validated multi-component `PlatformPlan` output with interface connections, dependency-safe deployment stages, explanations, rejected alternatives, explicit search bounds, ordinal confidence factors, governance diagnostics and content integrity;
 - deterministic, content-addressed `PlatformPlanDiff` output with provenance causes, decision references and conservative review/redeploy/destructive impact classification;
 - targeted `plan explain --decision` output with stable missing-decision diagnostics and optional fail-closed audit evidence bound to the exact explanation digest;
+- deterministic, content-addressed `DebugBundle` output containing only an inspectable redacted plan summary, section inventory and successful secret-scan assertion;
 - tamper-evident audit chains for validation plus successful, infeasible and input-rejected planning outcomes, containing available input identities and stable diagnostic codes, including material warnings;
-- optional fail-closed validation, plan-explanation and plan-diff audit receipts, plus mandatory fail-closed persistence for `plan create`, with path- and payload-minimized evidence for resources that cannot be decoded.
+- optional fail-closed validation, plan-explanation and plan-diff audit receipts, plus mandatory fail-closed persistence for `plan create` and `debug bundle`, with path- and payload-minimized evidence for resources that cannot be decoded.
 
-All bundled manifests remain explicitly `experimental`; their warning caps recommendation confidence and is preserved in generated plans, explanations, diffs and audit evidence. The next vertical slice will add a locally generated, inspectable and secret-scanned redacted debug bundle.
+All bundled manifests remain explicitly `experimental`; their warning caps recommendation confidence and is preserved in generated plans, explanations, diffs, debug bundles and audit evidence. The remaining milestone-4 gate is independent domain-expert review of the scenario and v0.1 acceptance criteria.
 
 ## Project status
 

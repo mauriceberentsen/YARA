@@ -38,6 +38,16 @@ func TestLoadExamplePlatformPlan(t *testing.T) {
 	}
 }
 
+func TestLoadExampleDebugBundle(t *testing.T) {
+	bundle, err := LoadDebugBundle(filepath.Join("..", "..", "docs", "examples", "debug-bundle.json"))
+	if err != nil {
+		t.Fatalf("load debug bundle: %v", err)
+	}
+	if report := bundle.Validate(); !report.Valid {
+		t.Fatalf("expected debug bundle to be valid, got %#v", report.Diagnostics)
+	}
+}
+
 func TestLoadRejectsUnknownYAMLField(t *testing.T) {
 	path := writeTempResource(t, `
 apiVersion: yara.dev/v1alpha1

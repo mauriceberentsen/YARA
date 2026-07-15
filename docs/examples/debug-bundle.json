@@ -1,0 +1,127 @@
+{
+  "apiVersion": "yara.dev/v1alpha1",
+  "kind": "DebugBundle",
+  "metadata": {
+    "bundleId": "sha256:3a37a5c26ea6832b2015f69c5dc9a8e9f45c5bb5178d32a3373e8900f3fb9fff"
+  },
+  "spec": {
+    "generator": {
+      "version": "0.1.0-dev"
+    },
+    "source": {
+      "planId": "sha256:e05a7481868257bbcc586073597fb9e977f5cf203403f26f6592d6e6f48a9e4c",
+      "requestDigest": "sha256:c90e734a40a7f140a6da736ecf414b49734559aab1ffe70cca3271d977523562",
+      "inventoryDigest": "sha256:1fd03c0969798ca71c206bf06dbdfe284cd52d0024393ed2c09a8404117badbb",
+      "catalogDigest": "sha256:33b3b6e03a86f80d9c51faf62e3f2504432371bbd7c717190549a1ba6cbbeb51",
+      "plannerVersion": "0.1.0-dev"
+    },
+    "contents": [
+      {
+        "name": "generator",
+        "classification": "support-metadata",
+        "digest": "sha256:293d6fa6ec76ce1ec991a2992069d76b20ff05a8431f123eff01863ef17dd785"
+      },
+      {
+        "name": "plan-source",
+        "classification": "support-metadata",
+        "digest": "sha256:d6d94a28e5a8fd8be11fa4e17feb0b408ab0ba240290fe5b4743b1d50f8e965e"
+      },
+      {
+        "name": "plan-summary",
+        "classification": "support-metadata",
+        "digest": "sha256:b36d3c66a261079d02873585b5e655fa16114b74d15b977877ab90411ef29267"
+      },
+      {
+        "name": "redaction-report",
+        "classification": "support-metadata",
+        "digest": "sha256:0a88e25055761230ceda9d5589ce8f56c7c3595c166be3fb93b08a659f3cab3c"
+      }
+    ],
+    "summary": {
+      "status": "review-required",
+      "search": {
+        "strategy": "bounded-catalog-enumeration-v1",
+        "completeWithinBounds": true,
+        "truncated": false,
+        "globalOptimalityClaimed": false,
+        "evaluatedServingCandidates": 2,
+        "feasibleServingCandidates": 1,
+        "rejectedServingCandidates": 1,
+        "boundaryCount": 5
+      },
+      "confidence": {
+        "level": "low",
+        "method": "minimum-factor-v1",
+        "factors": [
+          {
+            "id": "capacity-method",
+            "level": "low",
+            "reasonCode": "YARA-CONF-004"
+          },
+          {
+            "id": "catalog-maturity",
+            "level": "low",
+            "reasonCode": "YARA-CONF-002"
+          },
+          {
+            "id": "inventory-assurance",
+            "level": "low",
+            "reasonCode": "YARA-CONF-003"
+          },
+          {
+            "id": "serving-evidence",
+            "level": "medium",
+            "reasonCode": "YARA-CONF-001"
+          }
+        ]
+      },
+      "topology": {
+        "instanceCount": 2,
+        "connectionCount": 1,
+        "deploymentStageCount": 2,
+        "roles": [
+          {
+            "role": "gateway.openai-compatible",
+            "count": 1
+          },
+          {
+            "role": "inference.text-generation",
+            "count": 1
+          }
+        ]
+      },
+      "allocationCount": 1,
+      "decisionCount": 3,
+      "diagnosticCodes": [
+        "YARA-CAT-040",
+        "YARA-CAT-055",
+        "YARA-INV-002"
+      ]
+    },
+    "redaction": {
+      "profile": "support-minimal-v1",
+      "omittedPaths": [
+        "metadata.name",
+        "spec.allocations",
+        "spec.confidence.factors[].subjectRefs",
+        "spec.decisions",
+        "spec.diagnostics[].message",
+        "spec.diagnostics[].paths",
+        "spec.diagnostics[].remediation",
+        "spec.search.boundaries",
+        "spec.topology.connections",
+        "spec.topology.deploymentStages[]",
+        "spec.topology.instances[].apiContracts",
+        "spec.topology.instances[].componentRef",
+        "spec.topology.instances[].id",
+        "spec.topology.instances[].modelRef",
+        "spec.topology.instances[].placement"
+      ]
+    },
+    "secretScan": {
+      "ruleset": "yara-secret-patterns-v1",
+      "status": "passed",
+      "findings": 0
+    }
+  }
+}
