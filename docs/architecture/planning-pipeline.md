@@ -68,6 +68,8 @@ client -> identity-aware UI -> gateway -> inference
 
 Templates describe roles and interfaces, not products. This bounds the search space while keeping product choice data-driven.
 
+The executable v0.1 slice models caller-to-dependency connections. It validates the role graph as a DAG and derives deterministic deployment stages by placing connection targets before their callers. The template itself never embeds a component or model reference.
+
 ### 7. Candidate generation
 
 Query the catalog for implementations of each role. Expand dependency alternatives and valid model/runtime/artifact combinations. Candidate generation is bounded by declared catalog support and planner limits to avoid combinatorial explosion.

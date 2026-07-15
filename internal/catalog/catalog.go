@@ -61,16 +61,19 @@ type ComponentManifest struct {
 }
 
 type ComponentManifestSpec struct {
+	Roles              []string        `json:"roles" yaml:"roles"`
 	Provides           []string        `json:"provides" yaml:"provides"`
+	Consumes           []string        `json:"consumes" yaml:"consumes"`
 	APIContracts       []string        `json:"apiContracts" yaml:"apiContracts"`
 	RuntimeOverheadGiB float64         `json:"runtimeOverheadGiB" yaml:"runtimeOverheadGiB"`
 	Policy             ComponentPolicy `json:"policy" yaml:"policy"`
 }
 
 type ComponentPolicy struct {
-	OpenSource     bool `json:"openSource" yaml:"openSource"`
-	ExternalEgress bool `json:"externalEgress" yaml:"externalEgress"`
-	Telemetry      bool `json:"telemetry" yaml:"telemetry"`
+	OpenSource       bool `json:"openSource" yaml:"openSource"`
+	ExternalEgress   bool `json:"externalEgress" yaml:"externalEgress"`
+	Telemetry        bool `json:"telemetry" yaml:"telemetry"`
+	ArtifactVerified bool `json:"artifactVerified" yaml:"artifactVerified"`
 }
 
 type ModelManifest struct {
@@ -117,17 +120,59 @@ type CompatibilityAssertionSpec struct {
 	Evidence           []EvidenceReference `json:"evidence" yaml:"evidence"`
 }
 
+type TopologyTemplateManifest struct {
+	APIVersion string                       `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                       `json:"kind" yaml:"kind"`
+	Metadata   ManifestMetadata             `json:"metadata" yaml:"metadata"`
+	Spec       TopologyTemplateManifestSpec `json:"spec" yaml:"spec"`
+}
+
+type TopologyTemplateManifestSpec struct {
+	SatisfiesUseCases []string             `json:"satisfiesUseCases" yaml:"satisfiesUseCases"`
+	Roles             []TopologyRole       `json:"roles" yaml:"roles"`
+	Connections       []TopologyConnection `json:"connections" yaml:"connections"`
+}
+
+type TopologyRole struct {
+	ID                  string `json:"id" yaml:"id"`
+	Role                string `json:"role" yaml:"role"`
+	RequiresAccelerator bool   `json:"requiresAccelerator" yaml:"requiresAccelerator"`
+}
+
+type TopologyConnection struct {
+	From     string `json:"from" yaml:"from"`
+	To       string `json:"to" yaml:"to"`
+	Contract string `json:"contract" yaml:"contract"`
+}
+
+type TopologyTemplate struct {
+	ID                string
+	SatisfiesUseCases []string
+	Roles             []TopologyRole
+	Connections       []TopologyConnection
+	DeploymentStages  [][]string
+}
+
+type ComponentCandidate struct {
+	ID           string
+	ComponentRef string
+	Roles        []string
+	APIContracts []string
+	Policy       PolicyFacts
+}
+
 type EvidenceReference struct {
 	ID         string `json:"id" yaml:"id"`
 	Confidence string `json:"confidence" yaml:"confidence"`
 }
 
 type manifestSet struct {
-	Capabilities  []CapabilityManifest      `json:"capabilities"`
-	Components    []ComponentManifest       `json:"components"`
-	Models        []ModelManifest           `json:"models"`
-	Hardware      []HardwareProfileManifest `json:"hardware"`
-	Compatibility []CompatibilityAssertion  `json:"compatibility"`
+	Capabilities  []CapabilityManifest       `json:"capabilities"`
+	Components    []ComponentManifest        `json:"components"`
+	Models        []ModelManifest            `json:"models"`
+	Hardware      []HardwareProfileManifest  `json:"hardware"`
+	Compatibility []CompatibilityAssertion   `json:"compatibility"`
+	Topologies    []TopologyTemplateManifest `json:"topologies"`
 }
 
 type ServingCandidate struct {
@@ -179,10 +224,44 @@ func (s Snapshot) Diagnostics() []diagnostics.Diagnostic {
 	return items
 }
 
+func (s Snapshot) SelectTopology(requiredUseCases []string) (TopologyTemplate, bool) {
+	for _, manifest := range s.manifests.Topologies {
+		if !isSubset(requiredUseCases, manifest.Spec.SatisfiesUseCases) {
+			continue
+		}
+		stages, ok := topologyStages(manifest.Spec.Roles, manifest.Spec.Connections)
+		if !ok {
+			continue
+		}
+		return TopologyTemplate{
+			ID: manifest.Metadata.ID, SatisfiesUseCases: slices.Clone(manifest.Spec.SatisfiesUseCases),
+			Roles: slices.Clone(manifest.Spec.Roles), Connections: slices.Clone(manifest.Spec.Connections),
+			DeploymentStages: stages,
+		}, true
+	}
+	return TopologyTemplate{}, false
+}
+
+func (s Snapshot) ComponentsForRole(role string) []ComponentCandidate {
+	var candidates []ComponentCandidate
+	for _, component := range s.manifests.Components {
+		if !slices.Contains(component.Spec.Roles, role) {
+			continue
+		}
+		candidates = append(candidates, ComponentCandidate{
+			ID: component.Metadata.ID, ComponentRef: component.Metadata.ID + "@" + component.Metadata.Version,
+			Roles: slices.Clone(component.Spec.Roles), APIContracts: slices.Clone(component.Spec.APIContracts),
+			Policy: PolicyFacts{OpenSource: component.Spec.Policy.OpenSource, ExternalEgress: component.Spec.Policy.ExternalEgress, Telemetry: component.Spec.Policy.Telemetry, ArtifactVerified: component.Spec.Policy.ArtifactVerified},
+		})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
+	return candidates
+}
+
 func (s Snapshot) Validate() diagnostics.Report {
 	items := validateIndex(s)
-	if len(s.manifests.Capabilities) == 0 || len(s.manifests.Components) == 0 || len(s.manifests.Models) == 0 || len(s.manifests.Hardware) == 0 || len(s.manifests.Compatibility) == 0 {
-		items = append(items, diagnostics.Error("YARA-CAT-010", "Snapshot must compile capability, component, model, hardware and compatibility manifests.", "spec.manifests"))
+	if len(s.manifests.Capabilities) == 0 || len(s.manifests.Components) == 0 || len(s.manifests.Models) == 0 || len(s.manifests.Hardware) == 0 || len(s.manifests.Compatibility) == 0 || len(s.manifests.Topologies) == 0 {
+		items = append(items, diagnostics.Error("YARA-CAT-010", "Snapshot must compile capability, component, model, hardware, compatibility and topology manifests.", "spec.manifests"))
 	}
 	items = append(items, validateManifestSet(s.manifests)...)
 	items = append(items, s.Diagnostics()...)
@@ -226,6 +305,7 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 	models := make(map[string]ModelManifest)
 	hardware := make(map[string]HardwareProfileManifest)
 	assertions := make(map[string]CompatibilityAssertion)
+	topologies := make(map[string]TopologyTemplateManifest)
 	for _, capability := range set.Capabilities {
 		if addManifestID(capabilities, capability.Metadata.ID, capability) {
 			items = append(items, diagnostics.Error("YARA-CAT-020", "Duplicate capability ID.", capability.Metadata.ID))
@@ -238,7 +318,7 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 		if addManifestID(components, component.Metadata.ID, component) {
 			items = append(items, diagnostics.Error("YARA-CAT-022", "Duplicate component ID.", component.Metadata.ID))
 		}
-		if component.APIVersion != APIVersion || component.Kind != "Component" || component.Metadata.ID == "" || component.Metadata.Version == "" || len(component.Spec.Provides) == 0 || len(component.Spec.APIContracts) == 0 || component.Spec.RuntimeOverheadGiB < 0 {
+		if component.APIVersion != APIVersion || component.Kind != "Component" || component.Metadata.ID == "" || component.Metadata.Version == "" || len(component.Spec.Roles) == 0 || len(component.Spec.Provides) == 0 || len(component.Spec.APIContracts) == 0 || component.Spec.RuntimeOverheadGiB < 0 {
 			items = append(items, diagnostics.Error("YARA-CAT-023", "Component manifest is incomplete.", component.Metadata.ID))
 		}
 	}
@@ -287,7 +367,9 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 		}
 	}
 	for _, component := range set.Components {
-		for _, capability := range append(slices.Clone(component.Spec.Provides), component.Spec.APIContracts...) {
+		references := append(slices.Clone(component.Spec.Provides), component.Spec.Consumes...)
+		references = append(references, component.Spec.APIContracts...)
+		for _, capability := range references {
 			if _, ok := capabilities[capability]; !ok {
 				items = append(items, diagnostics.Error("YARA-CAT-034", "Component references an unknown capability contract.", component.Metadata.ID))
 			}
@@ -300,7 +382,104 @@ func validateManifestSet(set manifestSet) []diagnostics.Diagnostic {
 			}
 		}
 	}
+	for _, topology := range set.Topologies {
+		if addManifestID(topologies, topology.Metadata.ID, topology) {
+			items = append(items, diagnostics.Error("YARA-CAT-041", "Duplicate topology template ID.", topology.Metadata.ID))
+		}
+		if topology.APIVersion != APIVersion || topology.Kind != "TopologyTemplate" || topology.Metadata.ID == "" || topology.Metadata.Version == "" || len(topology.Spec.SatisfiesUseCases) == 0 || len(topology.Spec.Roles) < 2 {
+			items = append(items, diagnostics.Error("YARA-CAT-042", "Topology template is incomplete.", topology.Metadata.ID))
+		}
+		roleIDs := make(map[string]struct{}, len(topology.Spec.Roles))
+		participation := make(map[string]int, len(topology.Spec.Roles))
+		acceleratorRoles := 0
+		for _, role := range topology.Spec.Roles {
+			if role.ID == "" || role.Role == "" {
+				items = append(items, diagnostics.Error("YARA-CAT-043", "Topology roles require an ID and abstract role.", topology.Metadata.ID))
+			}
+			if _, exists := roleIDs[role.ID]; exists {
+				items = append(items, diagnostics.Error("YARA-CAT-044", "Topology role IDs must be unique.", topology.Metadata.ID))
+			}
+			roleIDs[role.ID] = struct{}{}
+			if role.RequiresAccelerator {
+				acceleratorRoles++
+			}
+		}
+		for _, useCase := range topology.Spec.SatisfiesUseCases {
+			if _, exists := capabilities[useCase]; !exists {
+				items = append(items, diagnostics.Error("YARA-CAT-045", "Topology references an unknown required use case.", topology.Metadata.ID))
+			}
+		}
+		for _, connection := range topology.Spec.Connections {
+			_, fromExists := roleIDs[connection.From]
+			_, toExists := roleIDs[connection.To]
+			_, contractExists := capabilities[connection.Contract]
+			if !fromExists || !toExists || connection.From == connection.To || !contractExists {
+				items = append(items, diagnostics.Error("YARA-CAT-046", "Topology connection has invalid endpoints or contract.", topology.Metadata.ID))
+			}
+			participation[connection.From]++
+			participation[connection.To]++
+		}
+		for roleID := range roleIDs {
+			if participation[roleID] == 0 {
+				items = append(items, diagnostics.Error("YARA-CAT-048", "Every topology role must participate in at least one connection.", topology.Metadata.ID))
+			}
+		}
+		if acceleratorRoles != 1 {
+			items = append(items, diagnostics.Error("YARA-CAT-049", "The v0.1 topology slice requires exactly one accelerator role.", topology.Metadata.ID))
+		}
+		if _, ok := topologyStages(topology.Spec.Roles, topology.Spec.Connections); !ok {
+			items = append(items, diagnostics.Error("YARA-CAT-047", "Topology dependency graph contains a cycle.", topology.Metadata.ID))
+		}
+	}
 	return items
+}
+
+func isSubset(required, available []string) bool {
+	for _, value := range required {
+		if !slices.Contains(available, value) {
+			return false
+		}
+	}
+	return true
+}
+
+func topologyStages(roles []TopologyRole, connections []TopologyConnection) ([][]string, bool) {
+	remaining := make(map[string]struct{}, len(roles))
+	dependencies := make(map[string]map[string]struct{}, len(roles))
+	for _, role := range roles {
+		remaining[role.ID] = struct{}{}
+		dependencies[role.ID] = make(map[string]struct{})
+	}
+	for _, connection := range connections {
+		if _, exists := dependencies[connection.From]; exists {
+			dependencies[connection.From][connection.To] = struct{}{}
+		}
+	}
+	var stages [][]string
+	for len(remaining) > 0 {
+		var stage []string
+		for id := range remaining {
+			ready := true
+			for dependency := range dependencies[id] {
+				if _, exists := remaining[dependency]; exists {
+					ready = false
+					break
+				}
+			}
+			if ready {
+				stage = append(stage, id)
+			}
+		}
+		if len(stage) == 0 {
+			return nil, false
+		}
+		sort.Strings(stage)
+		stages = append(stages, stage)
+		for _, id := range stage {
+			delete(remaining, id)
+		}
+	}
+	return stages, true
 }
 
 func addManifestID[T any](values map[string]T, id string, value T) bool {
@@ -408,7 +587,7 @@ func compileCandidates(set manifestSet) ([]ServingCandidate, []diagnostics.Diagn
 				OpenSource:       component.Spec.Policy.OpenSource && model.Spec.OpenSource,
 				ExternalEgress:   component.Spec.Policy.ExternalEgress,
 				Telemetry:        component.Spec.Policy.Telemetry,
-				ArtifactVerified: assertion.Spec.ArtifactVerified,
+				ArtifactVerified: assertion.Spec.ArtifactVerified && component.Spec.Policy.ArtifactVerified,
 			},
 			PreferenceScore: model.Spec.PreferenceScore,
 			Evidence:        slices.Clone(assertion.Spec.Evidence),

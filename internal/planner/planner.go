@@ -37,6 +37,17 @@ func Create(request resources.PlatformRequest, inventory resources.Inventory, sn
 	if report := snapshot.Validate(); !report.Valid {
 		return Result{Report: report}
 	}
+	requiredUseCases := make([]string, 0, len(request.Spec.UseCases))
+	for _, useCase := range request.Spec.UseCases {
+		if useCase.Required {
+			requiredUseCases = append(requiredUseCases, useCase.ID)
+		}
+	}
+	sort.Strings(requiredUseCases)
+	topologyTemplate, ok := snapshot.SelectTopology(requiredUseCases)
+	if !ok {
+		return Result{Report: diagnostics.NewReport(diagnostics.Error("YARA-PLAN-002", "No topology template satisfies the required use cases.", "spec.useCases"))}
+	}
 
 	host := inventory.Spec.Hosts[0]
 	accelerator := host.Accelerators[0]
@@ -66,6 +77,17 @@ func Create(request resources.PlatformRequest, inventory resources.Inventory, sn
 		return feasible[i].Candidate.PreferenceScore > feasible[j].Candidate.PreferenceScore
 	})
 	selected := feasible[0]
+	acceleratorInstanceID := ""
+	for _, role := range topologyTemplate.Roles {
+		if role.RequiresAccelerator {
+			acceleratorInstanceID = role.ID
+			break
+		}
+	}
+	resolvedTopology, topologyDecisions, topologyReport := resolveTopology(request, inventory.Spec.Hosts[0], accelerator, topologyTemplate, selected, snapshot)
+	if !topologyReport.Valid {
+		return Result{Report: topologyReport}
+	}
 
 	requestDigest, err := canonical.Digest(request)
 	if err != nil {
@@ -98,23 +120,14 @@ func Create(request resources.PlatformRequest, inventory resources.Inventory, sn
 			CatalogDigest: catalogDigest, PlannerVersion: version.Version,
 		},
 		Spec: resources.PlatformPlanSpec{
-			Status: "review-required",
-			Topology: resources.PlanTopology{
-				Instances: []resources.PlanInstance{{
-					ID: "inference", Role: "inference.text-generation",
-					RuntimeRef: selected.Candidate.RuntimeRef, ModelRef: selected.Candidate.ModelRef,
-					Placement:   host.ID + "/" + accelerator.ID,
-					APIContract: selected.Candidate.APIContracts[0],
-				}},
-				Connections:      []resources.PlanConnection{},
-				DeploymentStages: [][]string{{"inference"}},
-			},
+			Status:   "review-required",
+			Topology: resolvedTopology,
 			Allocations: []resources.PlanAllocation{{
-				InstanceID: "inference", AcceleratorID: accelerator.ID,
+				InstanceID: acceleratorInstanceID, AcceleratorID: accelerator.ID,
 				EstimatedMemoryGiB:   selected.EstimatedGiB,
 				AllocatableMemoryGiB: selected.AvailableGiB,
 			}},
-			Decisions:   []resources.PlanDecision{buildDecision(selected, evaluated)},
+			Decisions:   append([]resources.PlanDecision{buildDecision(acceleratorInstanceID, selected, evaluated)}, topologyDecisions...),
 			Diagnostics: planDiagnostics,
 		},
 	}
@@ -126,6 +139,90 @@ func Create(request resources.PlatformRequest, inventory resources.Inventory, sn
 		return Result{Report: report}
 	}
 	return Result{Plan: plan, Report: diagnostics.NewReport()}
+}
+
+func resolveTopology(request resources.PlatformRequest, host resources.Host, accelerator resources.Accelerator, template catalog.TopologyTemplate, selected evaluatedCandidate, snapshot catalog.Snapshot) (resources.PlanTopology, []resources.PlanDecision, diagnostics.Report) {
+	topology := resources.PlanTopology{DeploymentStages: template.DeploymentStages}
+	decisions := []resources.PlanDecision{{
+		ID: "decision.topology", Selected: template.ID,
+		Reasons:  []string{"Template satisfies all required use cases and defines an acyclic abstract role graph."},
+		Evidence: []string{template.ID}, Alternatives: []resources.PlanAlternative{},
+	}}
+	for _, role := range template.Roles {
+		requiredContracts := topologyContracts(role.ID, template.Connections)
+		instance := resources.PlanInstance{ID: role.ID, Role: role.Role, APIContracts: requiredContracts}
+		if role.RequiresAccelerator {
+			if !isSubset(requiredContracts, selected.Candidate.APIContracts) {
+				return resources.PlanTopology{}, nil, diagnostics.NewReport(diagnostics.Error("YARA-PLAN-024", "Selected accelerator component does not implement every topology contract.", role.ID))
+			}
+			instance.ComponentRef = selected.Candidate.RuntimeRef
+			instance.ModelRef = selected.Candidate.ModelRef
+			instance.Placement = host.ID + "/" + accelerator.ID
+		} else {
+			components := snapshot.ComponentsForRole(role.Role)
+			var chosen *catalog.ComponentCandidate
+			for index := range components {
+				if componentAllowed(request, components[index]) && isSubset(requiredContracts, components[index].APIContracts) {
+					chosen = &components[index]
+					break
+				}
+			}
+			if chosen == nil {
+				return resources.PlanTopology{}, nil, diagnostics.NewReport(diagnostics.Error("YARA-PLAN-023", "No policy-compliant component implements the required topology role and contracts.", role.ID))
+			}
+			instance.ComponentRef = chosen.ComponentRef
+			instance.Placement = host.ID
+			decisions = append(decisions, resources.PlanDecision{
+				ID: "decision." + role.ID, Selected: chosen.ID,
+				Reasons:  []string{"Component implements the abstract role, required interfaces and effective policies."},
+				Evidence: []string{chosen.ID}, Alternatives: []resources.PlanAlternative{},
+			})
+		}
+		topology.Instances = append(topology.Instances, instance)
+	}
+	for _, connection := range template.Connections {
+		topology.Connections = append(topology.Connections, resources.PlanConnection{From: connection.From, To: connection.To, Contract: connection.Contract})
+	}
+	sort.SliceStable(topology.Instances, func(i, j int) bool { return topology.Instances[i].ID < topology.Instances[j].ID })
+	sort.SliceStable(topology.Connections, func(i, j int) bool {
+		left := topology.Connections[i].From + "\x00" + topology.Connections[i].To + "\x00" + topology.Connections[i].Contract
+		right := topology.Connections[j].From + "\x00" + topology.Connections[j].To + "\x00" + topology.Connections[j].Contract
+		return left < right
+	})
+	return topology, decisions, diagnostics.NewReport()
+}
+
+func topologyContracts(roleID string, connections []catalog.TopologyConnection) []string {
+	var contracts []string
+	for _, connection := range connections {
+		if (connection.From == roleID || connection.To == roleID) && !slices.Contains(contracts, connection.Contract) {
+			contracts = append(contracts, connection.Contract)
+		}
+	}
+	sort.Strings(contracts)
+	return contracts
+}
+
+func componentAllowed(request resources.PlatformRequest, component catalog.ComponentCandidate) bool {
+	if request.Spec.Policies.OpenSourceOnly != nil && *request.Spec.Policies.OpenSourceOnly && !component.Policy.OpenSource {
+		return false
+	}
+	if request.Spec.Policies.ExternalEgress == "forbidden" && component.Policy.ExternalEgress {
+		return false
+	}
+	if request.Spec.Policies.Telemetry == "forbidden" && component.Policy.Telemetry {
+		return false
+	}
+	return request.Spec.Policies.ArtifactVerification != "required" || component.Policy.ArtifactVerified
+}
+
+func isSubset(required, available []string) bool {
+	for _, value := range required {
+		if !slices.Contains(available, value) {
+			return false
+		}
+	}
+	return true
 }
 
 func evaluate(request resources.PlatformRequest, accelerator resources.Accelerator, candidate catalog.ServingCandidate) evaluatedCandidate {
@@ -177,7 +274,7 @@ func rejection(code, message string) *diagnostics.Diagnostic {
 	return &diagnostic
 }
 
-func buildDecision(selected evaluatedCandidate, evaluated []evaluatedCandidate) resources.PlanDecision {
+func buildDecision(instanceID string, selected evaluatedCandidate, evaluated []evaluatedCandidate) resources.PlanDecision {
 	alternatives := make([]resources.PlanAlternative, 0, len(evaluated)-1)
 	for _, item := range evaluated {
 		if item.Candidate.ID == selected.Candidate.ID {
@@ -204,7 +301,7 @@ func buildDecision(selected evaluatedCandidate, evaluated []evaluatedCandidate) 
 	}
 	sort.Strings(evidence)
 	return resources.PlanDecision{
-		ID: "decision.inference", Selected: selected.Candidate.ID,
+		ID: "decision." + instanceID, Selected: selected.Candidate.ID,
 		Reasons: []string{
 			fmt.Sprintf("Fits accelerator memory with cataloged headroom: %.2f GiB required of %.2f GiB allocatable.", selected.EstimatedGiB, selected.AvailableGiB),
 			"Satisfies all required capabilities and effective policies.",

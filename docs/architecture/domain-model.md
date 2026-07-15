@@ -114,9 +114,13 @@ Capabilities connect intent to implementations without hard-coded product names.
 
 A claim about a bounded combination, for example "runtime version range R serves model format F on accelerator stack A." The executable v0.1 relation is explicitly `supported` or `unsupported`; absence remains **unknown**, not compatible. A negative assertion takes precedence over an overlapping positive assertion, and the conflicting tuple is quarantined until a later catalog snapshot resolves it. Assertions ultimately specify subject, relation, object, conditions, evidence, confidence, verification date and expiry.
 
+### TopologyTemplate
+
+A product-neutral directed graph of abstract roles and interface contracts that can satisfy a declared set of use cases. Templates bound candidate generation without selecting software. Connections point from caller to dependency; deployment stages therefore place the target before the caller and must remain acyclic.
+
 ### PlatformPlan
 
-The immutable intermediate representation consumed by reviewers, renderers and future executors. It contains selected instances, topology, placements, configuration intent, resource allocations, artifact references, lifecycle contracts, decisions, diagnostics and complete provenance.
+The immutable intermediate representation consumed by reviewers, renderers and future executors. Each instance has a generic `componentRef`, an optional `modelRef`, placement and implemented API contracts. The plan also contains connections, dependency-safe stages, resource allocations, artifact references, lifecycle contracts, decisions, diagnostics and complete provenance.
 
 ### Decision
 

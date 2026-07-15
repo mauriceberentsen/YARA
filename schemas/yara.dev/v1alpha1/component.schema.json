@@ -11,18 +11,21 @@
     "metadata": { "$ref": "#/$defs/metadata" },
     "spec": {
       "type": "object", "additionalProperties": false,
-      "required": ["provides", "apiContracts", "runtimeOverheadGiB", "policy"],
+      "required": ["roles", "provides", "consumes", "apiContracts", "runtimeOverheadGiB", "policy"],
       "properties": {
+        "roles": { "$ref": "#/$defs/nonEmptyStrings" },
         "provides": { "$ref": "#/$defs/nonEmptyStrings" },
+        "consumes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "apiContracts": { "$ref": "#/$defs/nonEmptyStrings" },
         "runtimeOverheadGiB": { "type": "number", "minimum": 0 },
         "policy": {
           "type": "object", "additionalProperties": false,
-          "required": ["openSource", "externalEgress", "telemetry"],
+          "required": ["openSource", "externalEgress", "telemetry", "artifactVerified"],
           "properties": {
             "openSource": { "type": "boolean" },
             "externalEgress": { "type": "boolean" },
-            "telemetry": { "type": "boolean" }
+            "telemetry": { "type": "boolean" },
+            "artifactVerified": { "type": "boolean" }
           }
         }
       }

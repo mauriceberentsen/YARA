@@ -34,6 +34,16 @@ func TestHigherScoringOversizedCandidateCannotWin(t *testing.T) {
 	if !containsPlanDiagnostic(result.Plan.Spec.Diagnostics, "YARA-CAT-040") {
 		t.Fatalf("expected catalog governance diagnostic in plan: %#v", result.Plan.Spec.Diagnostics)
 	}
+	topology := result.Plan.Spec.Topology
+	if len(topology.Instances) != 2 || len(topology.Connections) != 1 || len(topology.DeploymentStages) != 2 {
+		t.Fatalf("expected two-role topology, got %#v", topology)
+	}
+	if topology.Instances[0].ID != "gateway" || topology.Instances[0].ComponentRef != "core.placeholder-gateway@1.0.0" {
+		t.Fatalf("expected resolved gateway instance, got %#v", topology.Instances[0])
+	}
+	if topology.DeploymentStages[0][0] != "inference" || topology.DeploymentStages[1][0] != "gateway" {
+		t.Fatalf("dependency stages are unsafe: %#v", topology.DeploymentStages)
+	}
 }
 
 func containsPlanDiagnostic(items []diagnostics.Diagnostic, code string) bool {

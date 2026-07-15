@@ -1,17 +1,18 @@
 apiVersion: yara.dev/v1alpha1
 kind: Component
 metadata:
-  id: core.placeholder-runtime
+  id: core.placeholder-gateway
   version: 1.0.0
 spec:
   roles:
-    - inference.text-generation
+    - gateway.openai-compatible
   provides:
-    - inference.text-generation
-  consumes: []
+    - chat
+  consumes:
+    - integration.api.openai-chat/v1
   apiContracts:
     - integration.api.openai-chat/v1
-  runtimeOverheadGiB: 1
+  runtimeOverheadGiB: 0.25
   policy:
     openSource: true
     externalEgress: false

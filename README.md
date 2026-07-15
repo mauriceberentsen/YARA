@@ -160,11 +160,12 @@ Currently implemented:
 - append-only audit-event chaining, tamper verification and `audit verify` CLI support;
 - a manifest-compiled placeholder catalog with capability, component, model, hardware and evidence-backed compatibility resources;
 - open-world compatibility governance where explicit negative evidence overrides positive claims and conflicts are quarantined;
+- a catalog-authored abstract topology template resolved into gateway and inference component instances;
 - a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;
-- independently validated `PlatformPlan` output with explanations, rejected alternatives, governance diagnostics and content integrity;
+- independently validated multi-component `PlatformPlan` output with interface connections, dependency-safe deployment stages, explanations, rejected alternatives, governance diagnostics and content integrity;
 - tamper-evident success and infeasible planning audit chains containing input digests and stable diagnostic codes, including material warnings.
 
-The next vertical slice introduces the first abstract multi-component topology without broadening into deployment.
+The next vertical slice adds catalog ownership, provenance and freshness gates before any fixture can progress toward a supported status.
 
 ## Project status
 

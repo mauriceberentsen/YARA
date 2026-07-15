@@ -92,6 +92,12 @@ func loadManifestSet(root string, references []string) (manifestSet, error) {
 				return set, fmt.Errorf("load compatibility assertion %s: %w", reference, err)
 			}
 			set.Compatibility = append(set.Compatibility, item)
+		case "TopologyTemplate":
+			item, err := decodeStrict[TopologyTemplateManifest](path)
+			if err != nil {
+				return set, fmt.Errorf("load topology template %s: %w", reference, err)
+			}
+			set.Topologies = append(set.Topologies, item)
 		default:
 			return set, fmt.Errorf("manifest %s has unsupported kind %q", reference, header.Kind)
 		}
@@ -136,6 +142,7 @@ func sortManifestSet(set *manifestSet) {
 	sort.SliceStable(set.Models, func(i, j int) bool { return set.Models[i].Metadata.ID < set.Models[j].Metadata.ID })
 	sort.SliceStable(set.Hardware, func(i, j int) bool { return set.Hardware[i].Metadata.ID < set.Hardware[j].Metadata.ID })
 	sort.SliceStable(set.Compatibility, func(i, j int) bool { return set.Compatibility[i].Metadata.ID < set.Compatibility[j].Metadata.ID })
+	sort.SliceStable(set.Topologies, func(i, j int) bool { return set.Topologies[i].Metadata.ID < set.Topologies[j].Metadata.ID })
 }
 
 func decodeStrict[T any](path string) (T, error) {

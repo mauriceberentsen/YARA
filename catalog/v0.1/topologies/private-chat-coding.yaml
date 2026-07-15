@@ -1,0 +1,20 @@
+apiVersion: yara.dev/v1alpha1
+kind: TopologyTemplate
+metadata:
+  id: core.private-chat-coding
+  version: 1.0.0
+spec:
+  satisfiesUseCases:
+    - chat
+    - coding
+  roles:
+    - id: gateway
+      role: gateway.openai-compatible
+      requiresAccelerator: false
+    - id: inference
+      role: inference.text-generation
+      requiresAccelerator: true
+  connections:
+    - from: gateway
+      to: inference
+      contract: integration.api.openai-chat/v1
