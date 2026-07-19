@@ -7,8 +7,8 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-execution-prerequisites`.
-- Latest completed merge: `e8aa06c` (`Merge change set and approval contracts`), pushed to `origin/main` with the final handoff commit below.
+- Active branch: `main`.
+- Latest completed merge: `3ace2b2` (`Merge signed execution authorization`), pushed to `origin/main` with the final handoff commit below.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: complete the audited target/change-set/approval boundary in thin slices without granting mutation authority prematurely.
 
@@ -224,7 +224,7 @@ Full-suite/race validation and documentation consistency checks pass. No live cl
 
 This slice was committed as `8502199`, merged to `main` as `e8aa06c` and pushed under Maurice's configured author identity.
 
-## Current slice: signed execution authorization
+## Completed slice: signed execution authorization
 
 Implement the first cryptographically enforceable mutation prerequisite without adding apply yet:
 
@@ -237,7 +237,9 @@ Implement the first cryptographically enforceable mutation prerequisite without 
 - only the four explicitly active/risk-verification preflight blockers may be accepted; failed or other blocked checks prevent issuance;
 - mandatory fail-closed issuance audit bound to all five resource identities; key paths/material never enter durable evidence.
 
-Implementation/unit/CLI tests plus full-suite/race validation pass; publication and merge remain. No cluster, container or remote host has been contacted.
+Implementation/unit/CLI tests plus full-suite/race validation pass. No cluster, container or remote host was contacted.
+
+This slice was committed as `2c0b1d5`, merged to `main` as `3ace2b2` and pushed under Maurice's configured author identity.
 
 ## Audit requirements
 
