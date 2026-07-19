@@ -83,7 +83,7 @@ On failure the executor stops at a safe checkpoint, preserves diagnostics and re
 
 ## Initial backend choice
 
-The architecture does not commit to Kubernetes first. A local Docker Compose backend is the current v0.2 hypothesis because it can validate plan-to-execution boundaries with less infrastructure. Selection requires an ADR after prototypes compare:
+The architecture does not commit to Kubernetes first. A pure local Docker Compose renderer is now the current v0.2 prototype because it can validate plan-to-artifact boundaries with less infrastructure. [ADR-0009](../adr/0009-docker-compose-reference-renderer-prototype.md) remains Proposed: executor selection still requires an alternative prototype and comparison of:
 
 - target audience value;
 - idempotency and lifecycle support;

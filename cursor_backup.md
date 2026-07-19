@@ -7,8 +7,8 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-component-integration-contract`.
-- Branch base: `main` at `bee6162` (`Merge audited sustained capacity contracts`).
+- Active branch: `feature/v0-2-reference-renderer`.
+- Branch base: `main` at `93c7f48` (`Merge audited component integration contract`).
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: expand catalog knowledge without invalidating v0.2 evidence, implement audited component/topology integration contracts, then continue the v0.2 reference-deployment renderer.
 
@@ -126,7 +126,7 @@ The regenerated coverage report is `sha256:0d040fd0fe430940bf1fb9ef3ce034dd3a54a
 
 The sustained-capacity slice was committed as `45da32d`, merged to `main` as `bee6162`, pushed, and passed a post-merge `make check` with local `main` matching `origin/main`.
 
-## Active slice: component and topology integration evidence
+## Completed slice: component and topology integration evidence
 
 Design a generic, audited integration-evidence resource and execution contract before changing any component status. The contract must bind the exact catalog digest and component/topology identities, verify immutable artifacts before mutation, use explicit per-component health/readiness semantics, retain ownership-scoped cleanup and distinguish a single-component smoke check from an end-to-end topology path. Start with the selectable LiteLLM-to-vLLM topology and its direct PostgreSQL/Redis dependencies; do not mark Open WebUI, Qdrant, Langfuse, ClickHouse, Prometheus or Grafana complete from image startup alone.
 
@@ -135,6 +135,26 @@ Coverage must accept only exact adjacent audit chains and expose missing/failed 
 Implementation status: the strict content-addressed `IntegrationTestResult` Go resource and public schema are implemented for `component-smoke` and `topology-end-to-end`. `integration validate` writes a validation-only audit. Coverage now accepts both evidence classes, but rejects `integration.validate.*` as execution evidence and requires matching `integration.component-smoke.*` or `integration.topology-end-to-end.*` two-event chains. Exact component/topology version references, observed environment, checks, limitations and optional runner identity are validated. No integration executor or operational result exists yet.
 
 Catalog v0.3 is staged as a knowledge-only successor instead of editing the evidence-frozen v0.2 snapshot. It copies v0.2 and adds Ollama 0.32.0, SGLang 0.5.12, Milvus 2.6.18, Keycloak 26.6.3, Traefik 3.7.1 and OpenTelemetry Collector Contrib 0.155.0 with researched release/license/OCI-index facts. Every addition is `known`, planner-ineligible and operationally untested. Do not copy v0.2 evidence to the new catalog digest.
+
+This slice was committed as `83125f6`, merged to `main` as `93c7f48` and pushed. `make check` and `go test -race ./...` passed before publication.
+
+## Active slice: pure Docker Compose reference renderer
+
+Implement the plan/render/executor boundary from ADR-0002 without adding target mutation. The new public `DeploymentBundle` binds the exact plan and catalog, renderer identity, rendered file contents/digests, immutable OCI and model artifacts, license sources, required inputs, ordered plan stages, pre/postflight contracts and explicit limitations.
+
+Implementation in progress:
+
+- `internal/renderer` defines the versioned interface and `yara.docker-compose@0.1.0` prototype;
+- the typed adapter accepts only LiteLLM 1.93.0 -> vLLM 0.25.1 over the cataloged OpenAI chat contract and one exact model snapshot;
+- Compose output pins OCI digests, publishes no host port, uses an internal network, read-only roots, dropped capabilities and `no-new-privileges`;
+- model acquisition is represented only by the non-secret `YARA_MODEL_PATH` input and exact file inventory;
+- `render docker-compose` writes a fail-closed audit bound to plan, catalog and bundle; `bundle validate` independently validates it;
+- identical inputs produce identical output and unknown adapters/catalog mismatches fail;
+- there is no executor, approval, target inspection or Docker mutation.
+
+The local CLI demonstration produced plan `sha256:5b12b6a739b697d256668c37296d6711f16522d7a5e6aea3f9bfa454cdf5fc2d`, bundle `sha256:3dc332c1575446b4fbd999250ad8bf9f70faec3ea88414b24278f69c9db1cd07` and render-audit head `sha256:f1df1169e5d08407ba2025d18f4d3e5929ab2b757b54704163b29f138cdca18e`. The files are under ignored `.yara/` only and are not release evidence.
+
+ADR-0009 remains Proposed because Docker Compose is a prototype until at least one alternative is compared.
 
 ## Audit requirements
 
@@ -173,7 +193,7 @@ GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...
 
 Validate every new result and audit chain independently with the exact built runner. Confirm its SHA-256 matches `spec.runner.binaryDigest`. Confirm the GB10 has no temporary `yara-contract-*` containers or volumes after execution.
 
-Latest validation status: targeted resource/CLI/coverage tests and `go test ./...` pass after the integration-contract implementation. The regenerated v0.2 coverage report and its audit validate. Catalog v0.3 has deliberately not received operational testing; the user plans to delegate that to a cheaper agent. Remote cleanup remains complete and the pre-existing `vllm_qwen` and `vllm_nomic` containers remain stopped.
+Latest validation status: `make check`, `go test -race ./...`, deterministic renderer tests, fail-closed audit rollback tests, strict bundle validation and a real local CLI plan/render/validate/audit cycle pass. The renderer made no network calls and started no containers. Catalog v0.3 has deliberately not received operational testing; the user plans to delegate that to a cheaper agent. Remote cleanup remains complete and the pre-existing `vllm_qwen` and `vllm_nomic` containers remain stopped.
 
 ## Publishing checklist
 
@@ -186,8 +206,8 @@ Latest validation status: targeted resource/CLI/coverage tests and `go test ./..
 
 ## Immediate next actions
 
-1. Commit and merge the integration-contract plus knowledge-only v0.3 catalog slice under Maurice's Git identity.
-2. Implement a generic integration executor that produces fail-closed execution audit chains; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
-3. Implement the versioned renderer interface and a deterministic Docker Compose reference renderer from `PlatformPlan`; rendered artifacts must remain inspectable and non-mutating.
-4. Add preflight/approval/executor boundaries only after renderer output has independent validation and stable audit subjects.
+1. Finish validation, documentation, commit and merge the pure renderer slice under Maurice's Git identity.
+2. Prototype one alternative renderer enough to resolve Proposed ADR-0009 without building an executor twice.
+3. Implement a generic integration executor that produces fail-closed execution audit chains; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
+4. Add target preflight, approval and receipt resources before any apply-capable executor.
 5. Keep Ada tuples unobserved until authorized hardware exists and never self-approve independent promotion review.

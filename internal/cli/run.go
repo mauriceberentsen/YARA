@@ -64,6 +64,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "debug" && args[1] == "bundle" {
 		return createDebugBundle(args[2:], stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "render" && args[1] == "docker-compose" {
+		return renderDockerCompose(args[2:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "scenario" && args[1] == "validate" {
 		return validateScenario(args[2:], stdout, stderr)
 	}
@@ -187,6 +190,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "IntegrationTestResult", Digest: result.Metadata.ResultID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "integration.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "bundle":
+		bundle, err := resources.LoadDeploymentBundle(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "bundle.validate", "DeploymentBundle", options.inputPath, "YARA-BND-004", err, nil)
+		}
+		report := bundle.Validate()
+		subject, err := canonicalSubject("DeploymentBundle", bundle)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "DeploymentBundle", Digest: bundle.Metadata.BundleID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "bundle.validate", subject, bundle.APIVersion, bundle.Kind, bundle.Metadata.Name, report)
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -248,6 +265,8 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara plan explain <file> [--decision <id>] [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara plan diff <from-file> <to-file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara debug bundle --plan <file> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara render docker-compose --plan <file> --catalog <file> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara bundle validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate-all <directory> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara contract preflight --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")

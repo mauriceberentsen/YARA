@@ -386,6 +386,25 @@ type ContractTarget struct {
 	Conditions                CompatibilityConditions
 }
 
+// DeploymentComponent is the immutable component projection exposed to pure
+// renderers. It contains no planner internals and grants no execution authority.
+type DeploymentComponent struct {
+	Ref       string
+	Status    string
+	Category  string
+	Artifacts []ArtifactReference
+	Health    HealthContract
+	License   LicenseFacts
+}
+
+// DeploymentModel is the immutable model projection exposed to pure renderers.
+type DeploymentModel struct {
+	Ref      string
+	Status   string
+	Artifact ArtifactReference
+	License  LicenseFacts
+}
+
 func (s Snapshot) Candidates() []ServingCandidate {
 	candidates := slices.Clone(s.candidates)
 	for index := range candidates {
@@ -443,6 +462,38 @@ func (s Snapshot) ContractTarget(assertionID string) (ContractTarget, bool) {
 		HardwareMemoryKind: hardware.Spec.MemoryKind, HardwareComputeCapability: hardware.Spec.ComputeCapability,
 		Conditions: compatibilityConditions(assertion.Spec.Conditions),
 	}, true
+}
+
+func (s Snapshot) DeploymentComponent(reference string) (DeploymentComponent, bool) {
+	for _, component := range s.manifests.Components {
+		if component.Metadata.ID+"@"+component.Metadata.Version != reference || component.Spec.Health == nil || component.Spec.License == nil {
+			continue
+		}
+		return DeploymentComponent{
+			Ref: reference, Status: component.Metadata.Status, Category: component.Spec.Category,
+			Artifacts: cloneArtifacts(component.Spec.Artifacts), Health: *component.Spec.Health,
+			License: cloneLicense(*component.Spec.License),
+		}, true
+	}
+	return DeploymentComponent{}, false
+}
+
+func (s Snapshot) DeploymentModel(reference string) (DeploymentModel, bool) {
+	for _, model := range s.manifests.Models {
+		if model.Metadata.ID+"@"+model.Metadata.Version != reference || model.Spec.Artifact == nil || model.Spec.License == nil {
+			continue
+		}
+		return DeploymentModel{
+			Ref: reference, Status: model.Metadata.Status, Artifact: cloneArtifact(*model.Spec.Artifact),
+			License: cloneLicense(*model.Spec.License),
+		}, true
+	}
+	return DeploymentModel{}, false
+}
+
+func cloneLicense(value LicenseFacts) LicenseFacts {
+	value.Restrictions = slices.Clone(value.Restrictions)
+	return value
 }
 
 func cloneArtifacts(values []ArtifactReference) []ArtifactReference {

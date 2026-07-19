@@ -39,6 +39,8 @@ This documentation is the design contract for YARA. It distinguishes committed a
 5. [Architectural decisions](adr/README.md)
 6. [v0.1 acceptance status](implementation/v0.1-acceptance-status.md)
 7. [Catalog contract testing](implementation/contract-testing.md)
+8. [Integration evidence](implementation/integration-testing.md)
+9. [Offline deployment rendering](implementation/rendering.md)
 
 ## Document map
 
@@ -52,7 +54,7 @@ This documentation is the design contract for YARA. It distinguishes committed a
 | Platform | [API](architecture/api.md), [plugins](architecture/plugin-system.md), [data and state](architecture/data-and-state.md) | Define extension and integration boundaries |
 | Assurance | [security](architecture/security.md), [auditing](architecture/auditing.md), [observability](architecture/observability.md), [risks](risk-register.md) | Define trust, accountability, diagnostics and major failure modes |
 | Operations | [air-gapped operation](operations/air-gapped.md), [upgrades, backup and recovery](operations/upgrades-backup-recovery.md) | Define operational reference workflows |
-| Delivery | [implementation guide](implementation/README.md), [v0.1 acceptance status](implementation/v0.1-acceptance-status.md), [contract testing](implementation/contract-testing.md), [roadmap](roadmap.md), [ADRs](adr/README.md), [examples](examples/README.md) | Make implementation, release gates and decisions concrete |
+| Delivery | [implementation guide](implementation/README.md), [v0.1 acceptance status](implementation/v0.1-acceptance-status.md), [contract testing](implementation/contract-testing.md), [integration evidence](implementation/integration-testing.md), [rendering](implementation/rendering.md), [roadmap](roadmap.md), [ADRs](adr/README.md), [examples](examples/README.md) | Make implementation, release gates and decisions concrete |
 
 ## Normative language
 

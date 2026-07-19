@@ -4,7 +4,7 @@
 
 YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
 
-YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate deterministic plans from both the frozen v0.1 fixtures and the first real v0.2 catalog, explain and semantically compare plans, produce a redacted local debug bundle, validate individual or complete golden-scenario suites, perform read-only remote compatibility preflights, and verify tamper-evident local audit chains. It does not deploy a platform yet.
+YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate deterministic plans, explain and compare them, compile exact evidence coverage, run bounded compatibility contracts, and render the narrow v0.2 LiteLLM/vLLM plan into an audited content-addressed Docker Compose bundle. Rendering is offline and non-mutating; YARA does not deploy a platform yet.
 
 ## The problem
 
@@ -156,6 +156,13 @@ go run ./cmd/yara plan create \
   --catalog catalog/v0.2/snapshot.yaml \
   --output plan.yaml \
   --audit-output audit.jsonl
+go run ./cmd/yara render docker-compose \
+  --plan plan.yaml \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --name reference-stack \
+  --output reference-stack.bundle.yaml \
+  --audit-output reference-stack.render.audit.jsonl
+go run ./cmd/yara bundle validate reference-stack.bundle.yaml
 go run ./cmd/yara plan diff docs/examples/platform-plan.yaml plan.yaml \
   --audit-output plan-diff.audit.jsonl
 go run ./cmd/yara debug bundle \
@@ -222,6 +229,8 @@ Currently implemented:
 - a frozen placeholder catalog for v0.1 acceptance plus a curated v0.2 snapshot with ten real components, two immutable model snapshots, three NVIDIA Ada profiles, one GB10 coherent-unified-memory profile, six selectable serving candidates and two knowledge-only GB10 hypotheses;
 - open-world compatibility governance where explicit negative evidence overrides positive claims and conflicts are quarantined;
 - a deterministic, content-addressed catalog coverage report that accepts only exact-catalog contract results with verified adjacent audit chains and exposes every missing promotion gate;
+- a strict component/topology integration result contract whose validation audit cannot be mistaken for execution evidence;
+- a pure versioned Docker Compose renderer for the exact LiteLLM/vLLM topology, producing pinned files, artifact/license inventory, checks, limitations and a fail-closed render audit;
 - a catalog-authored abstract topology template resolved into gateway and inference component instances;
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;
 - a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;

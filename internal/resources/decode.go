@@ -55,6 +55,10 @@ func LoadIntegrationTestResult(path string) (IntegrationTestResult, error) {
 	return loadResource[IntegrationTestResult](path)
 }
 
+func LoadDeploymentBundle(path string) (DeploymentBundle, error) {
+	return loadResource[DeploymentBundle](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

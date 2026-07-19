@@ -42,6 +42,8 @@ Catalog promotion is not yet a CLI operation. Until it is, the Git commit and re
 
 Component and topology observations use a distinct `IntegrationTestResult`. `integration validate` records only `integration.validate.*` and cannot satisfy an execution gate. Catalog coverage accepts only a matching two-event `integration.component-smoke.*` or `integration.topology-end-to-end.*` chain bound to the exact catalog, result and pseudonymized target identities. This prevents a valid hand-authored result from being presented as an executed test.
 
+Offline rendering records `render.docker-compose.started` and `.completed` or `.failed`. A successful terminal event binds the exact `PlatformPlan`, `CatalogSnapshot` and `DeploymentBundle` identities. The bundle is rolled back if the terminal audit cannot be persisted. This proves which inputs produced which review artifact; it does not prove that the bundle was materialized or applied.
+
 The current local actor comes from the operating-system identity and is labelled `self-asserted-local` (or `unknown-local` when unavailable). A future authenticated service or explicit actor input may provide stronger provenance, but the current value must not be presented as cryptographically verified identity.
 
 ## Event envelope
