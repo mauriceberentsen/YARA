@@ -1,12 +1,12 @@
 # Offline deployment rendering
 
-YARA now has its first non-mutating deployment boundary. The Docker Compose reference renderer accepts an immutable `PlatformPlan` and the exact catalog snapshot named by that plan, then emits one content-addressed `DeploymentBundle`.
+YARA has two non-mutating deployment renderers. Docker Compose remains the compact single-host reference; Kubernetes/GitOps is the selected first reference deployment target under ADR-0009. Both accept an immutable `PlatformPlan` and the exact catalog snapshot named by that plan, then emit one content-addressed `DeploymentBundle`.
 
 Rendering is pure and offline. It does not inspect Docker, pull images, download models, resolve secrets or create services.
 
 ## Current adapter boundary
 
-Renderer version `yara.docker-compose@0.1.0` deliberately supports only:
+Renderer versions `yara.docker-compose@0.1.0` and `yara.kubernetes-gitops@0.1.0` deliberately support only:
 
 - LiteLLM `1.93.0` as the OpenAI-compatible gateway;
 - vLLM `0.25.1` as the text-generation runtime;
@@ -16,7 +16,7 @@ Renderer version `yara.docker-compose@0.1.0` deliberately supports only:
 
 Unknown roles, versions, topology shapes or catalog mismatches fail instead of triggering target-specific substitutions.
 
-## Generate a review bundle
+## Generate a Docker Compose review bundle
 
 First create a plan with the v0.2 request, inventory and catalog. Then render it:
 
@@ -36,6 +36,17 @@ go run ./cmd/yara bundle validate .yara/reference-stack.bundle.yaml
 go run ./cmd/yara audit verify .yara/audit/reference-stack.render.jsonl
 ```
 
+Generate the equivalent Kubernetes/GitOps bundle from the same plan and catalog:
+
+```bash
+go run ./cmd/yara render kubernetes-gitops \
+  --plan .yara/platform-plan-v0.2.yaml \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --name reference-stack \
+  --output .yara/reference-stack.kubernetes.bundle.yaml \
+  --audit-output .yara/audit/reference-stack.kubernetes.render.jsonl
+```
+
 The terminal render event binds the exact plan, catalog and bundle digests. If audit persistence fails, the bundle is removed.
 
 ## Bundle contents
@@ -53,6 +64,22 @@ The acquisition policy makes the phase boundary explicit: connected acquisition 
 
 The Compose preview uses a Docker-internal network, publishes no host port, drops all Linux capabilities, enables `no-new-privileges`, uses read-only roots and gives vLLM only its documented executable `/tmp` exception. These are rendered intentions, not proof that a target enforced them.
 
+## Kubernetes/GitOps bundle
+
+The Kubernetes prototype embeds native YAML for one namespace, a content-named immutable LiteLLM ConfigMap, two single-replica Deployments, two ClusterIP Services and explicit NetworkPolicies. It renders:
+
+- digest-pinned images and a read-only pre-provisioned `yara-model` PVC;
+- `nvidia.com/gpu: 1` for vLLM;
+- disabled service-account-token automounting;
+- read-only roots, dropped capabilities, disabled privilege escalation and `RuntimeDefault` seccomp;
+- default-deny ingress/egress with only gateway→inference, DNS and labelled verifier paths;
+- startup, readiness and liveness probes from cataloged HTTP health contracts;
+- no Ingress, Gateway, LoadBalancer, NodePort or host network.
+
+These remain desired-state assertions. Kubernetes documents that NetworkPolicy enforcement depends on the network plugin and that GPU scheduling depends on a vendor device plugin. The future preflight/executor must observe those facts, validate DNS selectors and the model PVC, restrict who can assign the verifier label, and record results. Rendering performs none of those operations.
+
+Renderer `0.1.0` bounds its tested server-minor range to Kubernetes 1.34 through 1.36. Strict schema validation covers both endpoints; support outside that range must fail preflight until separately reviewed rather than being inferred from stable API names.
+
 ## Deliberate omissions
 
-There is no executor or acquisition implementation yet. YARA does not currently materialize bundle files, pull or mirror the declared artifacts, prove completeness beyond catalog metadata, scan contents, verify signatures, add an access boundary, calculate an observed change set, request approval, call `docker compose up`, issue an import/deployment receipt or safely remove owned resources. Those operations require separate target identity, approval and receipt schemas and must not be added to the renderer.
+There is no executor or acquisition implementation yet. YARA does not currently materialize bundle files, pull or mirror the declared artifacts, prove completeness beyond catalog metadata, scan contents, verify signatures, add an access boundary, calculate an observed change set, request approval, call `docker compose up` or `kubectl`, commit to a GitOps repository, issue an import/deployment receipt or safely remove owned resources. Those operations require separate target identity, approval and receipt schemas and must not be added to the renderer.

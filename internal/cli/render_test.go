@@ -67,6 +67,63 @@ func TestRenderDockerComposeRollsBackBundleWhenAuditFails(t *testing.T) {
 	}
 }
 
+func TestRenderKubernetesGitOpsWritesValidBundleAndAudit(t *testing.T) {
+	directory := t.TempDir()
+	planPath, catalogPath := writeV02Plan(t, directory)
+	outputPath := filepath.Join(directory, "kubernetes-bundle.yaml")
+	auditPath := filepath.Join(directory, "kubernetes-bundle.audit.jsonl")
+	args := []string{
+		"render", "kubernetes-gitops", "--plan", planPath, "--catalog", catalogPath,
+		"--name", "reference-stack", "--output", outputPath, "--audit-output", auditPath,
+	}
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(args, &stdout, &stderr); exitCode != ExitSuccess {
+		t.Fatalf("render failed: exit=%d stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	bundle, err := resources.LoadDeploymentBundle(outputPath)
+	if err != nil {
+		t.Fatalf("load bundle: %v", err)
+	}
+	if report := bundle.Validate(); !report.Valid {
+		t.Fatalf("validate bundle: %#v", report.Diagnostics)
+	}
+	if bundle.Spec.Renderer.Target != "kubernetes-gitops" {
+		t.Fatalf("unexpected renderer identity: %#v", bundle.Spec.Renderer)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load audit: %v", err)
+	}
+	if _, err := audit.Verify(events); err != nil {
+		t.Fatalf("verify audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "render.kubernetes-gitops.completed" || len(terminal.Spec.Subjects) != 3 || terminal.Spec.Subjects[2].Digest != bundle.Metadata.BundleID {
+		t.Fatalf("render audit does not bind Kubernetes bundle: %#v", terminal.Spec)
+	}
+}
+
+func TestRenderKubernetesGitOpsRollsBackBundleWhenAuditFails(t *testing.T) {
+	directory := t.TempDir()
+	planPath, catalogPath := writeV02Plan(t, directory)
+	outputPath := filepath.Join(directory, "kubernetes-bundle.yaml")
+	auditPath := filepath.Join(directory, "audit-is-a-directory")
+	if err := os.Mkdir(auditPath, 0o700); err != nil {
+		t.Fatalf("create audit collision: %v", err)
+	}
+	args := []string{
+		"render", "kubernetes-gitops", "--plan", planPath, "--catalog", catalogPath,
+		"--name", "reference-stack", "--output", outputPath, "--audit-output", auditPath,
+	}
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(args, &stdout, &stderr); exitCode == ExitSuccess {
+		t.Fatalf("render unexpectedly succeeded: %s", stdout.String())
+	}
+	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("bundle survived mandatory audit failure: %v", err)
+	}
+}
+
 func writeV02Plan(t *testing.T, directory string) (string, string) {
 	t.Helper()
 	root := filepath.Join("..", "..")

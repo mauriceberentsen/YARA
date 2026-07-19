@@ -67,6 +67,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "render" && args[1] == "docker-compose" {
 		return renderDockerCompose(args[2:], stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "render" && args[1] == "kubernetes-gitops" {
+		return renderKubernetesGitOps(args[2:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "scenario" && args[1] == "validate" {
 		return validateScenario(args[2:], stdout, stderr)
 	}
@@ -266,6 +269,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara plan diff <from-file> <to-file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara debug bundle --plan <file> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara render docker-compose --plan <file> --catalog <file> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara render kubernetes-gitops --plan <file> --catalog <file> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara bundle validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate-all <directory> [--audit-output <file>]")

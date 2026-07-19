@@ -86,15 +86,15 @@ Current gate: all eleven v0.1 acceptance criteria pass with machine-counted revi
 
 Estimated effort: 10–16 weeks; starts only after real users approve v0.1 plans.
 
-Decision gate: prototype Docker Compose and one alternative enough to write an ADR selecting the first target.
+Decision gate: **complete**. Bounded Docker Compose and Kubernetes/GitOps prototypes led ADR-0009 to select Kubernetes/GitOps as the first reference deployment target.
 
-Current foundation: the evidence-backed v0.2 catalog can already produce a review-required LiteLLM/vLLM/Qwen plan for three NVIDIA Ada profiles and records two knowledge-only hypotheses for GB10 coherent unified memory. Artifact identity, licensing, telemetry posture, health contracts and compatibility bounds are represented. Content-addressed audited preflight, runtime smoke, model inference, capacity boundary, serving policy, same-version lifecycle and bounded sustained-capacity contracts cover both GB10 tuples. A content-addressed coverage ledger rejects unaudited evidence and enumerates every missing gate across 38 manifests and eight assertions. A strict `IntegrationTestResult` now models component-smoke and topology-end-to-end evidence without accepting validation as execution. The first pure Docker Compose renderer prototype emits a content-addressed bundle with deterministic SPDX and offline-acquisition inventories for the exact LiteLLM/vLLM topology and refuses unknown adapters. No tuple is `supported` until component integration, independent review and promotion gates pass; no bundle can mutate a target.
+Current foundation: the evidence-backed v0.2 catalog can already produce a review-required LiteLLM/vLLM/Qwen plan for three NVIDIA Ada profiles and records two knowledge-only hypotheses for GB10 coherent unified memory. Artifact identity, licensing, telemetry posture, health contracts and compatibility bounds are represented. Content-addressed audited preflight, runtime smoke, model inference, capacity boundary, serving policy, same-version lifecycle and bounded sustained-capacity contracts cover both GB10 tuples. A content-addressed coverage ledger rejects unaudited evidence and enumerates every missing gate across 38 manifests and eight assertions. A strict `IntegrationTestResult` now models component-smoke and topology-end-to-end evidence without accepting validation as execution. Pure Docker Compose and Kubernetes/GitOps renderers emit content-addressed bundles with deterministic SPDX and offline-acquisition inventories for the exact LiteLLM/vLLM topology and refuse unknown adapters. ADR-0009 selects Kubernetes/GitOps for the first reference target. No tuple is `supported` until component integration, independent review and promotion gates pass; no bundle can mutate a target.
 
 Deliverables:
 
-- versioned renderer interface and one reference renderer;
-- typed adapters for the narrow supported stack;
-- artifact bundle with deterministic SPDX/license inventory and offline acquisition manifest (**implemented for the reference renderer**);
+- versioned renderer interface with Docker Compose and Kubernetes/GitOps reference renderers (**implemented**);
+- typed adapters for the narrow supported stack (**implemented for LiteLLM 1.93.0 to vLLM 0.25.1**);
+- artifact bundle with deterministic SPDX/license inventory and offline acquisition manifest (**implemented for both renderers**);
 - preflight, explicit approval and least-privilege executor;
 - health verification, receipts and safe owned-resource removal;
 - blocked-egress end-to-end reference test.
