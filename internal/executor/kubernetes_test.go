@@ -25,6 +25,8 @@ type fakeKubectl struct {
 	desired          map[string]map[string]any
 	objects          map[string]map[string]any
 	calls            []string
+	podCommands      [][]string
+	verifierFailure  bool
 	holder           string
 	authorizationID  string
 	foreignNamespace bool
@@ -62,6 +64,18 @@ func (f *fakeKubectl) Run(_ context.Context, _ string, stdin []byte, args ...str
 			return nil, nil
 		}
 		if kind == "Pod" {
+			spec, _ := object["spec"].(map[string]any)
+			containers, _ := spec["containers"].([]any)
+			if len(containers) == 1 {
+				container, _ := containers[0].(map[string]any)
+				command, _ := container["command"].([]any)
+				values := make([]string, 0, len(command))
+				for _, value := range command {
+					text, _ := value.(string)
+					values = append(values, text)
+				}
+				f.podCommands = append(f.podCommands, values)
+			}
 			return nil, nil
 		}
 		return nil, errors.New("unexpected create: " + name)
@@ -81,7 +95,13 @@ func (f *fakeKubectl) Run(_ context.Context, _ string, stdin []byte, args ...str
 		if strings.Contains(name, strings.TrimPrefix(testDigest('d'), "sha256:")[:12]) {
 			authorizationID = testDigest('d')
 		}
-		return json.Marshal(map[string]any{"metadata": map[string]any{"labels": map[string]any{"app.kubernetes.io/managed-by": "yara", "yara.dev/role": "verifier"}, "annotations": map[string]any{"yara.dev/authorization-id": authorizationID}}})
+		phase := "Succeeded"
+		containerStatuses := []any{}
+		if f.verifierFailure {
+			phase = "Failed"
+			containerStatuses = []any{map[string]any{"state": map[string]any{"waiting": map[string]any{"reason": "ContainerCannotRun"}}}}
+		}
+		return json.Marshal(map[string]any{"metadata": map[string]any{"labels": map[string]any{"app.kubernetes.io/managed-by": "yara", "yara.dev/role": "verifier"}, "annotations": map[string]any{"yara.dev/authorization-id": authorizationID}}, "status": map[string]any{"phase": phase, "containerStatuses": containerStatuses}})
 	case strings.HasPrefix(command, "delete pod ") || strings.HasPrefix(command, "rollout status deployment/"):
 		return nil, nil
 	case strings.HasPrefix(command, "get lease "):
@@ -140,6 +160,14 @@ func TestKubernetesExecutorAppliesOnlyApprovedObjectsUnderLock(t *testing.T) {
 	if applyCount != len(desired)-1 {
 		t.Fatalf("applied %d objects, expected %d", applyCount, len(desired)-1)
 	}
+	if len(fake.podCommands) != 2 {
+		t.Fatalf("expected prerequisite and postflight verifier Pods, got %#v", fake.podCommands)
+	}
+	for _, command := range fake.podCommands {
+		if len(command) == 0 || command[0] != "/usr/bin/python3" {
+			t.Fatalf("verifier must use the image's stable Python entrypoint: %#v", command)
+		}
+	}
 	for _, operation := range result.Operations {
 		if operation.Resource.Kind == "Namespace" && operation.Outcome != "unchanged" {
 			t.Fatalf("existing namespace mutated: %#v", operation)
@@ -195,6 +223,24 @@ func TestKubernetesExecutorRejectsStaleForeignStateBeforeObjectApply(t *testing.
 	}
 	if len(result.Operations) == 0 || !slices.ContainsFunc(result.Operations, func(operation resources.DeploymentOperationReceipt) bool { return operation.Outcome == "skipped" }) {
 		t.Fatalf("partial receipt evidence missing: %#v", result)
+	}
+}
+
+func TestKubernetesExecutorStopsOnTerminalVerifierFailureBeforeObjectApply(t *testing.T) {
+	bundle, _, changeSet, authorization, fake := executorFixture(t, false)
+	fake.verifierFailure = true
+	engine := Kubernetes{Executable: "kubectl", Runner: fake}
+	result, err := engine.Execute(t.Context(), bundle, changeSet, authorization, time.Now().UTC())
+	if err == nil || !result.MutationStarted {
+		t.Fatalf("terminal verifier failure was not reported: result=%#v err=%v", result, err)
+	}
+	for _, call := range fake.calls {
+		if strings.HasPrefix(call, "apply --server-side") {
+			t.Fatalf("object applied after terminal verifier failure: %s", call)
+		}
+	}
+	if callIndex(fake.calls, "delete pod") < 0 || callIndex(fake.calls, "delete lease") < 0 {
+		t.Fatalf("verifier or lease cleanup missing: %#v", fake.calls)
 	}
 }
 

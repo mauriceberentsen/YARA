@@ -400,7 +400,7 @@ for item in files:
  if 'sha256:'+h.hexdigest()!=item['digest']: raise SystemExit(12)
 p='/tmp/yara-exec-check';open(p,'w').write('#!/bin/sh\nexit 0\n');os.chmod(p,0o700);subprocess.run([p],check=True)`
 	name := "yara-prereq-" + strings.TrimPrefix(authorization.Metadata.AuthorizationID, "sha256:")[:12]
-	pod := verifierPod(bundle.Metadata.Name, name, image, authorization.Metadata.AuthorizationID, []string{"python", "-c", script, string(expected)}, true)
+	pod := verifierPod(bundle.Metadata.Name, name, image, authorization.Metadata.AuthorizationID, []string{"/usr/bin/python3", "-c", script, string(expected)}, true)
 	return k.runVerifierPod(ctx, bundle.Metadata.Name, name, authorization.Metadata.AuthorizationID, pod)
 }
 
@@ -441,7 +441,7 @@ except Exception as error:
  if isinstance(error,SystemExit): raise
 `
 	name := "yara-postflight-" + strings.TrimPrefix(authorization.Metadata.AuthorizationID, "sha256:")[:12]
-	pod := verifierPod(bundle.Metadata.Name, name, image, authorization.Metadata.AuthorizationID, []string{"python", "-c", script, gatewayIP, inferenceIP}, false)
+	pod := verifierPod(bundle.Metadata.Name, name, image, authorization.Metadata.AuthorizationID, []string{"/usr/bin/python3", "-c", script, gatewayIP, inferenceIP}, false)
 	return k.runVerifierPod(ctx, bundle.Metadata.Name, name, authorization.Metadata.AuthorizationID, pod)
 }
 
@@ -477,7 +477,7 @@ func (k Kubernetes) runVerifierPod(ctx context.Context, namespace, name, authori
 		_, err = k.run(context.WithoutCancel(ctx), nil, "delete", "pod", name, "-n", namespace, "--wait=true", "--timeout=30s")
 		return err
 	}
-	if _, err := k.run(ctx, nil, "wait", "--for=jsonpath={.status.phase}=Succeeded", "pod/"+name, "-n", namespace, "--timeout=15m"); err != nil {
+	if err := k.waitForVerifierPod(ctx, namespace, name); err != nil {
 		_ = cleanup()
 		return errors.New("temporary verifier Pod did not succeed")
 	}
@@ -485,6 +485,66 @@ func (k Kubernetes) runVerifierPod(ctx context.Context, namespace, name, authori
 		return errors.New("temporary verifier Pod cleanup failed")
 	}
 	return nil
+}
+
+func (k Kubernetes) waitForVerifierPod(ctx context.Context, namespace, name string) error {
+	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		observed, err := k.run(waitCtx, nil, "get", "pod", name, "-n", namespace, "-o", "json")
+		if err != nil {
+			return err
+		}
+		var status struct {
+			Status struct {
+				Phase             string `json:"phase"`
+				ContainerStatuses []struct {
+					State struct {
+						Waiting *struct {
+							Reason string `json:"reason"`
+						} `json:"waiting"`
+					} `json:"state"`
+				} `json:"containerStatuses"`
+			} `json:"status"`
+		}
+		if json.Unmarshal(observed, &status) != nil {
+			return errors.New("temporary verifier Pod status is invalid")
+		}
+		if status.Status.Phase == "Succeeded" {
+			return nil
+		}
+		if status.Status.Phase == "Failed" || verifierHasTerminalWaitingReason(status.Status.ContainerStatuses) {
+			return errors.New("temporary verifier Pod entered a terminal failure state")
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return waitCtx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func verifierHasTerminalWaitingReason(statuses []struct {
+	State struct {
+		Waiting *struct {
+			Reason string `json:"reason"`
+		} `json:"waiting"`
+	} `json:"state"`
+}) bool {
+	for _, status := range statuses {
+		if status.State.Waiting == nil {
+			continue
+		}
+		switch status.State.Waiting.Reason {
+		case "ContainerCannotRun", "CreateContainerConfigError", "InvalidImageName":
+			return true
+		}
+	}
+	return false
 }
 
 func (k Kubernetes) serviceIP(ctx context.Context, namespace, name string) (string, error) {

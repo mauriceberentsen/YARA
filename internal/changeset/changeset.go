@@ -263,6 +263,25 @@ func normalizeObject(input map[string]any, kind string, current bool) map[string
 				if container, ok := raw.(map[string]any); ok {
 					delete(container, "terminationMessagePath")
 					delete(container, "terminationMessagePolicy")
+					for _, key := range []string{"startupProbe", "readinessProbe", "livenessProbe"} {
+						probe, _ := container[key].(map[string]any)
+						if probe["successThreshold"] == 1 {
+							delete(probe, "successThreshold")
+						}
+						httpGet, _ := probe["httpGet"].(map[string]any)
+						if httpGet["scheme"] == "HTTP" {
+							delete(httpGet, "scheme")
+						}
+					}
+				}
+			}
+		}
+		if volumes, ok := pod["volumes"].([]any); ok {
+			for _, raw := range volumes {
+				volume, _ := raw.(map[string]any)
+				configMap, _ := volume["configMap"].(map[string]any)
+				if configMap["defaultMode"] == 420 {
+					delete(configMap, "defaultMode")
 				}
 			}
 		}
