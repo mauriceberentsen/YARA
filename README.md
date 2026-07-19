@@ -175,6 +175,13 @@ go run ./cmd/yara contract runtime-smoke \
   --name gb10-runtime-smoke \
   --output gb10-runtime-smoke.yaml \
   --audit-output gb10-runtime-smoke.audit.jsonl
+go run ./cmd/yara contract model-inference \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example \
+  --name gb10-qwen-coder-model-inference \
+  --output gb10-qwen-coder-model-inference.yaml \
+  --audit-output gb10-qwen-coder-model-inference.audit.jsonl
 ```
 
 Currently implemented:
@@ -196,7 +203,7 @@ Currently implemented:
 - deterministic, content-addressed `DebugBundle` output containing only an inspectable redacted plan summary, section inventory and successful secret-scan assertion;
 - a content-addressed `GoldenScenario` contract and offline validator for exact inputs, plan identity, required decisions, forbidden outcomes, diagnostics and review requirements;
 - a bounded, deterministic ten-case acceptance-suite validator with duplicate-identity rejection, planned/infeasible coverage and fail-closed audit evidence;
-- a content-addressed `ContractTestResult`, read-only SSH preflight and isolated runtime smoke that verify cataloged artifact identities plus Docker/Linux, OCI platform, NVIDIA runtime, driver, exact hardware identity and bounded CUDA execution;
+- a content-addressed `ContractTestResult`, read-only SSH preflight, isolated runtime smoke and bounded model-inference contract that verify artifact identities, host/runtime compatibility, exact local model shards, model health and one constrained API request;
 - tamper-evident audit chains for validation plus successful, infeasible and input-rejected planning outcomes, containing available input identities and stable diagnostic codes, including material warnings;
 - optional fail-closed validation, plan-explanation and plan-diff audit receipts, plus mandatory fail-closed persistence for `plan create` and `debug bundle`, with path- and payload-minimized evidence for resources that cannot be decoded.
 

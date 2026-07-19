@@ -60,7 +60,7 @@ For supported component/model combinations:
 
 Passing once does not guarantee permanent support; evidence freshness policy applies.
 
-The implemented [contract-testing slices](../implementation/contract-testing.md) are a read-only SSH preflight and a bounded runtime smoke. Runtime smoke resolves exact OCI/model identities, applies the preflight gate and starts one no-network, resource-bounded, uniquely named container to execute a CUDA tensor. It does not load a model or exercise the serving API, so neither mode can promote a catalog assertion.
+The implemented [contract-testing slices](../implementation/contract-testing.md) are read-only SSH preflight, bounded runtime smoke and bounded model inference. Runtime smoke resolves exact OCI/model identities and executes a CUDA tensor in an isolated container. Model inference adds capacity gates, temporary exact-revision acquisition, local shard hashes, no-network serving, health and one constrained request. The single request does not establish cataloged context, capacity, performance, policy or lifecycle claims, so it cannot promote an assertion.
 
 ### Renderer tests (future)
 
@@ -107,7 +107,7 @@ An unavailable hardware runner means that path cannot receive fresh supported ev
 
 ## Test evidence
 
-Compatibility and benchmark jobs output structured evidence with environment, commit, artifact digests and results. The implemented `ContractTestResult` establishes this boundary for both preflight and runtime-smoke observations; later modes must extend it without weakening content identity or explicit limitations. Catalog promotion consumes reviewed evidence. Test logs alone are not durable catalog facts.
+Compatibility and benchmark jobs output structured evidence with environment, runner identity, artifact digests and results. `ContractTestResult` establishes this boundary for preflight, runtime-smoke and model-inference observations. New results bind the runner version and exact executable SHA-256; older archived v1alpha1 results without that optional field remain valid but carry weaker provenance. Later modes must not weaken content identity or explicit limitations. Catalog promotion consumes reviewed evidence; test logs alone are not durable catalog facts.
 
 ## Failure triage
 

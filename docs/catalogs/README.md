@@ -106,7 +106,7 @@ The current in-process compiler implements schema-shaped strict decoding, refere
 
 Ownership and freshness are executable gates. Every manifest requires at least one owner and a provenance record containing sources, confidence, `verifiedAt` and `reviewAfter`. A snapshot provides `publishedAt`; validation compares evidence to that timestamp rather than the operator's wall clock. This preserves offline reproducibility. Evidence verified after publication or due for review at publication fails with `YARA-CAT-054`.
 
-The v0.2 compiler validates declared immutable OCI/model identities, recorded license consistency, health contracts, memory kind, hardware facts and compatibility version/revision bounds. `contract runtime-smoke` independently resolves those OCI/model identities before isolated execution. The remaining production gates include signatures or trusted attestations, full model-load/inference/capacity/policy/lifecycle contracts and explicit promotion review.
+The v0.2 compiler validates declared immutable OCI/model identities, recorded license consistency, health contracts, memory kind, hardware facts and compatibility version/revision bounds. Contract workloads independently resolve those identities before isolated execution. The Qwen Coder/GB10 path now has one bounded model-load/health/request result. Remaining production gates include signatures or trusted attestations, advertised-context, capacity, broader API/policy/lifecycle contracts and explicit promotion review.
 
 Health contracts are protocol-specific: HTTP probes use a path, TCP probes use a port and process-native checks use an argument-vector `exec` probe. Catalog authors must not invent HTTP endpoints for databases or caches.
 

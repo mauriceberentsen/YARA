@@ -23,7 +23,7 @@ Primary versioned resources:
 - `GoldenScenario`
 - `ContractTestResult`
 
-v0.1 implements the request, inventory, policy/catalog inputs, plan, diagnostics, redacted debug-bundle and golden-scenario contracts, plus local audit records. Post-v0.1 adds preflight and runtime-smoke `ContractTestResult` modes. Approval, deployment, full model-serving contract modes and service-side audit storage arrive later.
+v0.1 implements the request, inventory, policy/catalog inputs, plan, diagnostics, redacted debug-bundle and golden-scenario contracts, plus local audit records. Post-v0.1 adds preflight, runtime-smoke and bounded model-inference `ContractTestResult` modes. Approval, deployment, capacity/lifecycle contract modes and service-side audit storage arrive later.
 
 ## CLI surface
 
@@ -43,17 +43,20 @@ yara scenario validate <file> [--audit-output <file>]
 yara scenario validate-all <directory> [--audit-output <file>]
 yara contract preflight --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
 yara contract runtime-smoke --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
+yara contract model-inference --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
 yara contract validate <file> [--audit-output <file>]
 yara audit verify <file>
 ```
 
 Commands write machine data to standard output or the requested file and human diagnostics to standard error. Exit codes are stable by class: success, invalid input, infeasible request, internal error and unsupported version.
 
-The read-only validation, plan-explanation and plan-diff commands preserve positional inputs and optionally persist a local audit chain. Without `--decision`, explanation returns the complete ordered decision list for compatibility; with it, the command returns exactly one `PlanDecision` or `YARA-PLAN-040`. Planning, debug-bundle generation, contract preflight and runtime smoke require an audit destination. An audit write failure prevents any generated artifact from being reported as successful; a read-only command with an explicitly requested audit destination follows the same fail-closed rule.
+The read-only validation, plan-explanation and plan-diff commands preserve positional inputs and optionally persist a local audit chain. Without `--decision`, explanation returns the complete ordered decision list for compatibility; with it, the command returns exactly one `PlanDecision` or `YARA-PLAN-040`. Planning, debug-bundle generation and every contract execution mode require an audit destination. An audit write failure prevents any generated artifact from being reported as successful; a read-only command with an explicitly requested audit destination follows the same fail-closed rule.
 
 Contract preflight uses a fixed non-interactive SSH probe and does not mutate the target. Exit code `3` represents both blocked eligibility and a failed compatibility check; the persisted `ContractTestResult.spec.outcome` distinguishes them. The remote reference is represented by a digest in the result and audit event.
 
 Runtime smoke first resolves public upstream OCI/model metadata, applies the same SSH preflight, and then starts an exact digest-pinned image already present on the target. The container has a unique name, blocked network, no ports or volumes, a read-only filesystem and bounded resources; ownership-scoped cleanup runs on exit. The result explicitly states that no model weights were loaded.
+
+Model inference adds fixed capacity gates, exact revision acquisition into a temporary volume, local shard hashing, model load, health and one constrained chat request. Its serving container has no network or published ports. Prompt, completion and raw logs are not persisted. New contract results bind both runner version and executable digest; the result remains valid only for the exact recorded catalog, runner, environment and test bounds.
 
 Scenario validation proves pinned technical conformance and counts approved `ScenarioReview` and `AcceptanceGateReview` resources discovered with the suite. `scenario validate-all` discovers a bounded, sorted suite, rejects duplicate scenario identities, requires at least ten cases and fails when any case is nonconformant. Its summary separates planned and infeasible results and reports independent review completion, acceptance-gate review completion and `releaseEligible` when all counted reviews are present and approved.
 

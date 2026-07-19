@@ -4,7 +4,7 @@
 
 Catalog documentation and immutable artifact identities are necessary evidence, but they do not prove that a runtime, model and hardware tuple works. YARA therefore treats every positive `CompatibilityAssertion` as a testable contract. Promotion from `experimental` to `supported` requires evidence for the exact catalog digest, assertion, runtime version, model revision and hardware profile.
 
-Two evidence layers are implemented: a read-only remote preflight and a bounded runtime smoke. Preflight answers whether a named host is eligible. Runtime smoke additionally re-verifies the cataloged OCI/model identities and proves that the exact runtime image can execute a CUDA tensor on the named accelerator. Neither layer loads model weights or proves inference compatibility.
+Three evidence layers are implemented: read-only remote preflight, bounded runtime smoke and bounded model inference. Preflight answers whether a named host is eligible. Runtime smoke additionally re-verifies cataloged OCI/model identities and proves that the exact runtime image can execute a CUDA tensor. Model inference acquires and locally re-hashes the exact model shards, starts the pinned serving image and executes one constrained API request. Each layer retains explicit limitations and cannot imply broader support.
 
 ## Implemented preflight
 
@@ -68,6 +68,37 @@ The container uses a unique `yara-contract-smoke-*` name, no network, no ports o
 
 Validate the result and audit chain with the same `contract validate` and `audit verify` commands shown above. A passed GB10 smoke proves the bounded runtime checks recorded in the result; it does not prove that either cataloged Qwen model loads or serves requests.
 
+## Implemented model inference
+
+`contract model-inference` applies artifact verification and preflight before any remote mutation. The fixed contract then:
+
+1. requires at least 16 GiB currently available host memory and twice the cataloged shard size plus 2 GiB free disk;
+2. downloads the exact public Hugging Face revision into a uniquely named temporary volume;
+3. recomputes every cataloged shard size and SHA-256 digest locally;
+4. starts the exact digest-pinned vLLM image with a 16-GiB cgroup limit, context 1024 and concurrency 1;
+5. keeps the root filesystem and model volume read-only, publishes no ports and gives the serving container `--network none`;
+6. provides only bounded private tmpfs paths needed by vLLM/Triton, with executable cache mounts where generated shared objects must be loaded;
+7. disables async scheduling and prefix caching for the tested SM 12.1 path, following the [upstream vLLM GB10 workaround](https://github.com/vllm-project/vllm/issues/31588);
+8. checks `/health` and one temperature-zero chat request with at most eight completion tokens;
+9. stores only evidence digests, HTTP/schema facts and token counts—not the prompt, completion or raw server logs;
+10. removes only the uniquely named test containers and volume through an exit trap.
+
+Run from a source checkout:
+
+```bash
+go run ./cmd/yara contract model-inference \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example \
+  --name gb10-qwen-coder-model-inference \
+  --output .yara/contracts/gb10-qwen-coder-model-inference.yaml \
+  --audit-output .yara/audit/gb10-qwen-coder-model-inference.jsonl
+```
+
+Unlike runtime smoke, this command performs explicit networked model acquisition on the target. The serving container itself remains offline. Every newly generated contract result records the YARA version and SHA-256 digest of the exact runner executable, so an audit chain cannot silently substitute a different local binary.
+
+The first GB10 Qwen Coder run exposed that Triton-generated shared objects cannot load from a non-executable tmpfs. That negative result and the final passing configuration are both archived under [`catalog/v0.2/evidence/gb10/`](../../catalog/v0.2/evidence/gb10/README.md). The pass proves only one context-1024, concurrency-1 request. It does not validate the cataloged 32768-token maximum, capacity, performance, restart, lifecycle or air-gap behavior.
+
 ## Outcomes and exit codes
 
 | Result | Meaning | Exit code |
@@ -88,10 +119,10 @@ The actor remains the self-asserted local OS identity. The current hash chain de
 
 ## What preflight does not prove
 
-A passing preflight MUST NOT promote an assertion. Runtime smoke now covers immutable identity verification and bounded container/CUDA startup, but neither mode establishes:
+A passing preflight MUST NOT promote an assertion. Runtime smoke covers immutable identity verification and bounded container/CUDA startup. Model inference additionally covers one narrow model-load/health/request path, but the implemented modes still do not establish:
 
-- model load, memory fit, context-window behavior or concurrency capacity;
-- inference correctness or API compatibility;
+- the advertised context window or concurrency/capacity boundary;
+- generalized inference correctness, quality or API compatibility beyond one fixed request;
 - hardened no-egress/telemetry policy;
 - restart, upgrade, rollback or recovery behavior;
 - repeatability on another machine of the same advertised model.
@@ -103,8 +134,8 @@ The result records these limitations explicitly.
 For each exact compatibility tuple, promotion still requires:
 
 1. **Artifact verification and runtime startup:** implemented by runtime smoke, using exact identities and an isolated container.
-2. **Health and inference:** prove model load, health, one deterministic request, advertised context bounds and clean diagnostics.
-3. **Capacity boundary:** test the asserted memory and concurrency envelope without turning a single sample into a universal performance claim.
+2. **Health and bounded inference:** implemented for one Qwen Coder/GB10 request; advertised context bounds and broader API conformance remain open.
+3. **Capacity boundary:** test the asserted memory and concurrency envelope without turning the single passing sample into a universal performance claim.
 4. **Policy contract:** verify egress, telemetry, filesystem, secret and privilege behavior under a YARA-owned hardened profile.
 5. **Lifecycle contract:** restart and recover the isolated workload and capture state/health evidence.
 6. **Independent review:** review the complete evidence set and record an explicit promotion decision.
@@ -121,4 +152,4 @@ Tests on a different accelerator are useful for discovering a new hardware profi
 - Capture exact image/model identities and limitations.
 - Treat partial cleanup, resource pressure or an unexpected existing-name collision as a failed test.
 
-Preflight complies by remaining read-only. Runtime smoke complies through exact-image pinning, isolation, resource limits, name-collision rejection and ownership-scoped cleanup. Operators must still review available host capacity before staging an image or progressing to model load.
+Preflight complies by remaining read-only. Runtime smoke and model inference use exact-image pinning, isolation, resource limits, name-collision rejection and ownership-scoped cleanup. Model inference additionally fails before acquisition when observed memory or disk is below its fixed safety floor. Operators remain responsible for scheduling downtime or freeing capacity from non-YARA workloads.
