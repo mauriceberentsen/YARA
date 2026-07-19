@@ -7,8 +7,8 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-reference-renderer`.
-- Branch base: `main` at `93c7f48` (`Merge audited component integration contract`).
+- Active branch: `main`.
+- Latest completed merge: `b69d9ba` (`Merge pure Docker Compose reference renderer`), pushed to `origin/main`.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: expand catalog knowledge without invalidating v0.2 evidence, implement audited component/topology integration contracts, then continue the v0.2 reference-deployment renderer.
 
@@ -138,7 +138,7 @@ Catalog v0.3 is staged as a knowledge-only successor instead of editing the evid
 
 This slice was committed as `83125f6`, merged to `main` as `93c7f48` and pushed. `make check` and `go test -race ./...` passed before publication.
 
-## Active slice: pure Docker Compose reference renderer
+## Completed slice: pure Docker Compose reference renderer
 
 Implement the plan/render/executor boundary from ADR-0002 without adding target mutation. The new public `DeploymentBundle` binds the exact plan and catalog, renderer identity, rendered file contents/digests, immutable OCI and model artifacts, license sources, required inputs, ordered plan stages, pre/postflight contracts and explicit limitations.
 
@@ -155,6 +155,8 @@ Implementation in progress:
 The local CLI demonstration produced plan `sha256:5b12b6a739b697d256668c37296d6711f16522d7a5e6aea3f9bfa454cdf5fc2d`, bundle `sha256:3dc332c1575446b4fbd999250ad8bf9f70faec3ea88414b24278f69c9db1cd07` and render-audit head `sha256:f1df1169e5d08407ba2025d18f4d3e5929ab2b757b54704163b29f138cdca18e`. The files are under ignored `.yara/` only and are not release evidence.
 
 ADR-0009 remains Proposed because Docker Compose is a prototype until at least one alternative is compared.
+
+This slice was committed as `cb6447c`, merged to `main` as `b69d9ba` and pushed. Post-merge `make check` passed and `origin/main...main` was `0 0`.
 
 ## Audit requirements
 
@@ -206,8 +208,8 @@ Latest validation status: `make check`, `go test -race ./...`, deterministic ren
 
 ## Immediate next actions
 
-1. Finish validation, documentation, commit and merge the pure renderer slice under Maurice's Git identity.
-2. Prototype one alternative renderer enough to resolve Proposed ADR-0009 without building an executor twice.
+1. Prototype one alternative renderer enough to resolve Proposed ADR-0009 without building an executor twice.
+2. Complete the artifact bundle with a machine-readable SBOM/offline acquisition manifest.
 3. Implement a generic integration executor that produces fail-closed execution audit chains; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
 4. Add target preflight, approval and receipt resources before any apply-capable executor.
 5. Keep Ada tuples unobserved until authorized hardware exists and never self-approve independent promotion review.
