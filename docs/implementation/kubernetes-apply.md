@@ -45,6 +45,14 @@ go run ./cmd/yara deployment apply kubernetes \
 
 The authorization is valid for at most 15 minutes, while the change set must have been observed no more than five minutes before authorization issuance. Generate these inputs immediately before apply. Existing receipt and audit files are never overwritten.
 
+## CPU-only development clusters
+
+Rancher Desktop, kind and similar CPU-only clusters are useful for validating the negative safety path, but they cannot establish a successful apply claim for the current reference bundle. That bundle requires a tested Kubernetes minor, a compatible image platform, allocatable `nvidia.com/gpu` capacity and the exact model PVC.
+
+Run plan, render, preflight and change-set normally. Expected environment failures such as an unsupported Kubernetes minor or zero GPU capacity must remain `failed`, not be rewritten as acceptable active-verification blockers. `authorization issue` must then reject the deployment and produce a failed audit chain. Verify that no authorization artifact and no target namespace were created.
+
+Do not hand-author a passing preflight, patch node capacity, remove the rendered GPU request or directly construct a signed authorization to force a CPU-only test through the production executor. Those actions invalidate the evidence chain rather than test it. A future lightweight executor-conformance fixture must use a separate explicit test contract and must never produce a production `DeploymentReceipt`.
+
 ## Active prerequisite and postflight checks
 
 When the authorization explicitly accepts the passive preflight blockers, the executor creates a temporary hardened verifier Pod using the pinned vLLM image. It mounts `yara-model` read-only, verifies every declared model-file size and SHA-256 digest and proves executable `/tmp`. The Pod has no service-account token, a read-only root filesystem, no Linux capabilities, no privilege escalation and RuntimeDefault seccomp.

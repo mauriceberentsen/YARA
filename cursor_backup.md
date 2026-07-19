@@ -7,10 +7,10 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `main`.
+- Active branch: `docs/rancher-desktop-conformance-boundary`.
 - Latest completed slice: feature commit `4b67f19`, merged to main as `89d5786` (`Merge authorized Kubernetes apply executor`) and pushed to `origin/main`.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: controlled-cluster review of the first fail-closed direct Kubernetes apply slice, followed by acquisition/import receipts and safe lifecycle operations.
+- Working goal: record the Rancher Desktop negative-path review, then design a separate lightweight executor-conformance contract or move positive apply testing to compatible NVIDIA Kubernetes hardware.
 
 ## Current product boundary
 
@@ -291,9 +291,9 @@ Latest validation status: `make check`, `go test -race ./...`, deterministic tes
 
 ## Immediate next actions
 
-1. Run the documented command chain on a deliberately disposable Kubernetes environment with an existing owned namespace and verified `yara-model` PVC; do not use production first.
+1. Choose between a separate lightweight Kubernetes executor-conformance contract and a compatible disposable NVIDIA Kubernetes environment for the first positive live apply.
 2. Add acquisition/import receipts and exact internal artifact locations before an air-gap completeness claim.
-3. Prove an independently reviewed second apply is all no-op against a controlled cluster and archive its receipt/audit chain.
+3. Prove an independently reviewed second apply is all no-op against a compatible controlled cluster and archive its receipt/audit chain.
 4. Add safe owned-resource retirement and rollback as separately authorized operations; do not extend ordinary apply with implicit prune.
 5. Implement a generic integration executor independently of deployment apply; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
 
@@ -308,3 +308,13 @@ When authorized, a hardened temporary Pod verifies every model shard size/digest
 After Lease acquisition, success and partial/failure paths produce a content-addressed `DeploymentReceipt` that now also binds `authorizationId`. The receipt is durable before the terminal audit event. The audit chain and receipt exclude kubeconfig, context, raw API address and object bodies. Model artifact paths now reject absolute, unclean and parent-traversal forms.
 
 Tests use an injected fake executor to prove the start audit is durable before mutation and wrong confirmation never reaches the executor while still producing a failed audit chain. A fake kubectl target proves Lease ordering, exact approved apply count, namespace no-op, second-apply idempotency, cleanup identity checks and stale/foreign-state rejection before object apply. `make check`, `go test -race ./...` and `git diff --check` passed before merge; post-merge `make check` also passed on main. No live cluster, container or remote host has been contacted by this slice.
+
+## Controlled review: Rancher Desktop negative path
+
+On 2026-07-20 the real plan/render/preflight/change-set/approval path was exercised against local context `rancher-desktop`. The observed server was Kubernetes `v1.32.5+k3s1` on `linux/arm64`, with zero allocatable `nvidia.com/gpu`. This environment is deliberately incompatible with the current v0.2 NVIDIA reference bundle.
+
+The content-addressed preflight was valid with outcome `failed`, result ID `sha256:71c66ec9fa82d1de05ae269777d1750bd8ccb583b5dac849262a9183f0cd97a8` and audit head `sha256:719a2cc8ded36b950a9eba5ec70e9937e80074d112b05b38570dbe7976332b18`. Required APIs and DNS passed. GPU capacity failed with `YARA-TPR-108`; Kubernetes minor 32 failed with `YARA-TPR-104`; the absent model PVC and active checks remained blocked.
+
+Read-only change-set observation produced 12 creates and zero deletes (`sha256:51db5bcbef03a0a68a5108ae095f1ddcc6f890e861b3380022a9d66335ef4b59`). A local review-only approval was recorded only to exercise the next gate. `authorization issue` rejected the failed GPU check with `YARA-AUT-105`; no authorization artifact was created. Its two-event failure audit verified with head `sha256:488fe3242fbd79360713127e7a1250204186ca151f14fa61d7255ba2a2827a6d`. Namespace `rancher-test` was absent before and after. The temporary private test key was deleted. Generated local artifacts remain ignored under `.yara/` and are not release evidence.
+
+This proves the real negative authorization path and no-mutation boundary. It does not prove Lease/apply/postflight behavior on a live cluster. Forcing a positive result by falsifying preflight or removing GPU intent is prohibited; use a separately typed conformance fixture or compatible NVIDIA target.
