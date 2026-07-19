@@ -38,7 +38,7 @@ For a successful planning run, the event records the request, inventory, catalog
 
 The v0.2 catalog path preserves the same boundary: `catalog validate` binds its terminal event to the exact `CatalogSnapshot` digest, and `plan create` binds both the catalog and resulting plan digests while retaining material maturity diagnostics such as `YARA-CAT-055`. Immutable artifact digests and evidence URLs live in the catalog referenced by that digest; they are not copied into every event.
 
-Catalog promotion is not yet a CLI operation. Until it is, the Git commit and review record are the approval evidence. Preflight remains eligibility evidence only. Runtime smoke adds upstream OCI/model identity verification and bounded isolated CUDA execution. Model inference adds exact local shard verification, load, health and one bounded request. Capacity-boundary adds one exact advertised-context request at concurrency 1 under `contract.capacity-boundary.*`; it is not sustained-capacity or performance evidence. Policy records observable serving-container controls under `contract.policy.*`. Lifecycle records one same-version restart with pre/post health and inference plus identity comparisons under `contract.lifecycle.*`; it is not upgrade, rollback, HA or stateful-recovery evidence. Every new result records the runner version and executable digest, while the audit chain binds catalog and result identities. Promotion and independent review remain required; a status edit or individual passing contract alone is insufficient.
+Catalog promotion is not yet a CLI operation. Until it is, the Git commit and review record are the approval evidence. Preflight remains eligibility evidence only. Runtime smoke adds upstream OCI/model identity verification and bounded isolated CUDA execution. Model inference adds exact local shard verification, load, health and one bounded request. Capacity-boundary adds one exact advertised-context request at concurrency 1 under `contract.capacity-boundary.*`; it is not sustained-capacity or performance evidence. Sustained-capacity records 32 consecutive bounded requests under `contract.sustained-capacity.*`; it is not a duration soak, SLO or performance claim. Policy records observable serving-container controls under `contract.policy.*`. Lifecycle records one same-version restart with pre/post health and inference plus identity comparisons under `contract.lifecycle.*`; it is not upgrade, rollback, HA or stateful-recovery evidence. Every new result records the runner version and executable digest, while the audit chain binds catalog and result identities. Promotion and independent review remain required; a status edit or individual passing contract alone is insufficient.
 
 The current local actor comes from the operating-system identity and is labelled `self-asserted-local` (or `unknown-local` when unavailable). A future authenticated service or explicit actor input may provide stronger provenance, but the current value must not be presented as cryptographically verified identity.
 
@@ -97,6 +97,7 @@ contract.preflight.*
 contract.runtime-smoke.*
 contract.model-inference.*
 contract.capacity-boundary.*
+contract.sustained-capacity.*
 contract.policy.*
 contract.lifecycle.*
 catalog.coverage.*

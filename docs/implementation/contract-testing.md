@@ -4,7 +4,7 @@
 
 Catalog documentation and immutable artifact identities are necessary evidence, but they do not prove that a runtime, model and hardware tuple works. YARA therefore treats every positive `CompatibilityAssertion` as a testable contract. Promotion from `experimental` to `supported` requires evidence for the exact catalog digest, assertion, runtime version, model revision and hardware profile.
 
-Six evidence layers are implemented: read-only remote preflight, bounded runtime smoke, bounded model inference, advertised-context capacity boundary, serving-container policy and same-version lifecycle. Preflight answers whether a named host is eligible. Runtime smoke additionally re-verifies cataloged OCI/model identities and proves that the exact runtime image can execute a CUDA tensor. Model inference acquires and locally re-hashes the exact model shards, starts the pinned serving image and executes one constrained API request. Capacity boundary reserves the complete cataloged context envelope for one request. Policy verifies a narrow set of observable container controls. Lifecycle verifies one bounded request before and after an operator-requested restart. Each layer retains explicit limitations and cannot imply broader support.
+Seven evidence layers are implemented: read-only remote preflight, bounded runtime smoke, bounded model inference, advertised-context capacity boundary, repeated-request sustained capacity, serving-container policy and same-version lifecycle. Preflight answers whether a named host is eligible. Runtime smoke additionally re-verifies cataloged OCI/model identities and proves that the exact runtime image can execute a CUDA tensor. Model inference acquires and locally re-hashes the exact model shards, starts the pinned serving image and executes one constrained API request. Capacity boundary reserves the complete cataloged context envelope for one request. Sustained capacity requires 32 consecutive bounded requests. Policy verifies a narrow set of observable container controls. Lifecycle verifies one bounded request before and after an operator-requested restart. Each layer retains explicit limitations and cannot imply broader support.
 
 ## Implemented preflight
 
@@ -122,6 +122,22 @@ go run ./cmd/yara contract capacity-boundary \
 
 A pass proves acceptance of one exact advertised-context request on the observed host under the recorded allocation. It makes no claim about multiple concurrent requests, sustained load, latency, throughput, output quality or production headroom. Those require separately declared catalog bounds and repeatable tests. An earlier failed allocation remains valid evidence beside a later pass; the coverage ledger preserves both and selects the newest audited observation for the gate.
 
+## Implemented sustained-capacity contract
+
+`contract sustained-capacity` reuses exact artifact verification, preflight, offline serving, bounded caches and ownership-scoped cleanup. It starts vLLM at context 1024, concurrency 1, eight output tokens and the ordinary 8% GPU-memory-utilization profile, then requires 32 consecutive successful requests. The evidence exposes attempted/completed requests and aggregate prompt, completion and total token counts. It stores no request, response, raw server log, latency sample or throughput figure.
+
+```bash
+go run ./cmd/yara contract sustained-capacity \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example \
+  --name gb10-qwen-coder-sustained-capacity \
+  --output .yara/contracts/gb10-qwen-coder-sustained-capacity.yaml \
+  --audit-output .yara/audit/gb10-qwen-coder-sustained-capacity.jsonl
+```
+
+A pass is a bounded repeated-request stability observation. It does not establish concurrency above one, duration-based soak behavior, latency, throughput, an SLO, production headroom or availability.
+
 ## Implemented serving-container policy contract
 
 `contract policy` uses the same exact artifact, preflight, model-load, health and request gates, then inspects and actively probes the isolated serving container. The fixed policy profile requires:
@@ -195,7 +211,7 @@ A passing preflight MUST NOT promote an assertion. Runtime smoke covers immutabl
 
 - concurrency above one;
 - generalized inference correctness, quality or API compatibility beyond one fixed request;
-- sustained capacity, latency or throughput;
+- duration-based soak behavior, latency, throughput or a service-level objective;
 - version upgrade, rollback, HA or stateful recovery behavior;
 - repeatability on another machine of the same advertised model.
 
@@ -207,10 +223,11 @@ For each exact compatibility tuple, promotion still requires:
 
 1. **Artifact verification and runtime startup:** implemented by runtime smoke, using exact identities and an isolated container.
 2. **Health and bounded inference:** implemented for one Qwen Coder/GB10 request; advertised context bounds and broader API conformance remain open.
-3. **Advertised-context boundary:** implemented as one exact 32768-token-envelope request; sustained capacity and any concurrency above one remain open until the catalog declares explicit bounds.
-4. **Policy contract:** implemented for observable egress, telemetry configuration, filesystem, secret exposure, privilege and cleanup controls; broader host, dependency and compliance claims remain explicitly out of scope.
-5. **Lifecycle contract:** implemented for one same-version container restart with pre/post health and inference plus identity-stability evidence; upgrade, rollback, HA and stateful recovery remain open.
-6. **Independent review:** review the complete evidence set and record an explicit promotion decision.
+3. **Advertised-context boundary:** implemented as one exact 32768-token-envelope request; any concurrency above one remains open until the catalog declares explicit bounds.
+4. **Repeated-request capacity:** implemented as 32 consecutive context-1024 requests at concurrency one; duration soak, latency, throughput, SLO and production-headroom claims remain open.
+5. **Policy contract:** implemented for observable egress, telemetry configuration, filesystem, secret exposure, privilege and cleanup controls; broader host, dependency and compliance claims remain explicitly out of scope.
+6. **Lifecycle contract:** implemented for one same-version container restart with pre/post health and inference plus identity-stability evidence; upgrade, rollback, HA and stateful recovery remain open.
+7. **Independent review:** review the complete evidence set and record an explicit promotion decision.
 
 Tests on a different accelerator are useful for discovering a new hardware profile, but they cannot approve an existing hardware assertion. The GB10 assertions therefore have their own knowledge-only identities and do not promote or validate an RTX 4090 assertion.
 

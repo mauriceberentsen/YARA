@@ -34,7 +34,7 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load report: %v", err)
 	}
-	if report.Metadata.ReportID != response.ReportID || report.Spec.Summary.AcceptedEvidenceCount != 12 || report.Spec.Summary.PromotionEligibleAssertions != 0 {
+	if report.Metadata.ReportID != response.ReportID || report.Spec.Summary.AcceptedEvidenceCount != 14 || report.Spec.Summary.PromotionEligibleAssertions != 0 {
 		t.Fatalf("unexpected report: %#v", report.Spec.Summary)
 	}
 	events, err := audit.LoadJSONL(auditPath)

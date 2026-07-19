@@ -23,7 +23,7 @@ Primary versioned resources:
 - `GoldenScenario`
 - `ContractTestResult`
 
-v0.1 implements the request, inventory, policy/catalog inputs, plan, diagnostics, redacted debug-bundle and golden-scenario contracts, plus local audit records. Post-v0.1 adds preflight, runtime-smoke, bounded model-inference, advertised-context capacity-boundary, serving-policy and same-version lifecycle `ContractTestResult` modes. Approval, deployment, sustained-capacity and broader upgrade/recovery contract modes and service-side audit storage arrive later.
+v0.1 implements the request, inventory, policy/catalog inputs, plan, diagnostics, redacted debug-bundle and golden-scenario contracts, plus local audit records. Post-v0.1 adds preflight, runtime-smoke, bounded model-inference, advertised-context capacity-boundary, repeated-request sustained-capacity, serving-policy and same-version lifecycle `ContractTestResult` modes. Approval, deployment, broader upgrade/recovery contract modes and service-side audit storage arrive later.
 
 ## CLI surface
 
@@ -47,6 +47,7 @@ yara contract preflight --catalog <file> --assertion <id> --target <user@host> -
 yara contract runtime-smoke --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
 yara contract model-inference --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
 yara contract capacity-boundary --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
+yara contract sustained-capacity --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
 yara contract policy --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
 yara contract lifecycle --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
 yara contract validate <file> [--audit-output <file>]

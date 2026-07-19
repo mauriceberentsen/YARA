@@ -2,7 +2,7 @@ apiVersion: yara.dev/v1alpha1
 kind: CatalogCoverageReport
 metadata:
     name: catalog-v0.2-coverage
-    reportId: sha256:826432ada6ff003ca5beeda5d72c8aee763fb1d10ca3a27193d21e5f7f852acf
+    reportId: sha256:0d040fd0fe430940bf1fb9ef3ce034dd3a54a238539378c2bd8af1fef4b22541
 spec:
     catalogDigest: sha256:0f7062b289e322a1c676cc52282cb9b0c816894bb3452535b790290e94ca0241
     complete: false
@@ -14,8 +14,8 @@ spec:
         hardwareProfileCount: 4
         assertionCount: 8
         topologyCount: 1
-        acceptedEvidenceCount: 12
-        verifiedAuditChainCount: 12
+        acceptedEvidenceCount: 14
+        verifiedAuditChainCount: 14
         promotionEligibleAssertions: 0
     capabilities:
         - id: chat
@@ -214,6 +214,7 @@ spec:
             - model-inference
             - policy-contract
             - runtime-smoke
+            - sustained-capacity
           blockers:
             - related-assertions-not-promotion-eligible
     models:
@@ -232,6 +233,7 @@ spec:
             - model-inference
             - policy-contract
             - runtime-smoke
+            - sustained-capacity
           blockers:
             - related-assertions-not-promotion-eligible
         - id: models.qwen3-8b-awq
@@ -249,6 +251,7 @@ spec:
             - model-inference
             - policy-contract
             - runtime-smoke
+            - sustained-capacity
           blockers:
             - related-assertions-not-promotion-eligible
     hardware:
@@ -265,6 +268,7 @@ spec:
             - model-inference
             - policy-contract
             - runtime-smoke
+            - sustained-capacity
           blockers:
             - related-assertions-not-promotion-eligible
         - id: hardware.nvidia-geforce-rtx-4090
@@ -365,12 +369,15 @@ spec:
                   outcome: passed
                   auditHead: sha256:2f5f77ec956fe5e618629e940b3be48ad318a0efe76401061ba6750e7fc3c8a9
             - id: sustained-capacity
-              status: not-implemented
-              observedEvidence: []
-              blocker: sustained-capacity-contract-not-implemented
+              status: passed
+              selectedResultId: sha256:5387ae8f8e8a7869f15ae0285012f3de7f37136e86bebf7969261e70e369b65f
+              selectedAuditHead: sha256:b9c34d08d5a9482b25f6804732c0eff27ecb5071d58909cb1bcad6590583b860
+              observedEvidence:
+                - resultId: sha256:5387ae8f8e8a7869f15ae0285012f3de7f37136e86bebf7969261e70e369b65f
+                  outcome: passed
+                  auditHead: sha256:b9c34d08d5a9482b25f6804732c0eff27ecb5071d58909cb1bcad6590583b860
           blockers:
             - independent-promotion-review:promotion-review-not-recorded
-            - sustained-capacity:sustained-capacity-contract-not-implemented
         - id: compat.vllm-qwen-coder-7b-awq-l40s
           status: experimental
           runtimeRef: core.vllm
@@ -406,9 +413,9 @@ spec:
               observedEvidence: []
               blocker: no-accepted-runtime-smoke-evidence
             - id: sustained-capacity
-              status: not-implemented
+              status: missing
               observedEvidence: []
-              blocker: sustained-capacity-contract-not-implemented
+              blocker: no-accepted-sustained-capacity-evidence
           blockers:
             - capacity-boundary:no-accepted-capacity-boundary-evidence
             - external-target:no-observed-target-evidence
@@ -417,7 +424,7 @@ spec:
             - model-inference:no-accepted-model-inference-evidence
             - policy-contract:no-accepted-policy-contract-evidence
             - runtime-smoke:no-accepted-runtime-smoke-evidence
-            - sustained-capacity:sustained-capacity-contract-not-implemented
+            - sustained-capacity:no-accepted-sustained-capacity-evidence
         - id: compat.vllm-qwen-coder-7b-awq-rtx4090
           status: experimental
           runtimeRef: core.vllm
@@ -453,9 +460,9 @@ spec:
               observedEvidence: []
               blocker: no-accepted-runtime-smoke-evidence
             - id: sustained-capacity
-              status: not-implemented
+              status: missing
               observedEvidence: []
-              blocker: sustained-capacity-contract-not-implemented
+              blocker: no-accepted-sustained-capacity-evidence
           blockers:
             - capacity-boundary:no-accepted-capacity-boundary-evidence
             - external-target:no-observed-target-evidence
@@ -464,7 +471,7 @@ spec:
             - model-inference:no-accepted-model-inference-evidence
             - policy-contract:no-accepted-policy-contract-evidence
             - runtime-smoke:no-accepted-runtime-smoke-evidence
-            - sustained-capacity:sustained-capacity-contract-not-implemented
+            - sustained-capacity:no-accepted-sustained-capacity-evidence
         - id: compat.vllm-qwen-coder-7b-awq-rtx6000ada
           status: experimental
           runtimeRef: core.vllm
@@ -500,9 +507,9 @@ spec:
               observedEvidence: []
               blocker: no-accepted-runtime-smoke-evidence
             - id: sustained-capacity
-              status: not-implemented
+              status: missing
               observedEvidence: []
-              blocker: sustained-capacity-contract-not-implemented
+              blocker: no-accepted-sustained-capacity-evidence
           blockers:
             - capacity-boundary:no-accepted-capacity-boundary-evidence
             - external-target:no-observed-target-evidence
@@ -511,7 +518,7 @@ spec:
             - model-inference:no-accepted-model-inference-evidence
             - policy-contract:no-accepted-policy-contract-evidence
             - runtime-smoke:no-accepted-runtime-smoke-evidence
-            - sustained-capacity:sustained-capacity-contract-not-implemented
+            - sustained-capacity:no-accepted-sustained-capacity-evidence
         - id: compat.vllm-qwen3-8b-awq-gb10
           status: known
           runtimeRef: core.vllm
@@ -570,12 +577,15 @@ spec:
                   outcome: passed
                   auditHead: sha256:ab8eb4da1d1a76b05fc3fb46c8133b72c61d5234ff4f307bb80d2c3072baf096
             - id: sustained-capacity
-              status: not-implemented
-              observedEvidence: []
-              blocker: sustained-capacity-contract-not-implemented
+              status: passed
+              selectedResultId: sha256:825cca84c847f1f65deb6dbe3c5f4eb30b8f75814ecba0f30e6dc414268357dd
+              selectedAuditHead: sha256:2c6d1f8c08b0909425250f439ff918da225f05f8f5938802ea8b4fad3c195608
+              observedEvidence:
+                - resultId: sha256:825cca84c847f1f65deb6dbe3c5f4eb30b8f75814ecba0f30e6dc414268357dd
+                  outcome: passed
+                  auditHead: sha256:2c6d1f8c08b0909425250f439ff918da225f05f8f5938802ea8b4fad3c195608
           blockers:
             - independent-promotion-review:promotion-review-not-recorded
-            - sustained-capacity:sustained-capacity-contract-not-implemented
         - id: compat.vllm-qwen3-8b-awq-l40s
           status: experimental
           runtimeRef: core.vllm
@@ -611,9 +621,9 @@ spec:
               observedEvidence: []
               blocker: no-accepted-runtime-smoke-evidence
             - id: sustained-capacity
-              status: not-implemented
+              status: missing
               observedEvidence: []
-              blocker: sustained-capacity-contract-not-implemented
+              blocker: no-accepted-sustained-capacity-evidence
           blockers:
             - capacity-boundary:no-accepted-capacity-boundary-evidence
             - external-target:no-observed-target-evidence
@@ -622,7 +632,7 @@ spec:
             - model-inference:no-accepted-model-inference-evidence
             - policy-contract:no-accepted-policy-contract-evidence
             - runtime-smoke:no-accepted-runtime-smoke-evidence
-            - sustained-capacity:sustained-capacity-contract-not-implemented
+            - sustained-capacity:no-accepted-sustained-capacity-evidence
         - id: compat.vllm-qwen3-8b-awq-rtx4090
           status: experimental
           runtimeRef: core.vllm
@@ -658,9 +668,9 @@ spec:
               observedEvidence: []
               blocker: no-accepted-runtime-smoke-evidence
             - id: sustained-capacity
-              status: not-implemented
+              status: missing
               observedEvidence: []
-              blocker: sustained-capacity-contract-not-implemented
+              blocker: no-accepted-sustained-capacity-evidence
           blockers:
             - capacity-boundary:no-accepted-capacity-boundary-evidence
             - external-target:no-observed-target-evidence
@@ -669,7 +679,7 @@ spec:
             - model-inference:no-accepted-model-inference-evidence
             - policy-contract:no-accepted-policy-contract-evidence
             - runtime-smoke:no-accepted-runtime-smoke-evidence
-            - sustained-capacity:sustained-capacity-contract-not-implemented
+            - sustained-capacity:no-accepted-sustained-capacity-evidence
         - id: compat.vllm-qwen3-8b-awq-rtx6000ada
           status: experimental
           runtimeRef: core.vllm
@@ -705,9 +715,9 @@ spec:
               observedEvidence: []
               blocker: no-accepted-runtime-smoke-evidence
             - id: sustained-capacity
-              status: not-implemented
+              status: missing
               observedEvidence: []
-              blocker: sustained-capacity-contract-not-implemented
+              blocker: no-accepted-sustained-capacity-evidence
           blockers:
             - capacity-boundary:no-accepted-capacity-boundary-evidence
             - external-target:no-observed-target-evidence
@@ -716,7 +726,7 @@ spec:
             - model-inference:no-accepted-model-inference-evidence
             - policy-contract:no-accepted-policy-contract-evidence
             - runtime-smoke:no-accepted-runtime-smoke-evidence
-            - sustained-capacity:sustained-capacity-contract-not-implemented
+            - sustained-capacity:no-accepted-sustained-capacity-evidence
     limitations:
         - A missing gate means no accepted evidence was found in the supplied directory; it does not prove incompatibility.
         - Audit verification proves local chain integrity, not target or actor attestation.

@@ -30,6 +30,13 @@ These resources archive bounded YARA contract runs for the two knowledge-only GB
 | `compat.vllm-qwen-coder-7b-awq-gb10` | `sha256:725b54027506733ff9514e1b2805165389940714b500afa4cd8e44188916ac0d` | `passed` | Egress, ports, telemetry opt-outs, read-only filesystem, tmpfs, mounts/secrets, capabilities, no-new-privileges and owned cleanup |
 | `compat.vllm-qwen3-8b-awq-gb10` | `sha256:9dfe0f01949a45348752671de4cf4d04c00f978fbe8da7c26b30482aef6e7321` | `passed` | The same bounded serving-container controls and owned cleanup passed |
 
+## Sustained capacity
+
+| Assertion | Result ID | Outcome | Measurements |
+|---|---|---|---|
+| `compat.vllm-qwen-coder-7b-awq-gb10` | `sha256:5387ae8f8e8a7869f15ae0285012f3de7f37136e86bebf7969261e70e369b65f` | `passed` | 32/32 sequential requests; concurrency 1; 1120 prompt + 128 completion = 1248 tokens |
+| `compat.vllm-qwen3-8b-awq-gb10` | `sha256:825cca84c847f1f65deb6dbe3c5f4eb30b8f75814ecba0f30e6dc414268357dd` | `passed` | 32/32 sequential requests; concurrency 1; 448 prompt + 256 completion = 704 tokens |
+
 ## Same-version lifecycle
 
 | Assertion | Result ID | Outcome | Scope |
@@ -49,4 +56,4 @@ for chain in catalog/v0.2/evidence/gb10/*.audit.jsonl; do
 done
 ```
 
-The target SSH reference is pseudonymized. The actor identity is self-asserted local operating-system identity, not cryptographic attestation. Runtime-smoke verified immutable OCI/model metadata, host eligibility, exact vLLM/CUDA/GB10 identities and one CUDA tensor. Model-inference additionally acquired and locally re-hashed both exact model snapshots, loaded them and completed one bounded request per tuple. Both models accepted one exact 32768-token envelope at concurrency 1. Qwen3 required a 10% GPU-memory-utilization profile; its earlier 8% failure remains archived beside the later pass so the remediation history is not erased. Policy verified the observable serving-container controls listed above. Lifecycle verified one operator-requested restart of each isolated container and bounded requests before and after it. These runs used networked acquisition and do not establish concurrency above one, sustained capacity, latency, throughput, non-root compatibility, host/daemon hardening, upgrade/rollback, HA, stateful recovery or air-gap compatibility. The assertions therefore remain `known` and planner-ineligible.
+The target SSH reference is pseudonymized. The actor identity is self-asserted local operating-system identity, not cryptographic attestation. Runtime-smoke verified immutable OCI/model metadata, host eligibility, exact vLLM/CUDA/GB10 identities and one CUDA tensor. Model-inference additionally acquired and locally re-hashed both exact model snapshots, loaded them and completed one bounded request per tuple. Both models accepted one exact 32768-token envelope at concurrency 1. Qwen3 required a 10% GPU-memory-utilization profile; its earlier 8% failure remains archived beside the later pass so the remediation history is not erased. The sustained-capacity runs completed 32 consecutive context-1024 requests per tuple at concurrency 1; they are not duration soaks or performance/SLO evidence. Policy verified the observable serving-container controls listed above. Lifecycle verified one operator-requested restart of each isolated container and bounded requests before and after it. These runs used networked acquisition and do not establish concurrency above one, latency, throughput, non-root compatibility, host/daemon hardening, upgrade/rollback, HA, stateful recovery or air-gap compatibility. The assertions therefore remain `known` and planner-ineligible.
