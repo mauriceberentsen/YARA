@@ -156,13 +156,19 @@ func computeCapability(model string) string {
 
 func assertCheck(t *testing.T, checks []resources.ContractTestCheck, id, status, code string) {
 	t.Helper()
+	check := findCheck(t, checks, id)
+	if check.Status != status || check.DiagnosticCode != code {
+		t.Fatalf("unexpected %s check: %#v", id, check)
+	}
+}
+
+func findCheck(t *testing.T, checks []resources.ContractTestCheck, id string) resources.ContractTestCheck {
+	t.Helper()
 	for _, check := range checks {
 		if check.ID == id {
-			if check.Status != status || check.DiagnosticCode != code {
-				t.Fatalf("unexpected %s check: %#v", id, check)
-			}
-			return
+			return check
 		}
 	}
 	t.Fatalf("missing check %q", id)
+	return resources.ContractTestCheck{}
 }

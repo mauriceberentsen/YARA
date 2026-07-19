@@ -10,18 +10,19 @@ import (
 
 func TestModelInferenceChecksPassBoundedHealthyRequest(t *testing.T) {
 	checks, err := modelInferenceChecks(modelInferenceObservation{
-		MemoryAvailableBytes: modelInferenceMemoryBytes,
-		DiskAvailableBytes:   32 << 30,
-		AcquisitionCompleted: true,
-		ArtifactVerified:     true,
-		ServerStarted:        true,
-		NetworkMode:          "none",
-		HealthStatus:         200,
-		InferenceStatus:      200,
-		Model:                "yara-contract",
-		FinishReason:         "stop",
-		CompletionTokens:     3,
-		ContentDigest:        "sha256:" + strings.Repeat("a", 64),
+		MemoryAvailableBytes:  modelInferenceMemoryBytes,
+		DiskAvailableBytes:    32 << 30,
+		AcquisitionCompleted:  true,
+		ArtifactVerified:      true,
+		ServerStarted:         true,
+		NetworkMode:           "none",
+		HealthStatus:          200,
+		InferenceStatus:       200,
+		Model:                 "yara-contract",
+		FinishReason:          "stop",
+		CompletionTokens:      3,
+		ContentDigest:         "sha256:" + strings.Repeat("a", 64),
+		GPUUtilizationPercent: modelInferenceGPUPercent,
 	}, 6<<30)
 	if err != nil {
 		t.Fatalf("evaluate checks: %v", err)
@@ -30,6 +31,10 @@ func TestModelInferenceChecksPassBoundedHealthyRequest(t *testing.T) {
 		if item.Status != "passed" || item.DiagnosticCode != "" {
 			t.Fatalf("unexpected check: %#v", item)
 		}
+	}
+	gpu := findCheck(t, checks, "model.gpu-memory-utilization")
+	if gpu.Measurements["configuredPercent"] != modelInferenceGPUPercent || gpu.Measurements["expectedPercent"] != modelInferenceGPUPercent {
+		t.Fatalf("GPU allocation is not reviewable: %#v", gpu.Measurements)
 	}
 }
 
@@ -79,12 +84,30 @@ func TestModelInferenceChecksClassifyHealthFailureWithoutLeakingLogs(t *testing.
 	assertCheck(t, checks, "model.health", "failed", "YARA-CTR-154")
 }
 
+func TestModelInferenceChecksClassifyKVCacheCapacityFailure(t *testing.T) {
+	checks, err := modelInferenceChecks(modelInferenceObservation{
+		FailureStage:          "health",
+		FailureReason:         "kv-cache-capacity",
+		MemoryAvailableBytes:  modelInferenceMemoryBytes,
+		DiskAvailableBytes:    32 << 30,
+		NetworkMode:           "none",
+		ServerLogDigest:       "sha256:" + strings.Repeat("f", 64),
+		GPUUtilizationPercent: modelInferenceGPUPercent,
+	}, 6<<30)
+	if err != nil {
+		t.Fatalf("evaluate checks: %v", err)
+	}
+	assertCheck(t, checks, "model.health", "failed", "YARA-CTR-179")
+	assertCheck(t, checks, "model.gpu-memory-utilization", "passed", "")
+}
+
 func TestModelInferenceScriptPinsIsolationBoundsAndOwnedCleanup(t *testing.T) {
 	script := modelInferenceScript("aW1hZ2U=", "cmVwbw==", "cmV2aXNpb24=", "W10=", "MQ==", 6<<30)
 	for _, required := range []string{
 		"--network none", "--read-only", "--memory 17179869184", "--memory-swap 17179869184",
 		"--max-model-len 1024", "--max-num-seqs 1", "--gpu-memory-utilization 0.08",
 		"--no-async-scheduling", "--no-enable-prefix-caching",
+		"maximum number of tokens that can be stored in (the )?KV cache", `reason="kv-cache-capacity"`,
 		`docker rm -f "$server" "$download"`, `docker volume rm "$volume"`,
 		"HF_HUB_OFFLINE=1", "VLLM_NO_USAGE_STATS=1",
 		"--tmpfs /tmp:rw,exec,nosuid,nodev", "--tmpfs /root/.cache:rw,exec,nosuid,nodev",
@@ -98,6 +121,9 @@ func TestModelInferenceScriptPinsIsolationBoundsAndOwnedCleanup(t *testing.T) {
 		if strings.Contains(script, forbidden) {
 			t.Fatalf("model inference script contains unsafe operation %q", forbidden)
 		}
+	}
+	if strings.Contains(script, "%!") {
+		t.Fatal("model inference script contains an unresolved format directive")
 	}
 }
 

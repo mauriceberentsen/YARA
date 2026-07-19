@@ -21,7 +21,7 @@ func TestBuildReportsExactV02EvidenceGaps(t *testing.T) {
 	if err := report.Validate(); err != nil {
 		t.Fatalf("validate coverage: %v", err)
 	}
-	if report.Spec.Complete || report.Spec.Summary.ManifestCount != 38 || report.Spec.Summary.AssertionCount != 8 || report.Spec.Summary.AcceptedEvidenceCount != 11 || report.Spec.Summary.VerifiedAuditChainCount != 11 {
+	if report.Spec.Complete || report.Spec.Summary.ManifestCount != 38 || report.Spec.Summary.AssertionCount != 8 || report.Spec.Summary.AcceptedEvidenceCount != 12 || report.Spec.Summary.VerifiedAuditChainCount != 12 {
 		t.Fatalf("unexpected summary: %#v", report.Spec.Summary)
 	}
 	if report.Spec.Summary.PromotionEligibleAssertions != 0 {
@@ -45,8 +45,12 @@ func TestBuildReportsExactV02EvidenceGaps(t *testing.T) {
 		t.Fatalf("unobserved Ada target was not explicit: %#v", ada)
 	}
 	qwen3 := findAssertion(t, report, "compat.vllm-qwen3-8b-awq-gb10")
-	if findGate(t, qwen3, "capacity-boundary").Status != "failed" || findGate(t, qwen3, "model-inference").Status != "passed" || findGate(t, qwen3, "policy-contract").Status != "passed" || findGate(t, qwen3, "lifecycle-contract").Status != "passed" {
+	if findGate(t, qwen3, "capacity-boundary").Status != "passed" || findGate(t, qwen3, "model-inference").Status != "passed" || findGate(t, qwen3, "policy-contract").Status != "passed" || findGate(t, qwen3, "lifecycle-contract").Status != "passed" {
 		t.Fatalf("Qwen3 mixed evidence was flattened: %#v", qwen3.Gates)
+	}
+	capacity := findGate(t, qwen3, "capacity-boundary")
+	if len(capacity.ObservedEvidence) != 2 || capacity.ObservedEvidence[0].Outcome != "failed" || capacity.ObservedEvidence[1].Outcome != "passed" {
+		t.Fatalf("Qwen3 capacity remediation history disappeared: %#v", capacity)
 	}
 }
 

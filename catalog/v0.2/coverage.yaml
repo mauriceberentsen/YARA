@@ -2,7 +2,7 @@ apiVersion: yara.dev/v1alpha1
 kind: CatalogCoverageReport
 metadata:
     name: catalog-v0.2-coverage
-    reportId: sha256:597f1cb7f404b749664cf556c595984c09bada47c94ecbdf4fb8771356bda81b
+    reportId: sha256:826432ada6ff003ca5beeda5d72c8aee763fb1d10ca3a27193d21e5f7f852acf
 spec:
     catalogDigest: sha256:0f7062b289e322a1c676cc52282cb9b0c816894bb3452535b790290e94ca0241
     complete: false
@@ -14,8 +14,8 @@ spec:
         hardwareProfileCount: 4
         assertionCount: 8
         topologyCount: 1
-        acceptedEvidenceCount: 11
-        verifiedAuditChainCount: 11
+        acceptedEvidenceCount: 12
+        verifiedAuditChainCount: 12
         promotionEligibleAssertions: 0
     capabilities:
         - id: chat
@@ -244,6 +244,7 @@ spec:
             - compat.vllm-qwen3-8b-awq-rtx4090
             - compat.vllm-qwen3-8b-awq-rtx6000ada
           passedModes:
+            - capacity-boundary
             - lifecycle-contract
             - model-inference
             - policy-contract
@@ -522,14 +523,16 @@ spec:
               status: passed
               observedEvidence: []
             - id: capacity-boundary
-              status: failed
-              selectedResultId: sha256:30f5536136f375aba164c93fbae05a72c3912bdc61f774a945ae138f37f44005
-              selectedAuditHead: sha256:721d9a930b89da8ba413d58b2cd1c414c67992d4e13a4c300faed19515482b5c
+              status: passed
+              selectedResultId: sha256:4afed044263ef0e422c18512980e6c75d764be9da209441d765fd8da88df7a62
+              selectedAuditHead: sha256:64583ce547147375bd5bd315ffb9ae0f4833ae06d2b6a7fd4009387578240c56
               observedEvidence:
                 - resultId: sha256:30f5536136f375aba164c93fbae05a72c3912bdc61f774a945ae138f37f44005
                   outcome: failed
                   auditHead: sha256:721d9a930b89da8ba413d58b2cd1c414c67992d4e13a4c300faed19515482b5c
-              blocker: selected-evidence-outcome-failed
+                - resultId: sha256:4afed044263ef0e422c18512980e6c75d764be9da209441d765fd8da88df7a62
+                  outcome: passed
+                  auditHead: sha256:64583ce547147375bd5bd315ffb9ae0f4833ae06d2b6a7fd4009387578240c56
             - id: independent-promotion-review
               status: missing
               observedEvidence: []
@@ -571,7 +574,6 @@ spec:
               observedEvidence: []
               blocker: sustained-capacity-contract-not-implemented
           blockers:
-            - capacity-boundary:selected-evidence-outcome-failed
             - independent-promotion-review:promotion-review-not-recorded
             - sustained-capacity:sustained-capacity-contract-not-implemented
         - id: compat.vllm-qwen3-8b-awq-l40s

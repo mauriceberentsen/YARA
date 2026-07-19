@@ -11,20 +11,21 @@ import (
 func TestCapacityBoundaryChecksPassExactAdvertisedContext(t *testing.T) {
 	contextTokens := capacityBoundaryMaxContext
 	checks, err := capacityBoundaryChecks(modelInferenceObservation{
-		MemoryAvailableBytes: modelInferenceMemoryBytes,
-		DiskAvailableBytes:   32 << 30,
-		AcquisitionCompleted: true,
-		ArtifactVerified:     true,
-		ServerStarted:        true,
-		NetworkMode:          "none",
-		HealthStatus:         200,
-		InferenceStatus:      200,
-		Model:                "yara-contract",
-		FinishReason:         "length",
-		PromptTokens:         contextTokens - capacityBoundaryMaxTokens,
-		CompletionTokens:     capacityBoundaryMaxTokens,
-		TotalTokens:          contextTokens,
-		ContentDigest:        "sha256:" + strings.Repeat("a", 64),
+		MemoryAvailableBytes:  modelInferenceMemoryBytes,
+		DiskAvailableBytes:    32 << 30,
+		AcquisitionCompleted:  true,
+		ArtifactVerified:      true,
+		ServerStarted:         true,
+		NetworkMode:           "none",
+		HealthStatus:          200,
+		InferenceStatus:       200,
+		Model:                 "yara-contract",
+		FinishReason:          "length",
+		PromptTokens:          contextTokens - capacityBoundaryMaxTokens,
+		CompletionTokens:      capacityBoundaryMaxTokens,
+		TotalTokens:           contextTokens,
+		ContentDigest:         "sha256:" + strings.Repeat("a", 64),
+		GPUUtilizationPercent: capacityBoundaryGPUPercent,
 	}, 6<<30, contextTokens)
 	if err != nil {
 		t.Fatalf("evaluate boundary checks: %v", err)
@@ -34,29 +35,52 @@ func TestCapacityBoundaryChecksPassExactAdvertisedContext(t *testing.T) {
 			t.Fatalf("unexpected check: %#v", item)
 		}
 	}
+	gpu := findCheck(t, checks, "model.gpu-memory-utilization")
+	if gpu.Measurements["configuredPercent"] != capacityBoundaryGPUPercent || gpu.Measurements["expectedPercent"] != capacityBoundaryGPUPercent {
+		t.Fatalf("capacity GPU allocation is not reviewable: %#v", gpu.Measurements)
+	}
 }
 
 func TestCapacityBoundaryChecksRejectShortPromptObservation(t *testing.T) {
 	contextTokens := capacityBoundaryMaxContext
 	checks, err := capacityBoundaryChecks(modelInferenceObservation{
-		MemoryAvailableBytes: modelInferenceMemoryBytes,
-		DiskAvailableBytes:   32 << 30,
-		AcquisitionCompleted: true,
-		ArtifactVerified:     true,
-		ServerStarted:        true,
-		NetworkMode:          "none",
-		HealthStatus:         200,
-		InferenceStatus:      200,
-		Model:                "yara-contract",
-		PromptTokens:         contextTokens - capacityBoundaryMaxTokens - 1,
-		CompletionTokens:     1,
-		TotalTokens:          contextTokens - capacityBoundaryMaxTokens,
-		ContentDigest:        "sha256:" + strings.Repeat("a", 64),
+		MemoryAvailableBytes:  modelInferenceMemoryBytes,
+		DiskAvailableBytes:    32 << 30,
+		AcquisitionCompleted:  true,
+		ArtifactVerified:      true,
+		ServerStarted:         true,
+		NetworkMode:           "none",
+		HealthStatus:          200,
+		InferenceStatus:       200,
+		Model:                 "yara-contract",
+		PromptTokens:          contextTokens - capacityBoundaryMaxTokens - 1,
+		CompletionTokens:      1,
+		TotalTokens:           contextTokens - capacityBoundaryMaxTokens,
+		ContentDigest:         "sha256:" + strings.Repeat("a", 64),
+		GPUUtilizationPercent: capacityBoundaryGPUPercent,
 	}, 6<<30, contextTokens)
 	if err != nil {
 		t.Fatalf("evaluate boundary checks: %v", err)
 	}
 	assertCheck(t, checks, "capacity.context-boundary", "failed", "YARA-CTR-157")
+}
+
+func TestCapacityBoundaryServingProfileUsesReviewableGPUAllocation(t *testing.T) {
+	script := modelServingScript("aW1hZ2U=", "cmVwbw==", "cmV2aXNpb24=", "W10=", "MQ==", 6<<30, modelServingProfile{
+		ContextTokens:         capacityBoundaryMaxContext,
+		Concurrency:           capacityBoundaryConcurrency,
+		MaxTokens:             capacityBoundaryMaxTokens,
+		RequestProgram:        capacityBoundaryProgram(capacityBoundaryMaxContext, capacityBoundaryMaxTokens),
+		GPUUtilizationPercent: capacityBoundaryGPUPercent,
+	})
+	for _, required := range []string{"--gpu-memory-utilization 0.10", "gpu_memory_utilization_percent='10'"} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("capacity script lacks %q", required)
+		}
+	}
+	if strings.Contains(script, "%!") {
+		t.Fatal("capacity script contains an unresolved format directive")
+	}
 }
 
 func TestCapacityBoundaryProgramUsesServerSideTruncationWithoutPersistingPrompt(t *testing.T) {
