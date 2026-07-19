@@ -7,8 +7,8 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-kubernetes-readonly-preflight`.
-- Latest completed merge: `4775002` (`Merge Kubernetes GitOps reference renderer`), pushed to `origin/main` with the final handoff commit below.
+- Active branch: `main`.
+- Latest completed merge: `1863f7a` (`Merge audited read-only Kubernetes preflight`), pushed to `origin/main` with the final handoff commit below.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: complete the audited target/change-set/approval boundary in thin slices without granting mutation authority prematurely.
 
@@ -188,7 +188,7 @@ Validation status: deterministic/negative renderer tests, both CLI renderer path
 
 This slice was committed as `c1e324a` and merged to `main` as `4775002` under Maurice's configured author identity.
 
-## Current slice: content-addressed read-only Kubernetes preflight
+## Completed slice: content-addressed read-only Kubernetes preflight
 
 Implement the first target-aware boundary after rendering, without apply authority. `yara target preflight kubernetes` consumes an exact Kubernetes/GitOps `DeploymentBundle`, performs bounded kubectl reads and emits a strict content-addressed `TargetPreflightResult` plus mandatory audit chain.
 
@@ -203,6 +203,8 @@ Implemented in the current feature branch:
 - documentation of command behavior, exit code 3 for trustworthy blocked/failed observations and the boundary before change-set/approval work.
 
 The result is observation evidence only. The initial observer cannot produce deployment approval because active/administrative checks remain blocked. No cluster was contacted by the implementation validation; observer behavior is covered by injected command-runner and CLI tests. `make check` and `go test -race ./...` pass.
+
+This slice was committed as `49e1541`, merged to `main` as `1863f7a` and pushed under Maurice's configured author identity.
 
 ## Audit requirements
 
