@@ -162,7 +162,14 @@ go run ./cmd/yara render docker-compose \
   --name reference-stack \
   --output reference-stack.bundle.yaml \
   --audit-output reference-stack.render.audit.jsonl
+go run ./cmd/yara render kubernetes-gitops \
+  --plan plan.yaml \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --name reference-stack \
+  --output reference-stack.kubernetes.bundle.yaml \
+  --audit-output reference-stack.kubernetes.render.audit.jsonl
 go run ./cmd/yara bundle validate reference-stack.bundle.yaml
+go run ./cmd/yara bundle validate reference-stack.kubernetes.bundle.yaml
 go run ./cmd/yara plan diff docs/examples/platform-plan.yaml plan.yaml \
   --audit-output plan-diff.audit.jsonl
 go run ./cmd/yara debug bundle \

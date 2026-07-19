@@ -85,18 +85,15 @@ On failure the executor stops at a safe checkpoint, preserves diagnostics and re
 
 ## Initial backend choice
 
-The architecture does not commit to Kubernetes first. A pure local Docker Compose renderer is now the current v0.2 prototype because it can validate plan-to-artifact boundaries with less infrastructure. [ADR-0009](../adr/0009-docker-compose-reference-renderer-prototype.md) remains Proposed: executor selection still requires an alternative prototype and comparison of:
+After bounded Docker Compose and Kubernetes/GitOps prototypes over the same plan and catalog, [ADR-0009](../adr/0009-docker-compose-reference-renderer-prototype.md) selects Kubernetes/GitOps as the first reference deployment target. Docker Compose remains the lower-friction single-host renderer and CI fixture.
 
-- target audience value;
-- idempotency and lifecycle support;
-- secret and artifact handling;
-- testability in CI;
-- upgrade/rollback complexity;
-- path to an air-gapped reference deployment.
+The selection is not apply authority. The Kubernetes renderer is pure and offline. Target identity, inspection, change-set calculation, approval, operation locking, mutation, health verification, ownership-safe removal and receipts remain executor responsibilities.
 
 ## Kubernetes and GitOps
 
-A future Kubernetes renderer should prefer established charts/operators and generate values or custom resources rather than fork large templates. A GitOps mode writes a reviewed bundle to a repository and records the commit; YARA itself need not hold cluster-admin credentials. Direct apply remains a distinct executor mode.
+The first Kubernetes adapter emits a deliberately narrow set of native resources for the exact LiteLLM/vLLM reference topology. Broader adapters should prefer established upstream charts/operators and generate values or custom resources rather than fork large templates. A GitOps mode writes a reviewed bundle to a repository and records the commit; YARA itself need not hold cluster-admin credentials. Direct apply remains a distinct executor mode.
+
+The renderer cannot prove its target assumptions. [NetworkPolicy requires an enforcing network plugin](https://kubernetes.io/docs/concepts/services-networking/network-policies/), and GPU resources require installed vendor drivers and a device plugin before `nvidia.com/gpu` becomes allocatable. Immutable ConfigMaps are content-named so configuration changes create a new object and Pod-template revision instead of attempting forbidden in-place data mutation.
 
 ## Dry-run guarantees
 
