@@ -85,6 +85,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "authorization" && args[1] == "verify" {
 		return verifyExecutionAuthorization(args[2:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "deployment" && args[1] == "apply" && args[2] == "kubernetes" {
+		return applyKubernetesDeployment(args[3:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "scenario" && args[1] == "validate" {
 		return validateScenario(args[2:], stdout, stderr)
 	}
@@ -350,6 +353,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara approval validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara authorization issue --bundle <file> --preflight <file> --change-set <file> --approval <file> --private-key <file> --key-id <id> --name <name> --output <file> --audit-output <file> [--valid-for <duration>]")
 	fmt.Fprintln(output, "  yara authorization verify --authorization <file> --public-key <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara deployment apply kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
 	fmt.Fprintln(output, "  yara receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate-all <directory> [--audit-output <file>]")

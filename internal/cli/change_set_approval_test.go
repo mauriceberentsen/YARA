@@ -138,7 +138,7 @@ func TestReceiptValidationIsValidationOnly(t *testing.T) {
 		APIVersion: resources.APIVersion, Kind: "DeploymentReceipt", Metadata: resources.DeploymentReceiptMetadata{Name: "external-receipt"},
 		Spec: resources.DeploymentReceiptSpec{
 			Outcome: "succeeded", StartedAt: now.Format(time.RFC3339Nano), CompletedAt: now.Add(time.Minute).Format(time.RFC3339Nano), ExecutionCorrelationID: "external-execution-1",
-			PlanID: testCLIDigest('a'), BundleID: testCLIDigest('b'), PreflightResultID: testCLIDigest('c'), ChangeSetID: testCLIDigest('d'), ApprovalID: testCLIDigest('e'),
+			PlanID: testCLIDigest('a'), BundleID: testCLIDigest('b'), PreflightResultID: testCLIDigest('c'), ChangeSetID: testCLIDigest('d'), ApprovalID: testCLIDigest('e'), AuthorizationID: testCLIDigest('f'),
 			Target:     resources.TargetIdentity{Type: "kubernetes", ReferenceDigest: testCLIDigest('f'), ServerVersion: "v1.35.2"},
 			Executor:   resources.DeploymentExecutorIdentity{Name: "external-executor", Version: "0.1.0", BinaryDigest: testCLIDigest('a')},
 			Operations: []resources.DeploymentOperationReceipt{{Resource: resources.KubernetesObjectReference{APIVersion: "v1", Kind: "Namespace", Name: "reference-stack"}, Action: "create", Outcome: "applied", AfterDigest: testCLIDigest('b')}},

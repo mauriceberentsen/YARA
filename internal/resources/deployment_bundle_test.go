@@ -51,6 +51,14 @@ func TestDeploymentBundleRejectsUnpinnedOCIArtifact(t *testing.T) {
 	}
 }
 
+func TestBundleArtifactFilesRejectPathTraversal(t *testing.T) {
+	for _, candidate := range []string{"..", "../secret", "/absolute", "weights/../secret"} {
+		if validBundleArtifactFiles([]BundleArtifactFile{{Path: candidate, Digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", SizeBytes: 1}}) {
+			t.Fatalf("accepted unsafe artifact path %q", candidate)
+		}
+	}
+}
+
 func TestDeploymentBundleRejectsMalformedSBOM(t *testing.T) {
 	bundle := validDeploymentBundle(t)
 	for index := range bundle.Spec.Files {

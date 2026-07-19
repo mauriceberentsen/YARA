@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"path"
 	"reflect"
 	"slices"
 	"strings"
@@ -264,7 +265,8 @@ func validBundleArtifactFiles(files []BundleArtifactFile) bool {
 	}
 	previous := ""
 	for _, file := range files {
-		if file.Path == "" || file.Path <= previous || !sha256DigestPattern.MatchString(file.Digest) || file.SizeBytes <= 0 {
+		clean := path.Clean(file.Path)
+		if file.Path == "" || clean != file.Path || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || path.IsAbs(clean) || file.Path <= previous || !sha256DigestPattern.MatchString(file.Digest) || file.SizeBytes <= 0 {
 			return false
 		}
 		previous = file.Path

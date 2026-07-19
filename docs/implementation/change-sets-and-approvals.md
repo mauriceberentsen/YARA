@@ -2,7 +2,7 @@
 
 ## Implemented boundary
 
-This slice implements the review contracts immediately before an executor. It does not implement apply.
+This document defines the review and authorization contracts consumed by the initial Kubernetes executor. Apply remains a distinct privileged command.
 
 ```text
 DeploymentBundle
@@ -15,10 +15,10 @@ DeploymentBundle
                     v
           DeploymentApproval
                     |
-       future strong authorization
+       signed ExecutionAuthorization
                     |
                     v
-       future executor -> DeploymentReceipt
+       Kubernetes executor -> DeploymentReceipt
 ```
 
 All resources are strict `yara.dev/v1alpha1` contracts with canonical SHA-256 identities. Bundle, plan, preflight, target and change-set bindings must match exactly.
@@ -123,19 +123,18 @@ Structural schema validation alone never establishes authority. Consumers must v
 go run ./cmd/yara receipt validate receipt.yaml
 ```
 
-It binds plan, bundle, preflight, change set, approval, target, exact executor binary, execution correlation, per-object before/after evidence and postflight checks. Its overall outcome is derived from operation and postflight results.
+It binds plan, bundle, preflight, change set, approval, signed authorization, target, exact executor binary, execution correlation, per-object before/after evidence and postflight checks. Its overall outcome is derived from operation and postflight results.
 
-There is deliberately no receipt-generation command. Only a future apply-capable executor, after rechecking target identity, freshness, strong approval, audit availability and operation lock, may produce one.
+The initial apply-capable executor now produces this receipt after rechecking target identity, signed authorization, audit availability and operation state under a Lease. See [Authorized Kubernetes apply](kubernetes-apply.md).
 
 ## Audit and privacy
 
 Change-set generation and approval recording require audit output and remove generated resources if terminal audit persistence fails. Events bind immutable resource and pseudonymous target digests. They exclude kubeconfig paths, contexts, API endpoints and full Kubernetes objects. Approval reasons are non-secret references, not free-form justifications or credentials.
 
-## Remaining blockers before apply
+## Remaining lifecycle work after initial apply
 
-- authenticated/signed approval issuance and verification;
-- exact executor permission manifest and short-lived credential acquisition;
-- target lock and stale-change-set revalidation;
-- acquisition/import receipts and model-PVC digest verification;
-- active checks for CNI enforcement, executable temporary storage and verifier-label governance;
-- postflight verifier, owned rollback/removal and durable receipt/audit transaction design.
+- short-lived Kubernetes credential issuance remains operator-managed;
+- acquisition/import receipts remain unimplemented, although apply actively verifies model-PVC file digests;
+- verifier-label admission governance remains an explicit limitation;
+- owned rollback/removal, retry orchestration and retirement remain unimplemented;
+- clean-cluster namespace, storage and model provisioning remain outside the first executor.

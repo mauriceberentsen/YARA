@@ -88,7 +88,7 @@ Estimated effort: 10–16 weeks; starts only after real users approve v0.1 plans
 
 Decision gate: **complete**. Bounded Docker Compose and Kubernetes/GitOps prototypes led ADR-0009 to select Kubernetes/GitOps as the first reference deployment target.
 
-Current foundation: the evidence-backed v0.2 catalog can already produce a review-required LiteLLM/vLLM/Qwen plan for three NVIDIA Ada profiles and records two knowledge-only hypotheses for GB10 coherent unified memory. Artifact identity, licensing, telemetry posture, health contracts and compatibility bounds are represented. Content-addressed audited preflight, runtime smoke, model inference, capacity boundary, serving policy, same-version lifecycle and bounded sustained-capacity contracts cover both GB10 tuples. A content-addressed coverage ledger rejects unaudited evidence and enumerates every missing gate across 38 manifests and eight assertions. A strict `IntegrationTestResult` now models component-smoke and topology-end-to-end evidence without accepting validation as execution. Pure Docker Compose and Kubernetes/GitOps renderers emit content-addressed bundles with deterministic SPDX and offline-acquisition inventories for the exact LiteLLM/vLLM topology and refuse unknown adapters. ADR-0009 selects Kubernetes/GitOps for the first reference target. No tuple is `supported` until component integration, independent review and promotion gates pass; no bundle can mutate a target.
+Current foundation: the evidence-backed v0.2 catalog can produce a review-required LiteLLM/vLLM/Qwen plan and deterministic Docker Compose or Kubernetes/GitOps bundles. Audited preflight, exact change sets, review approval and short-lived signed authorization precede a narrow direct Kubernetes executor. That executor requires an existing owned namespace/model PVC, locks and rechecks state, applies only authorized non-delete operations, actively verifies model/runtime prerequisites, performs bounded postflight probes and emits a receipt. No tuple becomes `supported` from apply behavior; catalog integration, independent promotion, bootstrap, import receipts, rollback and retirement remain separate gates.
 
 Deliverables:
 
@@ -99,8 +99,8 @@ Deliverables:
 - exact observed Kubernetes change set (**implemented read-only, no delete/prune**);
 - explicit approval (**implemented as local review-only**);
 - short-lived cryptographic execution authorization (**implemented with Ed25519 and explicit trusted-key verification**);
-- public deployment-receipt contract (**implemented validate-only**) and least-privilege executor;
-- health verification, receipts and safe owned-resource removal;
+- public deployment-receipt contract and least-privilege executor (**initial direct Kubernetes apply implemented**);
+- health verification and receipts (**implemented for the reference path**); safe owned-resource removal remains open;
 - blocked-egress end-to-end reference test.
 
 Exit criteria:

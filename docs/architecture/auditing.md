@@ -31,6 +31,7 @@ The local CLI currently emits two-event started/terminal chains for:
 - catalog coverage generation and validation, binding the exact snapshot, accepted contract-result/audit set and content-addressed coverage report while keeping missing evidence explicit;
 - read-only Kubernetes target preflight with mandatory fail-closed evidence binding the exact deployment bundle, pseudonymous target and content-addressed `TargetPreflightResult`;
 - read-only Kubernetes change-set generation and local approval recording with mandatory fail-closed evidence binding every exact prerequisite and output identity;
+- signed execution-authorization issuance/verification and direct Kubernetes apply, with a durable start event before mutation and a terminal event bound to the resulting receipt;
 - planning started/completed/failed/infeasible, with audit output mandatory;
 - request, inventory and catalog load/decode rejection during planning.
 
@@ -51,6 +52,8 @@ Kubernetes preflight records `target.kubernetes-preflight.*`. A completed observ
 Change-set generation records `target.kubernetes-changeset.*` and binds bundle, preflight, pseudonymous target and change-set identities. Approval recording uses `approval.record.*` and additionally binds the approval identity. The audit contains classifications and stable diagnostic codes by reference, not Kubernetes object bodies or free-form review text. Both generated outputs are removed if terminal audit persistence fails. `deployment.receipt.validate.*` validates a receipt artifact only; it is not evidence that YARA executed the deployment.
 
 Execution authorization records `authorization.issue.*` bound to bundle, preflight, change set, approval and signed authorization IDs. Verification records `authorization.verify.*` against the authorization ID. Key IDs and public-key digests are resource metadata; private-key paths and material never enter audit evidence.
+
+Direct apply records `deployment.apply.started` and fsyncs it before the Lease create. The started event binds bundle, preflight, change set, approval and authorization identities. Once mutation starts, YARA writes a `DeploymentReceipt` before `deployment.apply.completed`; the terminal event additionally binds the receipt ID. A terminal audit write failure retains the already durable receipt. Kubeconfig paths, context names, raw API endpoints and Kubernetes object bodies are excluded from both artifacts.
 
 The current local actor comes from the operating-system identity and is labelled `self-asserted-local` (or `unknown-local` when unavailable). A future authenticated service or explicit actor input may provide stronger provenance, but the current value must not be presented as cryptographically verified identity.
 
