@@ -91,7 +91,7 @@ The renderer selection is not apply authority. The Kubernetes renderer remains p
 
 ## Read-only target preflight
 
-`yara target preflight kubernetes` observes an explicitly selected kubectl target with a bounded timeout. It reads API discovery, server version, aggregated allocatable NVIDIA GPU count, matching DNS-pod count, target namespace ownership and the phase of the expected model PVC. It never creates, applies, patches, deletes, executes in, or server-side dry-runs an object.
+`yara target preflight kubernetes` observes an explicitly selected kubectl target with a bounded timeout. It reads API discovery, server version, unique node platforms, aggregated allocatable NVIDIA GPU count, matching DNS-pod count, target namespace ownership and the phase of the expected model PVC. It verifies that every observed node platform is supported by every pinned bundle OCI artifact. It never creates, applies, patches, deletes, executes in, or server-side dry-runs an object.
 
 The resulting `TargetPreflightResult` binds the exact bundle and plan IDs, observer version, observation time and a pseudonymous target digest. Every check has a stable status, diagnostic code where non-passing, allowlisted facts and an evidence digest. The overall outcome is derived from the checks and cannot overstate them. Raw API addresses, kubeconfig paths, context names, node names and pod names are not durable evidence.
 

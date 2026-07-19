@@ -25,7 +25,7 @@ func (f *fakeRunner) Run(_ context.Context, executable string, args ...string) (
 	case strings.Contains(command, "--raw=/api/v1"), strings.Contains(command, "--raw=/apis/apps/v1"), strings.Contains(command, "--raw=/apis/networking.k8s.io/v1"):
 		return []byte(`{}`), nil
 	case strings.Contains(command, "get nodes"):
-		return []byte(`{"items":[{"metadata":{"name":"worker-secret"},"status":{"allocatable":{"nvidia.com/gpu":"2"}}}]}`), nil
+		return []byte(`{"items":[{"metadata":{"name":"worker-secret"},"status":{"allocatable":{"nvidia.com/gpu":"2"},"nodeInfo":{"architecture":"amd64","operatingSystem":"linux"}}}]}`), nil
 	case strings.Contains(command, "get pods"):
 		return []byte(`{"items":[{"metadata":{"name":"coredns-secret"}}]}`), nil
 	case strings.Contains(command, "namespace reference-stack"):
@@ -44,7 +44,7 @@ func TestKubectlObserverUsesOnlyBoundedReadsAndPseudonymizesTarget(t *testing.T)
 	if err != nil {
 		t.Fatalf("observe: %v", err)
 	}
-	if observed.ReferenceDigest == "" || observed.GPUCount != 2 || observed.DNSPodCount != 1 || !observed.PVCExists {
+	if observed.ReferenceDigest == "" || observed.GPUCount != 2 || !reflect.DeepEqual(observed.NodePlatforms, []string{"linux/amd64"}) || observed.DNSPodCount != 1 || !observed.PVCExists {
 		t.Fatalf("incomplete observation: %#v", observed)
 	}
 	if strings.Contains(observed.ReferenceDigest, "cluster.internal") || strings.Contains(observed.ReferenceDigest, "system-uid-secret") {

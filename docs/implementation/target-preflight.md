@@ -36,7 +36,7 @@ The observer invokes only these classes of command:
 
 - `kubectl config view --minify --raw=false -o json` to resolve the selected API endpoint in memory;
 - `kubectl get --raw=...` for version and API discovery;
-- `kubectl get namespace`, `nodes`, selected kube-system DNS pods and the expected PVC.
+- `kubectl get namespace`, `nodes`, selected kube-system DNS pods and the expected PVC. Node observations retain only unique `linux/<architecture>` values and aggregate GPU capacity.
 
 Output is capped at 4 MiB per invocation and the complete operation is bounded to between one second and five minutes. kubectl stderr is discarded because it can contain endpoint or credential-provider detail. Execution errors are replaced with stable generic diagnostics.
 
@@ -47,6 +47,7 @@ The observer has no create, apply, patch, delete, exec or server-side dry-run co
 `TargetPreflightResult` is a strict `yara.dev/v1alpha1` resource. `metadata.resultId` is the canonical SHA-256 digest of the full resource with the ID field cleared. It binds:
 
 - exact deployment bundle and platform plan identities;
+- compatibility of every observed node platform with every pinned OCI artifact in the bundle;
 - UTC observation timestamp and versioned read-only observer;
 - target type, Kubernetes server version and pseudonymous reference digest;
 - sorted checks with derived overall outcome;
@@ -66,7 +67,7 @@ Durable result and audit evidence intentionally exclude:
 - node, pod and endpoint names;
 - resource bodies, logs, secrets and environment variables.
 
-Only aggregate GPU and DNS counts, namespace ownership booleans, PVC state and version/API availability are retained.
+Only unique node-platform values, aggregate GPU and DNS counts, namespace ownership booleans, PVC state and version/API availability are retained.
 
 ## Checks and interpretation
 
@@ -76,6 +77,7 @@ The current evaluator covers:
 - core/v1, apps/v1 and networking.k8s.io/v1 discovery;
 - at least one DNS pod matching the renderer's selector;
 - allocatable `nvidia.com/gpu` capacity;
+- every observed node platform is supported by every pinned OCI artifact;
 - absence of a target namespace collision, or exact YARA plan ownership;
 - expected `yara-model` PVC presence and `Bound` phase.
 

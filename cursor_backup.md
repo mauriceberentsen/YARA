@@ -7,10 +7,10 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `main`.
+- Active branch: `feature/kubernetes-platform-preflight`.
 - Latest completed implementation slice: feature commit `4b67f19`, merged as `89d5786`. The Rancher Desktop safety review was documented in `0b3b096`, merged as `083f943`, and pushed to `origin/main`.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: record the Rancher Desktop negative-path review, then design a separate lightweight executor-conformance contract or move positive apply testing to compatible NVIDIA Kubernetes hardware.
+- Working goal: close and validate the node-platform preflight gap exposed during the Rancher Desktop review, then design a separate lightweight executor-conformance contract or move positive apply testing to compatible NVIDIA Kubernetes hardware.
 
 ## Current product boundary
 
@@ -318,3 +318,7 @@ The content-addressed preflight was valid with outcome `failed`, result ID `sha2
 Read-only change-set observation produced 12 creates and zero deletes (`sha256:51db5bcbef03a0a68a5108ae095f1ddcc6f890e861b3380022a9d66335ef4b59`). A local review-only approval was recorded only to exercise the next gate. `authorization issue` rejected the failed GPU check with `YARA-AUT-105`; no authorization artifact was created. Its two-event failure audit verified with head `sha256:488fe3242fbd79360713127e7a1250204186ca151f14fa61d7255ba2a2827a6d`. Namespace `rancher-test` was absent before and after. The temporary private test key was deleted. Generated local artifacts remain ignored under `.yara/` and are not release evidence.
 
 This proves the real negative authorization path and no-mutation boundary. It does not prove Lease/apply/postflight behavior on a live cluster. Forcing a positive result by falsifying preflight or removing GPU intent is prohibited; use a separately typed conformance fixture or compatible NVIDIA target.
+
+The review also prompted a versioned preflight improvement on `feature/kubernetes-platform-preflight`. Observer `0.2.0` now aggregates unique node `operatingSystem/architecture` values and compares every observed platform with the intersection supported by every pinned OCI artifact. Missing platform visibility blocks with `YARA-TPR-118`; an incompatible platform fails with `YARA-TPR-119`. Node names remain excluded. Unit tests cover compatible and incompatible platforms.
+
+The improved observer was rerun against Rancher Desktop. `linux/arm64` correctly passed because every current bundle image declares both `linux/amd64` and `linux/arm64`; GPU and Kubernetes-version failures remained unchanged. The new valid failed preflight is `sha256:dac2777ef850f9d90bb58323dbbf05f685a43b9524aaae691cd2e5feaf8b0003`, with audit head `sha256:189132c1460865b11f9e07d62a997ab1b371a4c6cd26848838acb35967a6c79e`. This corrects the initial informal assumption that ARM itself was incompatible; the observed blockers are Kubernetes 1.32, zero NVIDIA GPU and the absent model PVC/active proofs.

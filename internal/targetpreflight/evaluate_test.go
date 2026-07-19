@@ -18,7 +18,7 @@ func TestEvaluateProducesContentAddressedBlockedResult(t *testing.T) {
 	observation := targetpreflight.Observation{
 		ReferenceDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 		ServerVersion:   "v1.35.2", CoreV1: true, AppsV1: true, NetworkingV1: true,
-		NodesReadable: true, GPUCount: 1, DNSReadable: true, DNSPodCount: 2,
+		NodesReadable: true, GPUCount: 1, NodePlatforms: []string{"linux/amd64"}, DNSReadable: true, DNSPodCount: 2,
 		NamespaceReadable: true, PVCReadable: true, PVCExists: true, PVCPhase: "Bound",
 	}
 	result, err := targetpreflight.Evaluate("reference-target", bundle, observation, time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC))
@@ -44,7 +44,7 @@ func TestEvaluateFailsUnsupportedVersionAndNamespaceCollision(t *testing.T) {
 	observation := targetpreflight.Observation{
 		ReferenceDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 		ServerVersion:   "v1.33.9", CoreV1: true, AppsV1: true, NetworkingV1: true,
-		NodesReadable: true, GPUCount: 1, DNSReadable: true, DNSPodCount: 1,
+		NodesReadable: true, GPUCount: 1, NodePlatforms: []string{"linux/amd64"}, DNSReadable: true, DNSPodCount: 1,
 		NamespaceReadable: true, NamespaceExists: true, NamespaceManaged: false,
 		PVCReadable: true, PVCExists: true, PVCPhase: "Bound",
 	}
@@ -55,6 +55,29 @@ func TestEvaluateFailsUnsupportedVersionAndNamespaceCollision(t *testing.T) {
 	if result.Spec.Outcome != "failed" {
 		t.Fatalf("unsupported target did not fail: %#v", result.Spec.Checks)
 	}
+}
+
+func TestEvaluateFailsWhenNodePlatformDoesNotMatchOCIArtifacts(t *testing.T) {
+	bundle := kubernetesBundle(t)
+	observation := targetpreflight.Observation{
+		ReferenceDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		ServerVersion:   "v1.35.2", CoreV1: true, AppsV1: true, NetworkingV1: true,
+		NodesReadable: true, GPUCount: 1, NodePlatforms: []string{"linux/s390x"}, DNSReadable: true, DNSPodCount: 1,
+		NamespaceReadable: true, PVCReadable: true, PVCExists: true, PVCPhase: "Bound",
+	}
+	result, err := targetpreflight.Evaluate("arm-target", bundle, observation, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range result.Spec.Checks {
+		if check.ID == "nodes.platform" {
+			if check.Status != "failed" || check.DiagnosticCode != "YARA-TPR-119" {
+				t.Fatalf("unexpected platform check: %#v", check)
+			}
+			return
+		}
+	}
+	t.Fatal("nodes.platform check missing")
 }
 
 func TestEvaluateRejectsNonKubernetesBundle(t *testing.T) {

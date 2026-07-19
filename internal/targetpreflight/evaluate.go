@@ -7,13 +7,14 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mauriceberentsen/YARA/internal/canonical"
 	"github.com/mauriceberentsen/YARA/internal/resources"
 )
 
-const ObserverVersion = "0.1.0"
+const ObserverVersion = "0.2.0"
 
 var kubernetesVersionPattern = regexp.MustCompile(`^v?1\.([0-9]+)(?:\.|$)`)
 
@@ -25,6 +26,7 @@ type Observation struct {
 	NetworkingV1       bool
 	NodesReadable      bool
 	GPUCount           int
+	NodePlatforms      []string
 	DNSReadable        bool
 	DNSPodCount        int
 	NamespaceReadable  bool
@@ -52,6 +54,7 @@ func Evaluate(name string, bundle resources.DeploymentBundle, observation Observ
 		modelDigestCheck(),
 		namespaceCheck(observation),
 		networkPolicyEnforcementCheck(),
+		platformCheck(bundle, observation),
 		pvcCheck(observation),
 		tmpExecCheck(),
 		verifierGovernanceCheck(),
@@ -76,7 +79,7 @@ func Evaluate(name string, bundle resources.DeploymentBundle, observation Observ
 	}
 	limitations := []string{
 		"API discovery proves resource availability, not admission or successful apply.",
-		"Aggregated GPU and DNS counts intentionally omit node, pod, endpoint and context identities.",
+		"Aggregated GPU, platform and DNS facts intentionally omit node, pod, endpoint and context identities.",
 		"No object is created, patched, deleted, executed or server-side dry-run by this observer.",
 		"PVC phase does not prove model file presence, digest, permissions, mount behavior or runtime compatibility.",
 		"Target identity is pseudonymous and does not authenticate the cluster to a third party.",
@@ -141,6 +144,49 @@ func gpuCheck(observation Observation) resources.TargetPreflightCheck {
 		return makeCheck("gpu.allocatable", "failed", "YARA-TPR-108", "No allocatable nvidia.com/gpu capacity was observed.", factInt("nvidiaGpuCount", observation.GPUCount), fact("readable", true))
 	}
 	return makeCheck("gpu.allocatable", "passed", "", "Allocatable nvidia.com/gpu capacity is present.", factInt("nvidiaGpuCount", observation.GPUCount), fact("readable", true))
+}
+
+func platformCheck(bundle resources.DeploymentBundle, observation Observation) resources.TargetPreflightCheck {
+	var supportedSet map[string]struct{}
+	for _, artifact := range bundle.Spec.Artifacts {
+		if artifact.Type != "oci-image" {
+			continue
+		}
+		artifactSet := map[string]struct{}{}
+		for _, platform := range artifact.Platforms {
+			artifactSet[platform] = struct{}{}
+		}
+		if supportedSet == nil {
+			supportedSet = artifactSet
+			continue
+		}
+		for platform := range supportedSet {
+			if _, ok := artifactSet[platform]; !ok {
+				delete(supportedSet, platform)
+			}
+		}
+	}
+	supported := make([]string, 0, len(supportedSet))
+	for platform := range supportedSet {
+		supported = append(supported, platform)
+	}
+	slices.Sort(supported)
+	observed := append([]string(nil), observation.NodePlatforms...)
+	slices.Sort(observed)
+	observed = slices.Compact(observed)
+	if !observation.NodesReadable || len(observed) == 0 {
+		return makeCheck("nodes.platform", "blocked", "YARA-TPR-118", "Node platforms could not be observed with the available read-only permissions.", fact("readable", observation.NodesReadable), factString("supportedPlatforms", strings.Join(supported, ",")))
+	}
+	unsupported := []string{}
+	for _, platform := range observed {
+		if _, ok := supportedSet[platform]; !ok {
+			unsupported = append(unsupported, platform)
+		}
+	}
+	if len(supported) == 0 || len(unsupported) > 0 {
+		return makeCheck("nodes.platform", "failed", "YARA-TPR-119", "One or more observed node platforms are incompatible with the bundle OCI artifacts.", factString("observedPlatforms", strings.Join(observed, ",")), factString("supportedPlatforms", strings.Join(supported, ",")))
+	}
+	return makeCheck("nodes.platform", "passed", "", "Observed node platforms are compatible with every bundle OCI artifact.", factString("observedPlatforms", strings.Join(observed, ",")), factString("supportedPlatforms", strings.Join(supported, ",")))
 }
 
 func namespaceCheck(observation Observation) resources.TargetPreflightCheck {
