@@ -79,6 +79,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "contract" && args[1] == "model-inference" {
 		return modelInferenceContract(args[2:], stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "contract" && args[1] == "capacity-boundary" {
+		return capacityBoundaryContract(args[2:], stdout, stderr)
+	}
 	if len(args) < 2 || args[1] != "validate" {
 		writeUsage(stderr)
 		return ExitInvalidInput
@@ -219,6 +222,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara contract preflight --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara contract runtime-smoke --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara contract model-inference --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara contract capacity-boundary --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara contract validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara audit verify <file>")
 }

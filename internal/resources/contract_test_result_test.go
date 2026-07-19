@@ -48,6 +48,17 @@ func TestContractTestResultRejectsIncompleteAcceleratorFacts(t *testing.T) {
 	assertDiagnostic(t, report, "YARA-CTR-022", "spec.environment.accelerators[0]")
 }
 
+func TestContractTestResultRejectsInvalidCheckMeasurements(t *testing.T) {
+	result := validContractTestResult(t)
+	result.Spec.Checks[0].Measurements = map[string]int{"promptTokens": -1}
+	result, err := result.AssignResultID()
+	if err != nil {
+		t.Fatalf("assign result ID: %v", err)
+	}
+	report := result.Validate()
+	assertDiagnostic(t, report, "YARA-CTR-024", "spec.checks[0].measurements")
+}
+
 func validContractTestResult(t *testing.T) ContractTestResult {
 	t.Helper()
 	digest := "sha256:" + strings.Repeat("a", 64)

@@ -8,7 +8,7 @@ The foundational architecture is sufficiently defined to begin a thin v0.1 imple
 
 The bootstrap now includes strict resource decoding, public schemas, stable diagnostics, canonical digests and audit-event chaining. The catalog compiler resolves capability, component, model, hardware, compatibility and topology manifests. Every manifest declares lifecycle status, owners, evidence sources, confidence and a verification/review window. Freshness is evaluated deterministically against the immutable snapshot `publishedAt`; missing ownership, malformed provenance and expired evidence invalidate the snapshot. The bundled fixtures remain experimental and emit `YARA-CAT-055` into catalog output, plans, explanations, diffs, debug bundles, scenarios and audit evidence. Compatibility quarantine, multi-component topology resolution and independent plan validation remain active. Generated plans state bounded search and ordinal confidence; explanation, diff and debug-bundle paths are auditable. `scenario validate-all` proves exact offline technical conformance for ten content-addressed cases and counts approved review resources for release eligibility. See the [v0.1 acceptance ledger](v0.1-acceptance-status.md).
 
-After v0.1 acceptance, `catalog/v0.2/` introduces the first curated real stack. It contains ten versioned suite components, two immutable Qwen AWQ model snapshots, three NVIDIA Ada hardware profiles, one GB10 coherent-unified-memory profile, six compatibility-bounded selectable serving candidates and two knowledge-only GB10 test hypotheses. LiteLLM and vLLM are selectable only as experimental components; Open WebUI, Qdrant, PostgreSQL, Redis, ClickHouse, Prometheus, Grafana and Langfuse remain knowledge-only until their YARA integration contracts are tested. The planner rejects requests outside a candidate's asserted context window or minimum driver branch. [Contract testing](contract-testing.md) includes read-only SSH preflight, isolated runtime smoke and bounded model inference. The Qwen Coder/GB10 tuple has passed one exact-shard, health and context-1024/concurrency-1 request, but remains knowledge-only because capacity, policy and lifecycle evidence is incomplete.
+After v0.1 acceptance, `catalog/v0.2/` introduces the first curated real stack. It contains ten versioned suite components, two immutable Qwen AWQ model snapshots, three NVIDIA Ada hardware profiles, one GB10 coherent-unified-memory profile, six compatibility-bounded selectable serving candidates and two knowledge-only GB10 test hypotheses. LiteLLM and vLLM are selectable only as experimental components; Open WebUI, Qdrant, PostgreSQL, Redis, ClickHouse, Prometheus, Grafana and Langfuse remain knowledge-only until their YARA integration contracts are tested. The planner rejects requests outside a candidate's asserted context window or minimum driver branch. [Contract testing](contract-testing.md) includes read-only SSH preflight, isolated runtime smoke, bounded model inference and an exact advertised-context capacity boundary. The Qwen Coder/GB10 tuple passed one exact 32768-token envelope at concurrency 1, but remains knowledge-only because sustained capacity, policy and lifecycle evidence is incomplete.
 
 ## Fixed decisions
 
@@ -116,6 +116,10 @@ yara contract model-inference --catalog catalog/v0.2/snapshot.yaml \
   --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
   --target user@gb10-runner.example --name gb10-qwen-coder-model-inference \
   --output gb10-model-inference.yaml --audit-output gb10-model-inference.audit.jsonl
+yara contract capacity-boundary --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example --name gb10-capacity-boundary \
+  --output gb10-capacity-boundary.yaml --audit-output gb10-capacity-boundary.audit.jsonl
 yara contract validate contract-result.yaml
 yara audit verify audit.jsonl
 ```

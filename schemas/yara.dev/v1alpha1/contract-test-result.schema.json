@@ -20,7 +20,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["mode", "outcome", "catalogDigest", "assertionRef", "target", "environment", "checks", "limitations"],
       "properties": {
-        "mode": { "enum": ["preflight", "runtime-smoke", "model-inference"] },
+        "mode": { "enum": ["preflight", "runtime-smoke", "model-inference", "capacity-boundary"] },
         "outcome": { "enum": ["passed", "failed", "blocked"] },
         "catalogDigest": { "$ref": "#/$defs/digest" },
         "assertionRef": { "type": "string", "minLength": 1 },
@@ -91,7 +91,13 @@
         "id": { "type": "string", "minLength": 1 },
         "status": { "enum": ["passed", "failed", "blocked"] },
         "diagnosticCode": { "type": "string", "pattern": "^YARA-[A-Z]+-[0-9]{3}$" },
-        "evidenceDigest": { "$ref": "#/$defs/digest" }
+        "evidenceDigest": { "$ref": "#/$defs/digest" },
+        "measurements": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
       }
     }
   }
