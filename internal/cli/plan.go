@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -243,6 +244,12 @@ func mergeAuditSpec(base audit.Spec, action, outcome string, subjects []audit.Su
 }
 
 func writeExclusive(path string, data []byte) error {
+	parent := filepath.Dir(path)
+	if parent != "." {
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			return fmt.Errorf("create parent directory for %s: %w", path, err)
+		}
+	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", path, err)

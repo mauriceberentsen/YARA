@@ -45,7 +45,21 @@ No manifest may be promoted to `supported` merely because its documentation or a
 
 ## Validate
 
+From a source checkout, run the CLI through Go:
+
 ```bash
-yara catalog validate catalog/v0.2/snapshot.yaml \
+go run ./cmd/yara catalog validate catalog/v0.2/snapshot.yaml \
   --audit-output .yara/audit/catalog-v0.2.jsonl
 ```
+
+YARA creates missing output directories, writes the audit file exclusively and refuses to overwrite an existing audit file. Use a new filename for every validation run.
+
+To build a reusable local executable instead:
+
+```bash
+make build
+./bin/yara catalog validate catalog/v0.2/snapshot.yaml \
+  --audit-output .yara/audit/catalog-v0.2.jsonl
+```
+
+`go yara` is not a valid Go command. A bare `yara` command works only after a YARA executable has been installed somewhere on your `PATH`.
