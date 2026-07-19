@@ -21,7 +21,7 @@ func TestBuildReportsExactV02EvidenceGaps(t *testing.T) {
 	if err := report.Validate(); err != nil {
 		t.Fatalf("validate coverage: %v", err)
 	}
-	if report.Spec.Complete || report.Spec.Summary.ManifestCount != 38 || report.Spec.Summary.AssertionCount != 8 || report.Spec.Summary.AcceptedEvidenceCount != 12 || report.Spec.Summary.VerifiedAuditChainCount != 12 {
+	if report.Spec.Complete || report.Spec.Summary.ManifestCount != 38 || report.Spec.Summary.AssertionCount != 8 || report.Spec.Summary.AcceptedEvidenceCount != 14 || report.Spec.Summary.VerifiedAuditChainCount != 14 {
 		t.Fatalf("unexpected summary: %#v", report.Spec.Summary)
 	}
 	if report.Spec.Summary.PromotionEligibleAssertions != 0 {
@@ -37,7 +37,7 @@ func TestBuildReportsExactV02EvidenceGaps(t *testing.T) {
 			t.Fatalf("expected passed %s gate: %#v", mode, gate)
 		}
 	}
-	if findGate(t, coder, "sustained-capacity").Status != "not-implemented" || findGate(t, coder, "independent-promotion-review").Status != "missing" {
+	if findGate(t, coder, "independent-promotion-review").Status != "missing" {
 		t.Fatalf("completion blockers disappeared: %#v", coder.Gates)
 	}
 	ada := findAssertion(t, report, "compat.vllm-qwen-coder-7b-awq-rtx4090")

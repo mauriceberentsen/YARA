@@ -47,6 +47,12 @@ type fixedCapacityBoundaryRunner struct {
 	called *bool
 }
 
+type fixedSustainedCapacityRunner struct {
+	checks []resources.ContractTestCheck
+	err    error
+	called *bool
+}
+
 type fixedPolicyContractRunner struct {
 	checks []resources.ContractTestCheck
 	err    error
@@ -74,6 +80,13 @@ func (r fixedPolicyContractRunner) Run(context.Context, string, catalog.Contract
 }
 
 func (r fixedCapacityBoundaryRunner) Run(context.Context, string, catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
+	if r.called != nil {
+		*r.called = true
+	}
+	return r.checks, r.err
+}
+
+func (r fixedSustainedCapacityRunner) Run(context.Context, string, catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
 	if r.called != nil {
 		*r.called = true
 	}
@@ -432,6 +445,76 @@ func TestContractCapacityBoundaryRollsBackResultWhenAuditCannotBeWritten(t *test
 	}
 }
 
+func TestContractSustainedCapacityPersistsScopedResultAndAuditEvidence(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	setSustainedCapacityDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedSustainedCapacityRunner{checks: []resources.ContractTestCheck{{ID: "capacity.sustained-requests", Status: "passed", EvidenceDigest: evidence}}},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "sustained.yaml"), filepath.Join(temp, "audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(sustainedContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitSuccess {
+		t.Fatalf("sustained contract failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	result, err := resources.LoadContractTestResult(outputPath)
+	if err != nil {
+		t.Fatalf("load sustained result: %v", err)
+	}
+	if result.Spec.Mode != "sustained-capacity" || result.Spec.Outcome != "passed" || result.Spec.Runner == nil {
+		t.Fatalf("unexpected sustained result: %#v", result.Spec)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "contract.sustained-capacity.completed" || terminal.Spec.Subjects[1].Digest != result.Metadata.ResultID {
+		t.Fatalf("unexpected sustained audit: %#v", terminal.Spec)
+	}
+}
+
+func TestContractSustainedCapacityDoesNotStartWhenArtifactGateFails(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	called := false
+	setSustainedCapacityDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "failed", DiagnosticCode: "YARA-CTR-120", EvidenceDigest: evidence}}},
+		fixedSustainedCapacityRunner{called: &called},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "sustained.yaml"), filepath.Join(temp, "audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(sustainedContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected failed gate, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if called {
+		t.Fatal("sustained workload started after artifact verification failed")
+	}
+}
+
+func TestContractSustainedCapacityRollsBackResultWhenAuditCannotBeWritten(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	setSustainedCapacityDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedSustainedCapacityRunner{checks: []resources.ContractTestCheck{{ID: "capacity.sustained-requests", Status: "passed", EvidenceDigest: evidence}}},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "sustained.yaml"), filepath.Join(temp, "audit.jsonl")
+	if err := os.WriteFile(auditPath, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("prepare audit: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(sustainedContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInvalidInput {
+		t.Fatalf("expected invalid input, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("sustained result must be rolled back after audit failure: %v", err)
+	}
+}
+
 func TestContractPolicyPersistsScopedResultAndAuditEvidence(t *testing.T) {
 	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
 	evidence := "sha256:" + strings.Repeat("d", 64)
@@ -606,6 +689,25 @@ func capacityContractArgs(outputPath, auditPath string) []string {
 		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
 		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
 		"--target", "tester@gpu-runner.example", "--name", "gb10-capacity-boundary",
+		"--output", outputPath, "--audit-output", auditPath,
+	}
+}
+
+func setSustainedCapacityDependencies(t *testing.T, verifier fixedArtifactVerifier, runner fixedSustainedCapacityRunner) {
+	t.Helper()
+	previousVerifier, previousRunner := runtimeSmokeArtifactVerifier, sustainedCapacityRunner
+	runtimeSmokeArtifactVerifier, sustainedCapacityRunner = verifier, runner
+	t.Cleanup(func() {
+		runtimeSmokeArtifactVerifier, sustainedCapacityRunner = previousVerifier, previousRunner
+	})
+}
+
+func sustainedContractArgs(outputPath, auditPath string) []string {
+	return []string{
+		"contract", "sustained-capacity",
+		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
+		"--target", "tester@gpu-runner.example", "--name", "gb10-sustained-capacity",
 		"--output", outputPath, "--audit-output", auditPath,
 	}
 }

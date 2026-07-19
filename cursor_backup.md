@@ -7,8 +7,8 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-qwen3-capacity-diagnosis`.
-- Branch base: `main` at `32e007d` (`Merge audited Qwen3 GB10 contract evidence`).
+- Active branch: `feature/v0-2-sustained-capacity-contract`.
+- Branch base: `main` at `1c922d3` (`Merge audited Qwen3 capacity diagnosis`).
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: close the remaining catalog v0.2 evidence gaps without fabricating support for unavailable Ada hardware, unimplemented component/topology integration contracts or sustained capacity.
 
@@ -108,9 +108,21 @@ The shared serving profile now records `gpuMemoryUtilizationPercent` for success
 
 The definitive Qwen3 boundary run passed with result `sha256:4afed044263ef0e422c18512980e6c75d764be9da209441d765fd8da88df7a62`, audit head `sha256:64583ce547147375bd5bd315ffb9ae0f4833ae06d2b6a7fd4009387578240c56` and exact runner digest `sha256:2656897254b93ac4e73131061f60f135d833048cf38328d997fd17e2ce57cc04`. Measurements are configured/expected GPU utilization 10%, requested/observed prompt 32760, completion 8 and total 32768 at concurrency 1. The earlier 8% failure remains archived and visible in `observedEvidence` before the later pass.
 
-The regenerated coverage report is `sha256:826432ada6ff003ca5beeda5d72c8aee763fb1d10ca3a27193d21e5f7f852acf` with audit head `sha256:82a2b93e082ccf91f8720dcdccc4ffd1c0e9b3be75826d442053e7f3a3208a43`. It accepts 12 exact results and 12 adjacent verified audit chains. Both GB10 assertions now pass every currently executable contract gate, but remain `known`, planner-ineligible and not promotion-eligible because sustained-capacity and independent-review gates remain open.
+That slice generated coverage report `sha256:826432ada6ff003ca5beeda5d72c8aee763fb1d10ca3a27193d21e5f7f852acf` with audit head `sha256:82a2b93e082ccf91f8720dcdccc4ffd1c0e9b3be75826d442053e7f3a3208a43`. It accepted 12 exact results and 12 adjacent verified audit chains. The sustained-capacity slice below supersedes the report without changing or deleting those results.
 
 Before both remote runs, host capacity and unrelated workloads were reviewed. Temporary resources used unique `yara-contract-*` names, cleanup removed only owned resources and the raw SSH target was not stored in results, audit files or this handoff.
+
+The capacity-diagnosis slice was committed as `981131d`, merged to `main` as `1c922d3`, pushed, and passed a post-merge `make check` with local `main` matching `origin/main`.
+
+## Active slice: sustained capacity
+
+Implement `contract sustained-capacity` as a deliberately bounded repeated-request contract, not a performance benchmark. It uses the exact artifact/preflight/offline-serving controls, context 1024, concurrency 1, at most eight completion tokens and the ordinary 8% GPU-memory profile. A pass requires 32/32 consecutive valid requests and internally consistent aggregate token counts. Evidence exposes only attempted/completed counts and token totals; it stores no prompt, response, raw log, latency or throughput data.
+
+Implementation status: runner, evaluator, CLI dispatch, schema mode, fail-closed `contract.sustained-capacity.*` auditing, coverage gate and unit/CLI tests are implemented. Exact runner digest: `sha256:fde847a725dba67d632b7a875a7734b0982b04539268604d9c67ff72050cd746`.
+
+GB10 Qwen Coder passed with result `sha256:5387ae8f8e8a7869f15ae0285012f3de7f37136e86bebf7969261e70e369b65f`, audit head `sha256:b9c34d08d5a9482b25f6804732c0eff27ecb5071d58909cb1bcad6590583b860`, 32/32 requests and 1248 aggregate tokens. GB10 Qwen3 passed with result `sha256:825cca84c847f1f65deb6dbe3c5f4eb30b8f75814ecba0f30e6dc414268357dd`, audit head `sha256:2c6d1f8c08b0909425250f439ff918da225f05f8f5938802ea8b4fad3c195608`, 32/32 requests and 704 aggregate tokens. Both adjacent audit chains are archived; remote cleanup completed; unrelated vLLM containers remain stopped.
+
+The regenerated coverage report is `sha256:0d040fd0fe430940bf1fb9ef3ce034dd3a54a238539378c2bd8af1fef4b22541` with audit head `sha256:4a8bdc6b1f5d9040a1f85185911e0e12bf3133f24f10e95b0fbb62fbd90fee30`. It accepts 14 results and 14 verified adjacent audit chains. Both GB10 assertions pass every implemented technical gate and are blocked only by independent promotion review. They remain `known` and planner-ineligible.
 
 ## Audit requirements
 
@@ -148,7 +160,7 @@ GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...
 
 Validate every new result and audit chain independently with the exact built runner. Confirm its SHA-256 matches `spec.runner.binaryDigest`. Confirm the GB10 has no temporary `yara-contract-*` containers or volumes after execution.
 
-Latest validation status: `make check` and `go test -race ./...` pass; all 12 archived GB10 results and all 12 adjacent audit chains validate; catalog v0.2, the coverage report and its audit validate; and coverage regeneration is byte-for-byte identical. The exact final capacity runner digest matches the archived result. No raw SSH target occurs in the repository. Remote cleanup is complete, approximately 127.3 GB host memory was available before execution, and the pre-existing `vllm_qwen` and `vllm_nomic` containers remain stopped.
+Latest validation status: `make check` and `go test -race ./...` pass; all 14 archived GB10 results and all 14 adjacent audit chains validate; catalog v0.2, the coverage report and its audit validate; coverage regeneration is byte-for-byte identical; the runner digest matches both new results; and no raw SSH target occurs in the repository. Remote cleanup is complete and the pre-existing `vllm_qwen` and `vllm_nomic` containers remain stopped.
 
 ## Publishing checklist
 
@@ -161,8 +173,7 @@ Latest validation status: `make check` and `go test -race ./...` pass; all 12 ar
 
 ## Immediate next actions
 
-1. Commit, push and merge this capacity-diagnosis slice.
-2. Design an audited sustained-capacity contract with an explicit workload/SLO envelope; do not infer one from a single request.
+1. Commit, push and merge the sustained-capacity slice.
+2. Present both complete GB10 evidence sets for independent, identity-bound promotion review; do not self-approve on the user's behalf.
 3. Design component-integration and topology end-to-end evidence contracts before promoting suite components.
 4. Acquire authorized Ada targets (RTX 4090, RTX 6000 Ada and L40S) or keep all six external tuples explicitly unobserved.
-5. Record independent, identity-bound promotion reviews only after the applicable technical gates pass.

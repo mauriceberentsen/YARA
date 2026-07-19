@@ -30,6 +30,7 @@ var requiredContractModes = []string{
 	"model-inference",
 	"policy-contract",
 	"runtime-smoke",
+	"sustained-capacity",
 }
 
 var (
@@ -186,7 +187,6 @@ func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []accepte
 	}
 	coverage.Gates = append(coverage.Gates,
 		GateCoverage{ID: "independent-promotion-review", Status: "missing", ObservedEvidence: []EvidenceBinding{}, Blocker: "promotion-review-not-recorded"},
-		GateCoverage{ID: "sustained-capacity", Status: "not-implemented", ObservedEvidence: []EvidenceBinding{}, Blocker: "sustained-capacity-contract-not-implemented"},
 	)
 	slices.SortFunc(coverage.Gates, func(left, right GateCoverage) int { return strings.Compare(left.ID, right.ID) })
 	for _, gate := range coverage.Gates {
@@ -367,7 +367,7 @@ func verifyEvidenceAudit(events []audit.Event, result resources.ContractTestResu
 	}
 	prefix, ok := map[string]string{
 		"runtime-smoke": "contract.runtime-smoke", "model-inference": "contract.model-inference",
-		"capacity-boundary": "contract.capacity-boundary", "policy-contract": "contract.policy", "lifecycle-contract": "contract.lifecycle",
+		"capacity-boundary": "contract.capacity-boundary", "sustained-capacity": "contract.sustained-capacity", "policy-contract": "contract.policy", "lifecycle-contract": "contract.lifecycle",
 	}[result.Spec.Mode]
 	if !ok {
 		return errors.New("unsupported evidence mode")

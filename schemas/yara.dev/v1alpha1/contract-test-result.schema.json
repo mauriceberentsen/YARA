@@ -20,7 +20,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["mode", "outcome", "catalogDigest", "assertionRef", "target", "environment", "checks", "limitations"],
       "properties": {
-        "mode": { "enum": ["preflight", "runtime-smoke", "model-inference", "capacity-boundary", "policy-contract", "lifecycle-contract"] },
+        "mode": { "enum": ["preflight", "runtime-smoke", "model-inference", "capacity-boundary", "sustained-capacity", "policy-contract", "lifecycle-contract"] },
         "outcome": { "enum": ["passed", "failed", "blocked"] },
         "catalogDigest": { "$ref": "#/$defs/digest" },
         "assertionRef": { "type": "string", "minLength": 1 },
