@@ -34,6 +34,8 @@ yara request validate <file> [--audit-output <file>]
 yara inventory inspect [--output <file>]
 yara inventory validate <file> [--audit-output <file>]
 yara catalog validate <path> [--audit-output <file>]
+yara catalog coverage create --catalog <file> --evidence-dir <directory> --name <name> --output <file> --audit-output <file>
+yara catalog coverage validate <file> [--audit-output <file>]
 yara plan create --request <file> --inventory <file> --catalog <path> --output <file> --audit-output <file>
 yara plan validate <file> [--audit-output <file>]
 yara plan explain <file> [--decision <id>] [--audit-output <file>]
@@ -62,6 +64,8 @@ Runtime smoke first resolves public upstream OCI/model metadata, applies the sam
 Model inference adds fixed capacity gates, exact revision acquisition into a temporary volume, local shard hashing, model load, health and one constrained chat request. Its serving container has no network or published ports. Prompt, completion and raw logs are not persisted. New contract results bind both runner version and executable digest; the result remains valid only for the exact recorded catalog, runner, environment and test bounds.
 
 Lifecycle mode restarts the same isolated serving container after a successful health check and bounded request, then repeats both checks and requires stable image, command, model mount and serving configuration. It records only digest comparisons and bounded response facts; it is not evidence for upgrade, rollback, HA or stateful recovery.
+
+Catalog coverage deterministically discovers contract results, rejects any result without an exact adjacent verified audit chain, and produces a content-addressed report covering every component, model, hardware profile and compatibility assertion. `complete: false` is a successful report outcome, not a command failure; it means the report found unresolved gates.
 
 Scenario validation proves pinned technical conformance and counts approved `ScenarioReview` and `AcceptanceGateReview` resources discovered with the suite. `scenario validate-all` discovers a bounded, sorted suite, rejects duplicate scenario identities, requires at least ten cases and fails when any case is nonconformant. Its summary separates planned and infeasible results and reports independent review completion, acceptance-gate review completion and `releaseEligible` when all counted reviews are present and approved.
 

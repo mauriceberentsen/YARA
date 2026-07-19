@@ -28,6 +28,7 @@ The local CLI currently emits two-event started/terminal chains for:
 - golden-scenario validation when `--audit-output` is supplied, binding the scenario ID and generated plan ID without claiming review approval;
 - golden-scenario suite validation when `--audit-output` is supplied, binding every scenario ID and every generated plan ID without claiming or counting human approval;
 - read-only SSH contract preflight, isolated runtime smoke, bounded model inference, advertised-context capacity, serving-policy and same-version lifecycle testing with mandatory fail-closed evidence, binding the catalog, exact runner executable and content-addressed test-result digests while pseudonymizing the remote reference;
+- catalog coverage generation and validation, binding the exact snapshot, accepted contract-result/audit set and content-addressed coverage report while keeping missing evidence explicit;
 - planning started/completed/failed/infeasible, with audit output mandatory;
 - request, inventory and catalog load/decode rejection during planning.
 
@@ -98,6 +99,7 @@ contract.model-inference.*
 contract.capacity-boundary.*
 contract.policy.*
 contract.lifecycle.*
+catalog.coverage.*
 policy.resolve.*
 plan.create.*
 plan.validate.*
