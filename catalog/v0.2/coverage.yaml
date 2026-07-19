@@ -2,7 +2,7 @@ apiVersion: yara.dev/v1alpha1
 kind: CatalogCoverageReport
 metadata:
     name: catalog-v0.2-coverage
-    reportId: sha256:2f0e078cc921f9522aabe565150e95adefc7c1b59ec18bb2c7fd2dc60720d559
+    reportId: sha256:597f1cb7f404b749664cf556c595984c09bada47c94ecbdf4fb8771356bda81b
 spec:
     catalogDigest: sha256:0f7062b289e322a1c676cc52282cb9b0c816894bb3452535b790290e94ca0241
     complete: false
@@ -14,8 +14,8 @@ spec:
         hardwareProfileCount: 4
         assertionCount: 8
         topologyCount: 1
-        acceptedEvidenceCount: 7
-        verifiedAuditChainCount: 7
+        acceptedEvidenceCount: 11
+        verifiedAuditChainCount: 11
         promotionEligibleAssertions: 0
     capabilities:
         - id: chat
@@ -244,6 +244,9 @@ spec:
             - compat.vllm-qwen3-8b-awq-rtx4090
             - compat.vllm-qwen3-8b-awq-rtx6000ada
           passedModes:
+            - lifecycle-contract
+            - model-inference
+            - policy-contract
             - runtime-smoke
           blockers:
             - related-assertions-not-promotion-eligible
@@ -519,25 +522,42 @@ spec:
               status: passed
               observedEvidence: []
             - id: capacity-boundary
-              status: missing
-              observedEvidence: []
-              blocker: no-accepted-capacity-boundary-evidence
+              status: failed
+              selectedResultId: sha256:30f5536136f375aba164c93fbae05a72c3912bdc61f774a945ae138f37f44005
+              selectedAuditHead: sha256:721d9a930b89da8ba413d58b2cd1c414c67992d4e13a4c300faed19515482b5c
+              observedEvidence:
+                - resultId: sha256:30f5536136f375aba164c93fbae05a72c3912bdc61f774a945ae138f37f44005
+                  outcome: failed
+                  auditHead: sha256:721d9a930b89da8ba413d58b2cd1c414c67992d4e13a4c300faed19515482b5c
+              blocker: selected-evidence-outcome-failed
             - id: independent-promotion-review
               status: missing
               observedEvidence: []
               blocker: promotion-review-not-recorded
             - id: lifecycle-contract
-              status: missing
-              observedEvidence: []
-              blocker: no-accepted-lifecycle-contract-evidence
+              status: passed
+              selectedResultId: sha256:75ed1488071d9569e83a34c0b1bdf98367d4e919362f42ef1982e018bd95a156
+              selectedAuditHead: sha256:2e9ae2377a7bd6a094b60d8809a7be9cc7bf396badd8c712c51e17e427492eab
+              observedEvidence:
+                - resultId: sha256:75ed1488071d9569e83a34c0b1bdf98367d4e919362f42ef1982e018bd95a156
+                  outcome: passed
+                  auditHead: sha256:2e9ae2377a7bd6a094b60d8809a7be9cc7bf396badd8c712c51e17e427492eab
             - id: model-inference
-              status: missing
-              observedEvidence: []
-              blocker: no-accepted-model-inference-evidence
+              status: passed
+              selectedResultId: sha256:fd5948b05f26d1b2f397c65917d5801bd622c97597b98fb2e7cda431dc1579f2
+              selectedAuditHead: sha256:f6a3c781678ba6d568887e6bff57d4cab8495722f9c3a40a011be02865321656
+              observedEvidence:
+                - resultId: sha256:fd5948b05f26d1b2f397c65917d5801bd622c97597b98fb2e7cda431dc1579f2
+                  outcome: passed
+                  auditHead: sha256:f6a3c781678ba6d568887e6bff57d4cab8495722f9c3a40a011be02865321656
             - id: policy-contract
-              status: missing
-              observedEvidence: []
-              blocker: no-accepted-policy-contract-evidence
+              status: passed
+              selectedResultId: sha256:9dfe0f01949a45348752671de4cf4d04c00f978fbe8da7c26b30482aef6e7321
+              selectedAuditHead: sha256:f8630e10e424bb9158e4c87e357f1f9769fbe85efd5d1ec9649a4c20782a8de9
+              observedEvidence:
+                - resultId: sha256:9dfe0f01949a45348752671de4cf4d04c00f978fbe8da7c26b30482aef6e7321
+                  outcome: passed
+                  auditHead: sha256:f8630e10e424bb9158e4c87e357f1f9769fbe85efd5d1ec9649a4c20782a8de9
             - id: runtime-smoke
               status: passed
               selectedResultId: sha256:705dfd767bde71df7ee865eafdfe0f223166dfc30acaf9738a5b8c6513e2b4cc
@@ -551,11 +571,8 @@ spec:
               observedEvidence: []
               blocker: sustained-capacity-contract-not-implemented
           blockers:
-            - capacity-boundary:no-accepted-capacity-boundary-evidence
+            - capacity-boundary:selected-evidence-outcome-failed
             - independent-promotion-review:promotion-review-not-recorded
-            - lifecycle-contract:no-accepted-lifecycle-contract-evidence
-            - model-inference:no-accepted-model-inference-evidence
-            - policy-contract:no-accepted-policy-contract-evidence
             - sustained-capacity:sustained-capacity-contract-not-implemented
         - id: compat.vllm-qwen3-8b-awq-l40s
           status: experimental
