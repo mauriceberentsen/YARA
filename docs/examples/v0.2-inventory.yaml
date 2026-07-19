@@ -1,0 +1,26 @@
+apiVersion: yara.dev/v1alpha1
+kind: Inventory
+metadata:
+  name: ada-workstation
+spec:
+  source:
+    mode: declared
+    observedAt: 2026-07-19T10:00:00Z
+  hosts:
+    - id: host-1
+      platform: {os: linux, architecture: amd64}
+      cpu: {cores: 16}
+      memory: {installedGiB: 128, allocatableGiB: 112}
+      accelerators:
+        - id: gpu-0
+          vendor: nvidia
+          model: NVIDIA GeForce RTX 4090
+          memoryGiB: 24
+          allocatableMemoryGiB: 22
+          driverVersion: 535.261.03
+      storage: {capacityGiB: 2000, allocatableGiB: 1500, class: local-ssd}
+      network: {externalEgress: false}
+  unknowns:
+    - storage.measuredThroughput
+    - accelerator.interconnect
+    - existingPeakUtilization

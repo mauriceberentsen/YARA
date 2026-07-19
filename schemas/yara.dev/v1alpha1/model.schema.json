@@ -14,6 +14,13 @@
       "type": "object", "additionalProperties": false,
       "required": ["capabilities", "weightsGiB", "kvCachePerConcurrentRequestGiB", "headroomPercent", "openSource", "preferenceScore"],
       "properties": {
+        "family": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "parametersB": { "type": "number", "exclusiveMinimum": 0 },
+        "contextTokens": { "type": "integer", "minimum": 1 },
+        "quantization": { "type": "string", "minLength": 1 },
+        "artifact": { "$ref": "catalog-manifest-common.schema.json#/$defs/artifact" },
+        "license": { "$ref": "catalog-manifest-common.schema.json#/$defs/license" },
         "capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "weightsGiB": { "type": "number", "exclusiveMinimum": 0 },
         "kvCachePerConcurrentRequestGiB": { "type": "number", "minimum": 0 },

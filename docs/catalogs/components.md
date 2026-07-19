@@ -6,6 +6,8 @@ A component record describes a product identity and one supported upstream versi
 
 ## Required fields
 
+The executable v0.2 subset requires identity/governance, category, exact upstream version, homepage, structured license facts, immutable artifacts, one protocol-specific health check, roles, provided/consumed contracts, runtime overhead and policy facts. The broader production target below remains the promotion checklist; fields not yet represented in v1alpha1 must be added before a component depending on them can become `supported`.
+
 - upstream project identity and source;
 - upstream version and release date;
 - license and redistribution facts;
@@ -42,22 +44,28 @@ provenance:
 spec:
   category: user-interface
   upstreamVersion: "1.0.0"
-  licenses: [Apache-2.0]
-  provides:
-    - capabilityRef: experience.chat/v1
-  consumes:
-    - capabilityRef: integration.api.openai-chat/v1
+  homepage: https://example.invalid/
+  license:
+    id: Apache-2.0
+    source: https://example.invalid/LICENSE
+    osiApproved: true
+    redistribution: allowed
   artifacts:
-    - platform: linux/amd64
-      image: registry.invalid/example-ui@sha256:...
-  deployment:
-    privilege: unprivileged
-    network:
-      inbound: [http]
-      outbound: [inference-api]
-  lifecycle:
-    healthContractRef: core.http-health/v1
-    upgradeStrategy: replace-stateless
+    - type: oci-image
+      ref: registry.invalid/example-ui:1.0.0
+      digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      platforms: [linux/amd64]
+  health: {protocol: http, path: /health}
+  roles: [interface.web-chat]
+  provides: [experience.web-chat/v1]
+  consumes: [integration.api.openai-chat/v1]
+  apiContracts: [experience.web-chat/v1, integration.api.openai-chat/v1]
+  runtimeOverheadGiB: 1
+  policy:
+    openSource: true
+    externalEgress: false
+    telemetry: false
+    artifactVerified: true
 ```
 
 This example is illustrative and does not describe a supported YARA component.
@@ -73,6 +81,8 @@ Catalog data declares supported configuration intent. Trusted adapter code maps 
 ## Operational completeness
 
 Stateful components need data ownership, backup consistency, restore verification and upgrade/migration contracts. Components requiring privileged containers, host mounts, root, external egress or embedded telemetry expose those facts for policy evaluation.
+
+The current `known` PostgreSQL, Redis, ClickHouse, Qdrant and Langfuse records are not operationally complete merely because they have artifact and health metadata. They need persistence, backup/restore and upgrade contracts before promotion. Langfuse additionally has no cataloged S3 provider, so its dependency graph is deliberately incomplete and ineligible.
 
 ## Project health
 

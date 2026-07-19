@@ -33,7 +33,9 @@ schemas/
 
 The repository should introduce these directories only with executable schema validation and a small curated dataset. Documentation examples are not a substitute for that implementation.
 
-The executable v0.1 fixture follows this model under `catalog/v0.1/`. Its `CatalogSnapshot` indexes relative manifest paths. The strict loader prevents path traversal, rejects unknown fields and validates typed references. Only explicit `compatibility: supported` assertions become serving candidates; `unsupported` takes precedence and conflicts emit `YARA-CAT-040`. The first `TopologyTemplate` declares product-neutral gateway and inference roles plus their required interface. YARA resolves those roles separately and derives a dependency-safe stage order. This fixture is intentionally not a production support claim.
+The frozen v0.1 fixture follows this model under `catalog/v0.1/`. The evidence-backed `catalog/v0.2/` snapshot adds real upstream versions, license facts, immutable OCI digests, model revisions and weight-shard digests, protocol-specific health contracts and bounded compatibility conditions. Its two selectable components, two models, three hardware profiles and six serving tuples remain experimental. Eight additional suite components are `known` and therefore cannot enter a plan.
+
+Every `CatalogSnapshot` indexes relative manifest paths. The strict loader prevents path traversal, rejects unknown fields and validates typed references. Only explicit `compatibility: supported` assertions with selectable lifecycle status become serving candidates; `unsupported` takes precedence and conflicts emit `YARA-CAT-040`. A `TopologyTemplate` declares product-neutral gateway and inference roles plus their required interface. YARA resolves those roles separately and derives a dependency-safe stage order. Neither snapshot is a production support claim.
 
 ## Common envelope
 
@@ -102,11 +104,17 @@ Release tooling should:
 
 The current in-process compiler implements schema-shaped strict decoding, reference resolution, stable sorting, content digests and deterministic contradiction quarantine. These checks alone do not make a catalog entry production-supported.
 
-Ownership and freshness are now executable v0.1 gates. Every manifest requires at least one owner and a provenance record containing sources, confidence, `verifiedAt` and `reviewAfter`. A snapshot provides `publishedAt`; validation compares evidence to that timestamp rather than the operator's wall clock. This preserves offline reproducibility. Evidence verified after publication or due for review at publication fails with `YARA-CAT-054`. The remaining production gates are signed releases, immutable upstream artifacts and contract-test-backed evidence.
+Ownership and freshness are executable gates. Every manifest requires at least one owner and a provenance record containing sources, confidence, `verifiedAt` and `reviewAfter`. A snapshot provides `publishedAt`; validation compares evidence to that timestamp rather than the operator's wall clock. This preserves offline reproducibility. Evidence verified after publication or due for review at publication fails with `YARA-CAT-054`.
+
+The v0.2 compiler also validates immutable OCI/model artifact identities, recorded license consistency, health contracts, hardware facts and compatibility version/revision bounds. The remaining production gates are signatures or trusted attestations, YARA-owned contract-test evidence, lifecycle tests and explicit promotion review.
+
+Health contracts are protocol-specific: HTTP probes use a path, TCP probes use a port and process-native checks use an argument-vector `exec` probe. Catalog authors must not invent HTTP endpoints for databases or caches.
 
 ## Compatibility policy
 
 YARA does not infer general compatibility from broad version claims. A supported path needs a positive assertion covering the selected versions, interfaces, hardware stack and relevant conditions. Negative assertions always win within overlapping scope. Conflicting equally trusted assertions quarantine the combination until reviewed.
+
+The planner currently enforces the assertion's exact runtime/model binding, hardware identity, maximum context window and coarse minimum driver branch. `computePlatform` is preserved as review evidence but requires a richer inventory contract before it can become a fully evaluated hard constraint.
 
 ## Licensing
 

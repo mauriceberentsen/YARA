@@ -88,6 +88,8 @@ Estimated effort: 10–16 weeks; starts only after real users approve v0.1 plans
 
 Decision gate: prototype Docker Compose and one alternative enough to write an ADR selecting the first target.
 
+Current foundation: the evidence-backed v0.2 catalog can already produce a review-required LiteLLM/vLLM/Qwen plan for three NVIDIA Ada profiles. Artifact identity, licensing, telemetry posture, health contracts and compatibility bounds are represented, but no tuple is `supported` until the contract-test and promotion gates below pass.
+
 Deliverables:
 
 - versioned renderer interface and one reference renderer;

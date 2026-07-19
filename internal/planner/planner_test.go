@@ -78,6 +78,42 @@ func TestPlanIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestCuratedV02CatalogPlansRealCodingStack(t *testing.T) {
+	request, err := resources.LoadPlatformRequest(filepath.Join("..", "..", "docs", "examples", "v0.2-platform-request.yaml"))
+	if err != nil {
+		t.Fatalf("load v0.2 request: %v", err)
+	}
+	inventory, err := resources.LoadInventory(filepath.Join("..", "..", "docs", "examples", "v0.2-inventory.yaml"))
+	if err != nil {
+		t.Fatalf("load v0.2 inventory: %v", err)
+	}
+	snapshot, err := catalog.Load(filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load v0.2 catalog: %v", err)
+	}
+	if len(snapshot.Candidates()) != 6 {
+		t.Fatalf("expected six real serving candidates, got %d", len(snapshot.Candidates()))
+	}
+	if components := snapshot.ComponentsForRole("interface.web-chat"); len(components) != 0 {
+		t.Fatalf("known-only Open WebUI must not be selectable: %#v", components)
+	}
+
+	result := Create(request, inventory, snapshot)
+	if !result.Report.Valid {
+		t.Fatalf("planning with v0.2 catalog failed: %#v", result.Report.Diagnostics)
+	}
+	decision := result.Plan.Spec.Decisions[0]
+	if decision.Selected != "compat.vllm-qwen-coder-7b-awq-rtx4090" {
+		t.Fatalf("expected coding model on RTX 4090, got %s", decision.Selected)
+	}
+	if len(result.Plan.Spec.Topology.Instances) != 2 || result.Plan.Spec.Topology.Instances[0].ComponentRef != "core.litellm@1.93.0" || result.Plan.Spec.Topology.Instances[1].ComponentRef != "core.vllm@0.25.1" {
+		t.Fatalf("unexpected real component topology: %#v", result.Plan.Spec.Topology.Instances)
+	}
+	if !containsPlanDiagnostic(result.Plan.Spec.Diagnostics, "YARA-CAT-055") {
+		t.Fatalf("experimental evidence warning missing from v0.2 plan: %#v", result.Plan.Spec.Diagnostics)
+	}
+}
+
 func TestNoFeasibleCandidateReturnsDiagnostic(t *testing.T) {
 	request, inventory, snapshot := loadGoldenInputs(t)
 	inventory.Spec.Hosts[0].Accelerators[0].AllocatableMemoryGiB = 1
@@ -107,6 +143,13 @@ func TestEveryServingHardConstraintHasFailingCounterexample(t *testing.T) {
 	}{
 		{"hardware assertion", "YARA-HW-002", func(_ *resources.PlatformRequest, inventory *resources.Inventory, _ *catalog.ServingCandidate) {
 			inventory.Spec.Hosts[0].Accelerators[0].Model = "unasserted-device"
+		}},
+		{"context envelope", "YARA-CAP-002", func(request *resources.PlatformRequest, _ *resources.Inventory, candidate *catalog.ServingCandidate) {
+			candidate.Conditions.MaximumContextTokens = request.Spec.Workload.MaximumContextTokens - 1
+		}},
+		{"driver minimum", "YARA-HW-003", func(_ *resources.PlatformRequest, inventory *resources.Inventory, candidate *catalog.ServingCandidate) {
+			candidate.Conditions.MinimumDriverVersion = "535"
+			inventory.Spec.Hosts[0].Accelerators[0].DriverVersion = "534.99"
 		}},
 		{"required capability", "YARA-CAP-001", func(_ *resources.PlatformRequest, _ *resources.Inventory, candidate *catalog.ServingCandidate) {
 			candidate.Capabilities = []string{"chat"}

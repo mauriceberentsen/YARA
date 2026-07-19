@@ -1,0 +1,9 @@
+apiVersion: yara.dev/v1alpha1
+kind: Capability
+metadata: {id: storage.object-s3/v1, version: 1.0.0, status: supported, owners: [yara-core]}
+provenance:
+  sources: [{type: design, ref: docs/architecture/domain-model.md}]
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2027-01-19T00:00:00Z
+  confidence: high
+spec: {description: S3-compatible object-storage contract.}

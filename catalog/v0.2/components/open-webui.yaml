@@ -1,0 +1,32 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.open-webui, version: 0.10.2, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/open-webui/open-webui/releases/tag/v0.10.2"}
+    - {type: upstream-license, ref: "https://docs.openwebui.com/license/"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: web-interface
+  upstreamVersion: 0.10.2
+  homepage: https://openwebui.com/
+  license:
+    id: LicenseRef-Open-WebUI
+    source: https://github.com/open-webui/open-webui/blob/v0.10.2/LICENSE
+    osiApproved: false
+    redistribution: allowed-with-conditions
+    restrictions: [Preserve Open WebUI branding unless a license exception applies.]
+  artifacts:
+    - type: oci-image
+      ref: ghcr.io/open-webui/open-webui:v0.10.2
+      digest: sha256:9fcea9c6e32ab60b0498f3986c6cdf651ddbe61db48d2213a3d28048ddd673d4
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: http, path: /health}
+  roles: [interface.web-chat]
+  provides: [experience.web-chat/v1, chat]
+  consumes: [integration.api.openai-chat/v1]
+  apiContracts: [experience.web-chat/v1, integration.api.openai-chat/v1]
+  runtimeOverheadGiB: 1
+  policy: {openSource: false, externalEgress: false, telemetry: false, artifactVerified: true}

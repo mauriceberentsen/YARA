@@ -1,0 +1,17 @@
+apiVersion: yara.dev/v1alpha1
+kind: TopologyTemplate
+metadata: {id: core.local-chat-coding-vllm, version: 1.0.0, status: experimental, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-integration, ref: "https://docs.litellm.ai/docs/providers/vllm"}
+    - {type: architecture, ref: "docs/architecture/planner.md"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: medium
+spec:
+  satisfiesUseCases: [chat, coding]
+  roles:
+    - {id: gateway, role: gateway.openai-compatible, requiresAccelerator: false}
+    - {id: inference, role: inference.text-generation, requiresAccelerator: true}
+  connections:
+    - {from: gateway, to: inference, contract: integration.api.openai-chat/v1}

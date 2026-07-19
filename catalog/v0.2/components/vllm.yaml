@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.vllm, version: 0.25.1, status: experimental, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/vllm-project/vllm/releases/tag/v0.25.1"}
+    - {type: upstream-documentation, ref: "https://docs.vllm.ai/en/latest/serving/openai_compatible_server/"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: inference-runtime
+  upstreamVersion: 0.25.1
+  homepage: https://vllm.ai/
+  license:
+    id: Apache-2.0
+    source: https://github.com/vllm-project/vllm/blob/v0.25.1/LICENSE
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: vllm/vllm-openai:v0.25.1
+      digest: sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: http, path: /health}
+  roles: [inference.text-generation]
+  provides: [inference.text-generation]
+  consumes: []
+  apiContracts: [integration.api.openai-chat/v1]
+  runtimeOverheadGiB: 2
+  policy: {openSource: true, externalEgress: false, telemetry: false, artifactVerified: true}

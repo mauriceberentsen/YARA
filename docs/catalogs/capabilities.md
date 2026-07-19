@@ -11,8 +11,11 @@ experience.*    End-user outcomes and interfaces
 inference.*     Model execution functions
 orchestration.* Agent, tool and workflow coordination
 data.*          Retrieval, indexing and persistent data functions
+retrieval.*     Retrieval contracts such as vector search
+storage.*       Relational, object and cache persistence contracts
 identity.*      Authentication and authorization
 integration.*   API and protocol contracts
+observability.* Metrics, traces and operational evidence interfaces
 operations.*    Health, metrics, logs, backup and lifecycle
 security.*      Encryption, secrets, audit and isolation
 platform.*      Scheduling, storage, networking and runtime primitives
@@ -50,17 +53,20 @@ Example:
 apiVersion: yara.dev/v1alpha1
 kind: Capability
 metadata:
-  id: integration.api.openai-chat
+  id: integration.api.openai-chat/v1
   version: 1.0.0
+  status: supported
+  owners: [yara-core]
+provenance:
+  sources: [{type: design, ref: docs/architecture/domain-model.md}]
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2027-01-19T00:00:00Z
+  confidence: high
 spec:
   description: Compatible subset of a versioned chat-completions contract.
-  contractRef: core.contract.openai-chat/v1
-  parameters:
-    streaming: { type: boolean }
-    tools: { type: boolean }
 ```
 
-"OpenAI compatible" without a versioned contract and feature subset is too ambiguous for a supported capability claim.
+The current manifest names the contract but does not yet encode its feature subset. Therefore "OpenAI compatible" remains too ambiguous for production support until the contract schema can describe and test details such as streaming and tools.
 
 ## Derivation
 
@@ -71,6 +77,8 @@ Use cases map to required and optional capabilities through rules. A use case is
 - a minimum context requirement from workload;
 - optional fill-in-the-middle or tool calling;
 - identity and audit capabilities from policy.
+
+Auditing is a core YARA domain capability even though it is not yet a selectable suite component. Planning and catalog actions already emit `AuditEvent` resources; a future `security.audit/v1` component contract will describe external audit sinks without weakening YARA's fail-closed local evidence behavior.
 
 ## Composition
 

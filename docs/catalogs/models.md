@@ -14,6 +14,8 @@ Conflating these levels produces misleading memory and performance claims.
 
 ## Required metadata
 
+The executable v0.2 subset captures family, architecture, parameter count, context window, quantization, immutable revision, verified weight shards, license, coarse memory inputs, capabilities and preference. Tokenizer/template hashes, benchmark observations and a context-sensitive KV-cache methodology remain required before production promotion.
+
 - family, variant and immutable upstream revision;
 - supported tasks and interface features;
 - architecture, parameters and context constraints;
@@ -52,6 +54,8 @@ Model availability, permission to use and permission to redistribute are distinc
 ## Compatibility
 
 A model is selectable only as part of a serving candidate with a positive runtime/artifact/hardware assertion. Architecture support in runtime documentation is weaker evidence than an automated load-and-inference test for the exact variant.
+
+Accordingly, the two Qwen AWQ snapshots in v0.2 are `experimental`: their identities and weight files are verified, while their runtime/hardware tuples still await YARA-owned contract tests.
 
 ## Safety and suitability
 
