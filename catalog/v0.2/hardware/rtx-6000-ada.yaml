@@ -12,5 +12,6 @@ spec:
   vendor: nvidia
   models: [NVIDIA RTX 6000 Ada Generation, NVIDIA RTX 6000 Ada, RTX 6000 Ada]
   memoryGiB: 48
+  memoryKind: dedicated
   architecture: ada-lovelace
   computeCapability: "8.9"

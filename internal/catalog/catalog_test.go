@@ -104,6 +104,10 @@ func TestContractTargetResolvesBoundedArtifactsAndReturnsCopies(t *testing.T) {
 	if _, ok := snapshot.ContractTarget("compat.unknown"); ok {
 		t.Fatal("unknown assertion became a contract target")
 	}
+	gb10, ok := snapshot.ContractTarget("compat.vllm-qwen-coder-7b-awq-gb10")
+	if !ok || gb10.AssertionStatus != "known" || gb10.HardwareMemoryKind != "coherent-unified" || gb10.HardwareMemoryGiB != 128 || gb10.HardwareComputeCapability != "12.1" {
+		t.Fatalf("expected knowledge-only GB10 contract target, got %#v", gb10)
+	}
 }
 
 func TestCatalogRejectsStaleManifestAtSnapshotTime(t *testing.T) {

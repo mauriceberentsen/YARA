@@ -1,0 +1,100 @@
+apiVersion: yara.dev/v1alpha1
+kind: ContractTestResult
+metadata:
+    name: gb10-qwen-coder-runtime-smoke
+    resultId: sha256:19440545851599fe81ffe36d77cdcfa00dd945191ba568b1bf04721aaba0400b
+spec:
+    mode: runtime-smoke
+    outcome: passed
+    catalogDigest: sha256:0f7062b289e322a1c676cc52282cb9b0c816894bb3452535b790290e94ca0241
+    assertionRef: compat.vllm-qwen-coder-7b-awq-gb10
+    target:
+        runtimeRef: core.vllm@0.25.1
+        modelRef: models.qwen2.5-coder-7b-instruct-awq@8e8ed24
+        hardwareProfileRef: hardware.nvidia-gb10
+    environment:
+        transport: ssh
+        referenceDigest: sha256:61f51478ec1f838156418c17bf16f1d183e5899de8f4bf98c30fd6659fc4a34b
+        operatingSystem: linux
+        architecture: arm64
+        docker:
+            available: true
+            version: 29.2.1
+            operatingSystem: linux
+            architecture: arm64
+            nvidiaRuntime: true
+        accelerators:
+            - vendor: nvidia
+              model: NVIDIA GB10
+              driverVersion: "580.142"
+              computeCapability: "12.1"
+    checks:
+        - id: accelerator.compute-capability
+          status: passed
+          evidenceDigest: sha256:14f741dc9e33a6e2eb0947d0aaa06a2584500120d575069f6c1d17807ac90516
+        - id: accelerator.detected
+          status: passed
+          evidenceDigest: sha256:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b
+        - id: accelerator.driver
+          status: passed
+          evidenceDigest: sha256:7b482149b3e883579af1059b3685171d34205b70d5cc361125c71e406d07a62c
+        - id: accelerator.identity
+          status: passed
+          evidenceDigest: sha256:8fae18540a4c6af44b1bb9be1d83b3468f2d3c61bc4acb7d59ce6d52cbad208e
+        - id: artifact.model.file.0.digest
+          status: passed
+          evidenceDigest: sha256:f111e3f91a12a8e515fcc1d69426d035d5460703a166c34004195f5e8afe65a9
+        - id: artifact.model.file.0.size
+          status: passed
+          evidenceDigest: sha256:0a9b547a5880353981a8b4981de34b2aed2fdec285d0e1ae5abeb07d4780f763
+        - id: artifact.model.file.1.digest
+          status: passed
+          evidenceDigest: sha256:6da9ce9ffd1262e6e3844b1d54d014ac153b7bad529e8f60e97871e525f96005
+        - id: artifact.model.file.1.size
+          status: passed
+          evidenceDigest: sha256:b96ed5f94c167b2d0c1dcba01e568c7403edcc751f9893de0d1290abc7e1c948
+        - id: artifact.model.revision
+          status: passed
+          evidenceDigest: sha256:44b96bc084fa0fdf26faddf41aa4d488903cd0497897c104150b5c200efe1e96
+        - id: artifact.runtime.0.digest
+          status: passed
+          evidenceDigest: sha256:4af95452296420c9ba6e5a86559e45561d8c329acceeef23e948076c8dbe1f5a
+        - id: catalog.assertion
+          status: passed
+          evidenceDigest: sha256:55b5b22e1fa01a6e183e235c5ade052c08d8ab9e765fe8ed7a8be3e77e339e3e
+        - id: docker.available
+          status: passed
+          evidenceDigest: sha256:37f8230cd3daf2488e39bc61ad844cb54fded0f9e5e4cd8068fab8c8dbfe0e1b
+        - id: docker.linux
+          status: passed
+          evidenceDigest: sha256:f32af962aa06e4f20ceda568d6493687257ce3aff79853b582d13ee6fbf5171b
+        - id: docker.nvidia-runtime
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: host.linux
+          status: passed
+          evidenceDigest: sha256:f32af962aa06e4f20ceda568d6493687257ce3aff79853b582d13ee6fbf5171b
+        - id: runtime.accelerator-identity
+          status: passed
+          evidenceDigest: sha256:8fae18540a4c6af44b1bb9be1d83b3468f2d3c61bc4acb7d59ce6d52cbad208e
+        - id: runtime.compute-capability
+          status: passed
+          evidenceDigest: sha256:56706ac957ae9f049b5d8985714887237f9db6a7024dcd9c9f0b7af9cdd26c0e
+        - id: runtime.container
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: runtime.cuda-tensor
+          status: passed
+          evidenceDigest: sha256:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b
+        - id: runtime.cuda-version
+          status: passed
+          evidenceDigest: sha256:e4fddcf6885850cbc8bcb390b8a889bc53746fc9ec815d87a1d0250118c98e53
+        - id: runtime.platform
+          status: passed
+          evidenceDigest: sha256:0dcf8a02f898cef0de04622e76a00b4a29490fd096d864702ee690ba1d807f3b
+        - id: runtime.vllm-version
+          status: passed
+          evidenceDigest: sha256:6efd9ad3eceb278a9b92949d1decb81517144f9cf39b356e7c491cb88f6d0f9a
+    limitations:
+        - No model weights were downloaded or loaded by runtime smoke.
+        - Runtime smoke does not establish inference, context, concurrency, policy, restart or air-gap compatibility.

@@ -12,5 +12,6 @@ spec:
   vendor: nvidia
   models: [NVIDIA GeForce RTX 4090, GeForce RTX 4090]
   memoryGiB: 24
+  memoryKind: dedicated
   architecture: ada-lovelace
   computeCapability: "8.9"

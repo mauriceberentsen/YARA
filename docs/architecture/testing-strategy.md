@@ -60,7 +60,7 @@ For supported component/model combinations:
 
 Passing once does not guarantee permanent support; evidence freshness policy applies.
 
-The first implemented [contract-testing slice](../implementation/contract-testing.md) is a read-only SSH preflight. It records host, Docker and accelerator eligibility as a content-addressed result with mandatory audit evidence. Preflight is intentionally weaker than the workload contract above and cannot promote a catalog assertion.
+The implemented [contract-testing slices](../implementation/contract-testing.md) are a read-only SSH preflight and a bounded runtime smoke. Runtime smoke resolves exact OCI/model identities, applies the preflight gate and starts one no-network, resource-bounded, uniquely named container to execute a CUDA tensor. It does not load a model or exercise the serving API, so neither mode can promote a catalog assertion.
 
 ### Renderer tests (future)
 
@@ -107,7 +107,7 @@ An unavailable hardware runner means that path cannot receive fresh supported ev
 
 ## Test evidence
 
-Compatibility and benchmark jobs output structured evidence with environment, commit, artifact digests and results. The implemented `ContractTestResult` establishes this boundary for preflight observations; later modes must extend it without weakening content identity or explicit limitations. Catalog promotion consumes reviewed evidence. Test logs alone are not durable catalog facts.
+Compatibility and benchmark jobs output structured evidence with environment, commit, artifact digests and results. The implemented `ContractTestResult` establishes this boundary for both preflight and runtime-smoke observations; later modes must extend it without weakening content identity or explicit limitations. Catalog promotion consumes reviewed evidence. Test logs alone are not durable catalog facts.
 
 ## Failure triage
 

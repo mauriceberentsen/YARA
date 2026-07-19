@@ -34,10 +34,13 @@ spec:
     - hardware/rtx-4090.yaml
     - hardware/rtx-6000-ada.yaml
     - hardware/l40s.yaml
+    - hardware/gb10.yaml
     - compatibility/qwen3-8b-awq-rtx4090.yaml
     - compatibility/qwen-coder-7b-awq-rtx4090.yaml
     - compatibility/qwen3-8b-awq-rtx6000ada.yaml
     - compatibility/qwen-coder-7b-awq-rtx6000ada.yaml
     - compatibility/qwen3-8b-awq-l40s.yaml
     - compatibility/qwen-coder-7b-awq-l40s.yaml
+    - compatibility/qwen3-8b-awq-gb10.yaml
+    - compatibility/qwen-coder-7b-awq-gb10.yaml
     - topologies/local-chat-coding.yaml
