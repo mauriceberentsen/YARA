@@ -60,7 +60,7 @@ For supported component/model combinations:
 
 Passing once does not guarantee permanent support; evidence freshness policy applies.
 
-The implemented [contract-testing slices](../implementation/contract-testing.md) are read-only SSH preflight, bounded runtime smoke and bounded model inference. Runtime smoke resolves exact OCI/model identities and executes a CUDA tensor in an isolated container. Model inference adds capacity gates, temporary exact-revision acquisition, local shard hashes, no-network serving, health and one constrained request. The single request does not establish cataloged context, capacity, performance, policy or lifecycle claims, so it cannot promote an assertion.
+The implemented [contract-testing slices](../implementation/contract-testing.md) are read-only SSH preflight, bounded runtime smoke, bounded model inference and advertised-context capacity boundary. Runtime smoke resolves exact OCI/model identities and executes a CUDA tensor in an isolated container. Model inference adds capacity gates, temporary exact-revision acquisition, local shard hashes, no-network serving, health and one constrained request. Capacity boundary offers one request whose reserved prompt/output envelope equals the cataloged maximum context. It does not establish concurrency above one, sustained capacity, performance, policy or lifecycle claims, so it cannot promote an assertion by itself.
 
 ### Renderer tests (future)
 
@@ -107,7 +107,7 @@ An unavailable hardware runner means that path cannot receive fresh supported ev
 
 ## Test evidence
 
-Compatibility and benchmark jobs output structured evidence with environment, runner identity, artifact digests and results. `ContractTestResult` establishes this boundary for preflight, runtime-smoke and model-inference observations. New results bind the runner version and exact executable SHA-256; older archived v1alpha1 results without that optional field remain valid but carry weaker provenance. Later modes must not weaken content identity or explicit limitations. Catalog promotion consumes reviewed evidence; test logs alone are not durable catalog facts.
+Compatibility and benchmark jobs output structured evidence with environment, runner identity, artifact digests and results. `ContractTestResult` establishes this boundary for preflight, runtime-smoke, model-inference and capacity-boundary observations. New results bind the runner version and exact executable SHA-256; older archived v1alpha1 results without that optional field remain valid but carry weaker provenance. Later modes must not weaken content identity or explicit limitations. Catalog promotion consumes reviewed evidence; test logs alone are not durable catalog facts.
 
 ## Failure triage
 

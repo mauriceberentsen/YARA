@@ -69,10 +69,11 @@ type ContractTestAccelerator struct {
 }
 
 type ContractTestCheck struct {
-	ID             string `json:"id" yaml:"id"`
-	Status         string `json:"status" yaml:"status"`
-	DiagnosticCode string `json:"diagnosticCode,omitempty" yaml:"diagnosticCode,omitempty"`
-	EvidenceDigest string `json:"evidenceDigest" yaml:"evidenceDigest"`
+	ID             string         `json:"id" yaml:"id"`
+	Status         string         `json:"status" yaml:"status"`
+	DiagnosticCode string         `json:"diagnosticCode,omitempty" yaml:"diagnosticCode,omitempty"`
+	EvidenceDigest string         `json:"evidenceDigest" yaml:"evidenceDigest"`
+	Measurements   map[string]int `json:"measurements,omitempty" yaml:"measurements,omitempty"`
 }
 
 func (r ContractTestResult) AssignResultID() (ContractTestResult, error) {
@@ -90,7 +91,7 @@ func (r ContractTestResult) Validate() diagnostics.Report {
 	if !sha256DigestPattern.MatchString(r.Metadata.ResultID) || !sha256DigestPattern.MatchString(r.Spec.CatalogDigest) || !sha256DigestPattern.MatchString(r.Spec.Environment.ReferenceDigest) {
 		items = append(items, diagnostics.Error("YARA-CTR-010", "Result, catalog and target identities must be SHA-256 digests.", "metadata.resultId"))
 	}
-	if !slices.Contains([]string{"preflight", "runtime-smoke", "model-inference"}, r.Spec.Mode) || !slices.Contains([]string{"passed", "failed", "blocked"}, r.Spec.Outcome) {
+	if !slices.Contains([]string{"preflight", "runtime-smoke", "model-inference", "capacity-boundary"}, r.Spec.Mode) || !slices.Contains([]string{"passed", "failed", "blocked"}, r.Spec.Outcome) {
 		items = append(items, diagnostics.Error("YARA-CTR-011", "Unsupported contract-test mode or outcome.", "spec"))
 	}
 	if r.Spec.AssertionRef == "" || r.Spec.Target.RuntimeRef == "" || r.Spec.Target.ModelRef == "" || r.Spec.Target.HardwareProfileRef == "" {
@@ -130,6 +131,12 @@ func (r ContractTestResult) Validate() diagnostics.Report {
 		seen[check.ID] = struct{}{}
 		if (check.Status == "passed" && check.DiagnosticCode != "") || (check.Status != "passed" && !diagnosticCodePattern.MatchString(check.DiagnosticCode)) {
 			items = append(items, diagnostics.Error("YARA-CTR-018", "Only non-passing checks require a stable diagnostic code.", path+".diagnosticCode"))
+		}
+		for key, value := range check.Measurements {
+			if strings.TrimSpace(key) == "" || value < 0 {
+				items = append(items, diagnostics.Error("YARA-CTR-024", "Check measurements require non-empty names and non-negative integer values.", path+".measurements"))
+				break
+			}
 		}
 		if check.Status == "failed" {
 			derivedOutcome = "failed"

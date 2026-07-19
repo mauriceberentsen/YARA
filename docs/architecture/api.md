@@ -23,7 +23,7 @@ Primary versioned resources:
 - `GoldenScenario`
 - `ContractTestResult`
 
-v0.1 implements the request, inventory, policy/catalog inputs, plan, diagnostics, redacted debug-bundle and golden-scenario contracts, plus local audit records. Post-v0.1 adds preflight, runtime-smoke and bounded model-inference `ContractTestResult` modes. Approval, deployment, capacity/lifecycle contract modes and service-side audit storage arrive later.
+v0.1 implements the request, inventory, policy/catalog inputs, plan, diagnostics, redacted debug-bundle and golden-scenario contracts, plus local audit records. Post-v0.1 adds preflight, runtime-smoke, bounded model-inference and advertised-context capacity-boundary `ContractTestResult` modes. Approval, deployment, sustained-capacity/lifecycle contract modes and service-side audit storage arrive later.
 
 ## CLI surface
 
@@ -44,6 +44,7 @@ yara scenario validate-all <directory> [--audit-output <file>]
 yara contract preflight --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
 yara contract runtime-smoke --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
 yara contract model-inference --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
+yara contract capacity-boundary --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>
 yara contract validate <file> [--audit-output <file>]
 yara audit verify <file>
 ```

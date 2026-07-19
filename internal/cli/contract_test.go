@@ -41,6 +41,19 @@ type fixedModelInferenceRunner struct {
 	called *bool
 }
 
+type fixedCapacityBoundaryRunner struct {
+	checks []resources.ContractTestCheck
+	err    error
+	called *bool
+}
+
+func (r fixedCapacityBoundaryRunner) Run(context.Context, string, catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
+	if r.called != nil {
+		*r.called = true
+	}
+	return r.checks, r.err
+}
+
 func (r fixedModelInferenceRunner) Run(context.Context, string, catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
 	if r.called != nil {
 		*r.called = true
@@ -323,6 +336,76 @@ func TestContractModelInferenceRollsBackResultWhenAuditCannotBeWritten(t *testin
 	}
 }
 
+func TestContractCapacityBoundaryPersistsScopedResultAndAuditEvidence(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	setCapacityBoundaryDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedCapacityBoundaryRunner{checks: []resources.ContractTestCheck{{ID: "capacity.context-boundary", Status: "passed", EvidenceDigest: evidence}}},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "capacity.yaml"), filepath.Join(temp, "audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(capacityContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitSuccess {
+		t.Fatalf("capacity boundary failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	result, err := resources.LoadContractTestResult(outputPath)
+	if err != nil {
+		t.Fatalf("load capacity result: %v", err)
+	}
+	if result.Spec.Mode != "capacity-boundary" || result.Spec.Outcome != "passed" || result.Spec.Runner == nil {
+		t.Fatalf("unexpected capacity result: %#v", result.Spec)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "contract.capacity-boundary.completed" || terminal.Spec.Subjects[1].Digest != result.Metadata.ResultID {
+		t.Fatalf("unexpected capacity audit: %#v", terminal.Spec)
+	}
+}
+
+func TestContractCapacityBoundaryDoesNotStartWhenArtifactGateFails(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	called := false
+	setCapacityBoundaryDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "failed", DiagnosticCode: "YARA-CTR-120", EvidenceDigest: evidence}}},
+		fixedCapacityBoundaryRunner{called: &called},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "capacity.yaml"), filepath.Join(temp, "audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(capacityContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected failed gate, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if called {
+		t.Fatal("capacity workload started after artifact verification failed")
+	}
+}
+
+func TestContractCapacityBoundaryRollsBackResultWhenAuditCannotBeWritten(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	setCapacityBoundaryDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedCapacityBoundaryRunner{checks: []resources.ContractTestCheck{{ID: "capacity.context-boundary", Status: "passed", EvidenceDigest: evidence}}},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "capacity.yaml"), filepath.Join(temp, "audit.jsonl")
+	if err := os.WriteFile(auditPath, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("prepare audit: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(capacityContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInvalidInput {
+		t.Fatalf("expected invalid input, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("capacity result must be rolled back after audit failure: %v", err)
+	}
+}
+
 func setRuntimeSmokeDependencies(t *testing.T, verifier fixedArtifactVerifier, runner fixedRuntimeSmokeRunner) {
 	t.Helper()
 	previousVerifier, previousRunner := runtimeSmokeArtifactVerifier, runtimeSmokeRunner
@@ -357,6 +440,25 @@ func modelContractArgs(outputPath, auditPath string) []string {
 		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
 		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
 		"--target", "tester@gpu-runner.example", "--name", "gb10-model-inference",
+		"--output", outputPath, "--audit-output", auditPath,
+	}
+}
+
+func setCapacityBoundaryDependencies(t *testing.T, verifier fixedArtifactVerifier, runner fixedCapacityBoundaryRunner) {
+	t.Helper()
+	previousVerifier, previousRunner := runtimeSmokeArtifactVerifier, capacityBoundaryRunner
+	runtimeSmokeArtifactVerifier, capacityBoundaryRunner = verifier, runner
+	t.Cleanup(func() {
+		runtimeSmokeArtifactVerifier, capacityBoundaryRunner = previousVerifier, previousRunner
+	})
+}
+
+func capacityContractArgs(outputPath, auditPath string) []string {
+	return []string{
+		"contract", "capacity-boundary",
+		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
+		"--target", "tester@gpu-runner.example", "--name", "gb10-capacity-boundary",
 		"--output", outputPath, "--audit-output", auditPath,
 	}
 }

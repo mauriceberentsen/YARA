@@ -19,9 +19,9 @@ Selectable means the manifest status is `experimental` or `supported`. Every gen
 
 Each real component records its exact upstream version, license facts, health contract, source links and an immutable OCI index digest. Each model records an immutable Git revision plus the size and SHA-256 digest of every weight shard. Compatibility assertions bind a runtime version and model revision to a hardware profile and execution envelope.
 
-Artifact verification proves identity; it does not prove operational compatibility. Six positive Ada assertions remain experimental and selectable. Both GB10 assertions remain knowledge-only even though each has passed artifact verification and a bounded runtime/CUDA smoke. The Qwen Coder tuple has additionally passed exact local shard verification, model load, health and one context-1024/concurrency-1 request. Advertised context, capacity, policy and lifecycle gates remain open.
+Artifact verification proves identity; it does not prove operational compatibility. Six positive Ada assertions remain experimental and selectable. Both GB10 assertions remain knowledge-only even though each has passed artifact verification and a bounded runtime/CUDA smoke. The Qwen Coder tuple has additionally passed exact local shard verification, model load, health, one context-1024 request and one exact 32768-token context-envelope request at concurrency 1. Sustained capacity, policy and lifecycle gates remain open.
 
-Read-only contract preflight, isolated runtime smoke and bounded model inference are implemented. All write content-addressed evidence plus mandatory audit chains. No individual pass satisfies the promotion gate by itself; see the [contract-testing guide](../../docs/implementation/contract-testing.md).
+Read-only contract preflight, isolated runtime smoke, bounded model inference and an exact advertised-context boundary contract are implemented. All write content-addressed evidence plus mandatory audit chains. No individual pass satisfies the promotion gate by itself; see the [contract-testing guide](../../docs/implementation/contract-testing.md).
 
 The first two GB10 smoke results and their verified audit chains are archived under [`evidence/gb10/`](evidence/gb10/README.md). They remain bounded evidence, not a support declaration.
 
@@ -115,3 +115,17 @@ go run ./cmd/yara contract model-inference \
 ```
 
 The fixed run is intentionally limited to 16 GiB container memory, context 1024, concurrency 1 and eight output tokens. A pass is bounded evidence—not a capacity or production-support claim.
+
+## Test the advertised GB10 context boundary
+
+```bash
+go run ./cmd/yara contract capacity-boundary \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example \
+  --name gb10-qwen-coder-capacity-boundary \
+  --output .yara/contracts/gb10-qwen-coder-capacity-boundary.yaml \
+  --audit-output .yara/audit/gb10-qwen-coder-capacity-boundary.jsonl
+```
+
+This single-sequence contract reserves eight output tokens and requires the API to report exactly 32760 prompt tokens without exceeding the asserted 32768-token context. It deliberately makes no concurrency, latency, throughput or sustained-load claim.

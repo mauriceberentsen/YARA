@@ -43,59 +43,84 @@ type modelInferenceObservation struct {
 	InferenceStatus      int    `json:"inferenceStatus"`
 	Model                string `json:"model"`
 	FinishReason         string `json:"finishReason"`
+	PromptTokens         int    `json:"promptTokens"`
 	CompletionTokens     int    `json:"completionTokens"`
+	TotalTokens          int    `json:"totalTokens"`
 	ContentDigest        string `json:"contentDigest"`
 	ServerLogDigest      string `json:"serverLogDigest"`
 }
 
+type modelServingProfile struct {
+	ContextTokens  int
+	Concurrency    int
+	MaxTokens      int
+	RequestProgram string
+}
+
 func (r SSHModelInferenceRunner) Run(parent context.Context, sshTarget string, target catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
+	observation, err := runModelServingContract(parent, sshTarget, target, r.Timeout, modelServingProfile{
+		ContextTokens:  modelInferenceContext,
+		Concurrency:    modelInferenceConcurrency,
+		MaxTokens:      modelInferenceMaxTokens,
+		RequestProgram: boundedInferenceProgram(modelInferenceMaxTokens),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return modelInferenceChecks(observation, modelArtifactBytes(target.ModelArtifact))
+}
+
+func runModelServingContract(parent context.Context, sshTarget string, target catalog.ContractTarget, timeout time.Duration, profile modelServingProfile) (modelInferenceObservation, error) {
 	if !sshTargetPattern.MatchString(sshTarget) {
-		return nil, errors.New("SSH target must use the form user@host")
+		return modelInferenceObservation{}, errors.New("SSH target must use the form user@host")
 	}
 	image, ok := runtimeImage(target.RuntimeArtifacts)
 	if !ok {
-		return nil, errors.New("contract target has no digest-pinned OCI runtime image")
+		return modelInferenceObservation{}, errors.New("contract target has no digest-pinned OCI runtime image")
 	}
 	if target.ModelArtifact.Type != "huggingface-snapshot" || target.ModelArtifact.Ref == "" || target.ModelArtifact.Revision == "" || len(target.ModelArtifact.Files) == 0 {
-		return nil, errors.New("contract target has no verifiable Hugging Face model snapshot")
+		return modelInferenceObservation{}, errors.New("contract target has no verifiable Hugging Face model snapshot")
+	}
+	if profile.ContextTokens <= 0 || profile.Concurrency != 1 || profile.MaxTokens <= 0 || profile.ContextTokens <= profile.MaxTokens || strings.TrimSpace(profile.RequestProgram) == "" {
+		return modelInferenceObservation{}, errors.New("model serving profile is invalid or exceeds the supported single-sequence safety boundary")
 	}
 	files, err := json.Marshal(target.ModelArtifact.Files)
 	if err != nil {
-		return nil, fmt.Errorf("encode model artifact contract: %w", err)
+		return modelInferenceObservation{}, fmt.Errorf("encode model artifact contract: %w", err)
 	}
-	timeout := r.Timeout
 	if timeout <= 0 {
 		timeout = 20 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	runID := fmt.Sprintf("%d", time.Now().UnixNano())
-	script := modelInferenceScript(
+	script := modelServingScript(
 		base64.StdEncoding.EncodeToString([]byte(image)),
 		base64.StdEncoding.EncodeToString([]byte(target.ModelArtifact.Ref)),
 		base64.StdEncoding.EncodeToString([]byte(target.ModelArtifact.Revision)),
 		base64.StdEncoding.EncodeToString(files),
 		base64.StdEncoding.EncodeToString([]byte(runID)),
 		modelArtifactBytes(target.ModelArtifact),
+		profile,
 	)
 	command := exec.CommandContext(ctx, "ssh", "-T", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=10", sshTarget, script)
 	output, err := command.Output()
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("model inference contract timed out: %w", ctx.Err())
+			return modelInferenceObservation{}, fmt.Errorf("model serving contract timed out: %w", ctx.Err())
 		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return nil, fmt.Errorf("model inference transport exited with status %d", exitErr.ExitCode())
+			return modelInferenceObservation{}, fmt.Errorf("model serving transport exited with status %d", exitErr.ExitCode())
 		}
-		return nil, fmt.Errorf("start model inference contract: %w", err)
+		return modelInferenceObservation{}, fmt.Errorf("start model serving contract: %w", err)
 	}
 	var observation modelInferenceObservation
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) == 0 || json.Unmarshal([]byte(lines[len(lines)-1]), &observation) != nil {
-		return nil, errors.New("model inference contract returned no valid observation")
+		return modelInferenceObservation{}, errors.New("model serving contract returned no valid observation")
 	}
-	return modelInferenceChecks(observation, modelArtifactBytes(target.ModelArtifact))
+	return observation, nil
 }
 
 func modelArtifactBytes(artifact catalog.ArtifactReference) int64 {
@@ -107,6 +132,10 @@ func modelArtifactBytes(artifact catalog.ArtifactReference) int64 {
 }
 
 func modelInferenceChecks(observation modelInferenceObservation, modelBytes int64) ([]resources.ContractTestCheck, error) {
+	return modelServingChecks(observation, modelBytes, modelInferenceContext, modelInferenceConcurrency, modelInferenceMaxTokens)
+}
+
+func modelServingChecks(observation modelInferenceObservation, modelBytes int64, contextTokens, concurrency, maxTokens int) ([]resources.ContractTestCheck, error) {
 	minimumDisk := modelBytes*2 + (2 << 30)
 	checks := make([]resources.ContractTestCheck, 0, 12)
 	appendCheck := func(id, status, code string, evidence any) error {
@@ -182,19 +211,19 @@ func modelInferenceChecks(observation modelInferenceObservation, modelBytes int6
 	if err := appendCheck("model.inference-schema", schemaStatus, chooseCode(schemaStatus, schemaCode, "YARA-CTR-147"), map[string]any{"model": observation.Model, "finishReason": observation.FinishReason, "contentDigest": observation.ContentDigest}); err != nil {
 		return nil, err
 	}
-	boundedPassed := schemaPassed && observation.CompletionTokens > 0 && observation.CompletionTokens <= modelInferenceMaxTokens
+	boundedPassed := schemaPassed && observation.CompletionTokens > 0 && observation.CompletionTokens <= maxTokens
 	boundedStatus, boundedCode := status(boundedPassed, "inference", schemaPassed)
-	if err := appendCheck("model.inference-bounded", boundedStatus, chooseCode(boundedStatus, boundedCode, "YARA-CTR-148"), map[string]int{"completionTokens": observation.CompletionTokens, "maximum": modelInferenceMaxTokens}); err != nil {
+	if err := appendCheck("model.inference-bounded", boundedStatus, chooseCode(boundedStatus, boundedCode, "YARA-CTR-148"), map[string]int{"completionTokens": observation.CompletionTokens, "maximum": maxTokens}); err != nil {
 		return nil, err
 	}
 	configStatus, configCode := "passed", ""
 	if !serverPassed {
 		configStatus, configCode = "blocked", "YARA-CTR-149"
 	}
-	if err := appendCheck("model.context-limit", configStatus, configCode, modelInferenceContext); err != nil {
+	if err := appendCheck("model.context-limit", configStatus, configCode, contextTokens); err != nil {
 		return nil, err
 	}
-	if err := appendCheck("model.concurrency-limit", configStatus, configCode, modelInferenceConcurrency); err != nil {
+	if err := appendCheck("model.concurrency-limit", configStatus, configCode, concurrency); err != nil {
 		return nil, err
 	}
 	if err := appendCheck("model.async-scheduling-disabled", configStatus, configCode, serverPassed); err != nil {
@@ -240,13 +269,24 @@ func modelHealthDiagnostic(reason string) string {
 }
 
 func modelInferenceScript(imageB64, repoB64, revisionB64, filesB64, runIDB64 string, modelBytes int64) string {
+	return modelServingScript(imageB64, repoB64, revisionB64, filesB64, runIDB64, modelBytes, modelServingProfile{
+		ContextTokens:  modelInferenceContext,
+		Concurrency:    modelInferenceConcurrency,
+		MaxTokens:      modelInferenceMaxTokens,
+		RequestProgram: boundedInferenceProgram(modelInferenceMaxTokens),
+	})
+}
+
+func modelServingScript(imageB64, repoB64, revisionB64, filesB64, runIDB64 string, modelBytes int64, profile modelServingProfile) string {
 	minimumDisk := modelBytes*2 + (2 << 30)
+	requestB64 := base64.StdEncoding.EncodeToString([]byte(profile.RequestProgram))
 	return fmt.Sprintf(`set -u
 image="$(printf '%%s' '%s' | base64 -d)"
 repo="$(printf '%%s' '%s' | base64 -d)"
 revision="$(printf '%%s' '%s' | base64 -d)"
 files_b64='%s'
 run_id="$(printf '%%s' '%s' | base64 -d)"
+request_b64='%s'
 download="yara-contract-download-$run_id"
 server="yara-contract-model-$run_id"
 volume="yara-contract-model-$run_id"
@@ -341,19 +381,23 @@ if [ "$health_status" -ne 200 ]; then
   emit_failure health "$log_digest" "$reason"
   exit 0
 fi
-inference="$(docker exec "$server" /usr/bin/python3 -c 'import hashlib,json,sys,urllib.error,urllib.request
-payload={"model":"yara-contract","messages":[{"role":"user","content":"Reply with exactly YARA_OK"}],"temperature":0,"max_tokens":%d}
-request=urllib.request.Request("http://127.0.0.1:8000/v1/chat/completions",data=json.dumps(payload).encode(),headers={"Content-Type":"application/json"})
-try:
- response=urllib.request.urlopen(request,timeout=120); status=response.status; body=response.read(); data=json.loads(body); choice=data["choices"][0]; content=choice["message"]["content"] or ""; usage=data.get("usage",{}); print(json.dumps({"inferenceStatus":status,"model":data.get("model",""),"finishReason":choice.get("finish_reason",""),"completionTokens":usage.get("completion_tokens",0),"contentDigest":"sha256:"+hashlib.sha256(content.encode()).hexdigest()}))
-except Exception as error:
- body=getattr(error,"read",lambda:b"")(); print(json.dumps({"failureStage":"inference","inferenceStatus":getattr(error,"code",0),"contentDigest":"sha256:"+hashlib.sha256(body).hexdigest()}))' 2>/dev/null)"
+inference="$(docker exec -e "YARA_REQUEST_B64=$request_b64" "$server" /usr/bin/python3 -c 'import base64,os; exec(compile(base64.b64decode(os.environ["YARA_REQUEST_B64"]),"<yara-contract>","exec"))' 2>/dev/null)"
 if [ -z "$inference" ]; then
   emit_failure inference
   exit 0
 fi
 printf '%%s' "$inference" | /usr/bin/python3 -c 'import json,sys; data=json.load(sys.stdin); data.update({"memoryAvailableBytes":int(sys.argv[1]),"diskAvailableBytes":int(sys.argv[2]),"acquisitionCompleted":True,"artifactVerified":True,"serverStarted":True,"networkMode":sys.argv[3],"healthStatus":200}); print(json.dumps(data,separators=(",",":")))' "$memory_available" "$disk_available" "$network_mode"
-`, imageB64, repoB64, revisionB64, filesB64, runIDB64, modelInferenceMemoryBytes, minimumDisk, modelInferenceMemoryBytes, modelInferenceMemoryBytes, modelInferenceContext, modelInferenceConcurrency, modelInferenceMaxTokens)
+`, imageB64, repoB64, revisionB64, filesB64, runIDB64, requestB64, modelInferenceMemoryBytes, minimumDisk, modelInferenceMemoryBytes, modelInferenceMemoryBytes, profile.ContextTokens, profile.Concurrency)
+}
+
+func boundedInferenceProgram(maxTokens int) string {
+	return fmt.Sprintf(`import hashlib,json,urllib.request
+payload={"model":"yara-contract","messages":[{"role":"user","content":"Reply with exactly YARA_OK"}],"temperature":0,"max_tokens":%d}
+request=urllib.request.Request("http://127.0.0.1:8000/v1/chat/completions",data=json.dumps(payload).encode(),headers={"Content-Type":"application/json"})
+try:
+ response=urllib.request.urlopen(request,timeout=120); status=response.status; body=response.read(); data=json.loads(body); choice=data["choices"][0]; content=choice["message"]["content"] or ""; usage=data.get("usage",{}); print(json.dumps({"inferenceStatus":status,"model":data.get("model",""),"finishReason":choice.get("finish_reason",""),"promptTokens":usage.get("prompt_tokens",0),"completionTokens":usage.get("completion_tokens",0),"totalTokens":usage.get("total_tokens",0),"contentDigest":"sha256:"+hashlib.sha256(content.encode()).hexdigest()}))
+except Exception as error:
+ body=getattr(error,"read",lambda:b"")(); print(json.dumps({"failureStage":"inference","inferenceStatus":getattr(error,"code",0),"contentDigest":"sha256:"+hashlib.sha256(body).hexdigest()}))`, maxTokens)
 }
 
 func EvaluateModelInference(name, catalogDigest string, target catalog.ContractTarget, environment resources.ContractTestEnvironment, artifactChecks, modelChecks []resources.ContractTestCheck) (resources.ContractTestResult, error) {

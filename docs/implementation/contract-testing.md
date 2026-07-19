@@ -4,7 +4,7 @@
 
 Catalog documentation and immutable artifact identities are necessary evidence, but they do not prove that a runtime, model and hardware tuple works. YARA therefore treats every positive `CompatibilityAssertion` as a testable contract. Promotion from `experimental` to `supported` requires evidence for the exact catalog digest, assertion, runtime version, model revision and hardware profile.
 
-Three evidence layers are implemented: read-only remote preflight, bounded runtime smoke and bounded model inference. Preflight answers whether a named host is eligible. Runtime smoke additionally re-verifies cataloged OCI/model identities and proves that the exact runtime image can execute a CUDA tensor. Model inference acquires and locally re-hashes the exact model shards, starts the pinned serving image and executes one constrained API request. Each layer retains explicit limitations and cannot imply broader support.
+Four evidence layers are implemented: read-only remote preflight, bounded runtime smoke, bounded model inference and advertised-context capacity boundary. Preflight answers whether a named host is eligible. Runtime smoke additionally re-verifies cataloged OCI/model identities and proves that the exact runtime image can execute a CUDA tensor. Model inference acquires and locally re-hashes the exact model shards, starts the pinned serving image and executes one constrained API request. Capacity boundary reserves the complete cataloged context envelope for one request. Each layer retains explicit limitations and cannot imply broader support.
 
 ## Implemented preflight
 
@@ -99,6 +99,28 @@ Unlike runtime smoke, this command performs explicit networked model acquisition
 
 The first GB10 Qwen Coder run exposed that Triton-generated shared objects cannot load from a non-executable tmpfs. That negative result and the final passing configuration are both archived under [`catalog/v0.2/evidence/gb10/`](../../catalog/v0.2/evidence/gb10/README.md). The pass proves only one context-1024, concurrency-1 request. It does not validate the cataloged 32768-token maximum, capacity, performance, restart, lifecycle or air-gap behavior.
 
+## Implemented advertised-context capacity boundary
+
+`contract capacity-boundary` reuses the same artifact, preflight, isolation, privacy and cleanup gates as model inference. It reads `maximumContextTokens` from the exact compatibility assertion, refuses values above its fixed 32768-token safety cap and always uses concurrency 1. For the Qwen Coder GB10 assertion it:
+
+1. starts vLLM with `--max-model-len 32768` and `--max-num-seqs 1`;
+2. submits an oversized local chat payload with `truncate_prompt_tokens: 32760`, using the [pinned vLLM ChatCompletion request contract](https://docs.vllm.ai/en/v0.25.1/api/vllm/entrypoints/openai/chat_completion/protocol/);
+3. reserves at most eight completion tokens, making the offered envelope exactly 32768 tokens;
+4. requires response usage to report exactly 32760 prompt tokens, 1–8 completion tokens, a consistent total and no total above 32768;
+5. records only counts, statuses and content digests—not the prompt, completion, raw response or server log. The non-sensitive integer counts remain directly reviewable in `check.measurements` and are also included in the evidence digest and result identity.
+
+```bash
+go run ./cmd/yara contract capacity-boundary \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example \
+  --name gb10-qwen-coder-capacity-boundary \
+  --output .yara/contracts/gb10-qwen-coder-capacity-boundary.yaml \
+  --audit-output .yara/audit/gb10-qwen-coder-capacity-boundary.jsonl
+```
+
+A pass proves acceptance of one exact advertised-context request on the observed host. It makes no claim about multiple concurrent requests, sustained load, latency, throughput, output quality or production headroom. Those require separately declared catalog bounds and repeatable tests.
+
 ## Outcomes and exit codes
 
 | Result | Meaning | Exit code |
@@ -121,7 +143,7 @@ The actor remains the self-asserted local OS identity. The current hash chain de
 
 A passing preflight MUST NOT promote an assertion. Runtime smoke covers immutable identity verification and bounded container/CUDA startup. Model inference additionally covers one narrow model-load/health/request path, but the implemented modes still do not establish:
 
-- the advertised context window or concurrency/capacity boundary;
+- concurrency above one or a sustained-capacity boundary;
 - generalized inference correctness, quality or API compatibility beyond one fixed request;
 - hardened no-egress/telemetry policy;
 - restart, upgrade, rollback or recovery behavior;
@@ -135,7 +157,7 @@ For each exact compatibility tuple, promotion still requires:
 
 1. **Artifact verification and runtime startup:** implemented by runtime smoke, using exact identities and an isolated container.
 2. **Health and bounded inference:** implemented for one Qwen Coder/GB10 request; advertised context bounds and broader API conformance remain open.
-3. **Capacity boundary:** test the asserted memory and concurrency envelope without turning the single passing sample into a universal performance claim.
+3. **Advertised-context boundary:** implemented as one exact 32768-token-envelope request; sustained capacity and any concurrency above one remain open until the catalog declares explicit bounds.
 4. **Policy contract:** verify egress, telemetry, filesystem, secret and privilege behavior under a YARA-owned hardened profile.
 5. **Lifecycle contract:** restart and recover the isolated workload and capture state/health evidence.
 6. **Independent review:** review the complete evidence set and record an explicit promotion decision.
