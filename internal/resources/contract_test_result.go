@@ -26,10 +26,16 @@ type ContractTestResultSpec struct {
 	Outcome       string                  `json:"outcome" yaml:"outcome"`
 	CatalogDigest string                  `json:"catalogDigest" yaml:"catalogDigest"`
 	AssertionRef  string                  `json:"assertionRef" yaml:"assertionRef"`
+	Runner        *ContractTestRunner     `json:"runner,omitempty" yaml:"runner,omitempty"`
 	Target        ContractTestTarget      `json:"target" yaml:"target"`
 	Environment   ContractTestEnvironment `json:"environment" yaml:"environment"`
 	Checks        []ContractTestCheck     `json:"checks" yaml:"checks"`
 	Limitations   []string                `json:"limitations" yaml:"limitations"`
+}
+
+type ContractTestRunner struct {
+	Version      string `json:"version" yaml:"version"`
+	BinaryDigest string `json:"binaryDigest" yaml:"binaryDigest"`
 }
 
 type ContractTestTarget struct {
@@ -84,11 +90,14 @@ func (r ContractTestResult) Validate() diagnostics.Report {
 	if !sha256DigestPattern.MatchString(r.Metadata.ResultID) || !sha256DigestPattern.MatchString(r.Spec.CatalogDigest) || !sha256DigestPattern.MatchString(r.Spec.Environment.ReferenceDigest) {
 		items = append(items, diagnostics.Error("YARA-CTR-010", "Result, catalog and target identities must be SHA-256 digests.", "metadata.resultId"))
 	}
-	if !slices.Contains([]string{"preflight", "runtime-smoke"}, r.Spec.Mode) || !slices.Contains([]string{"passed", "failed", "blocked"}, r.Spec.Outcome) {
+	if !slices.Contains([]string{"preflight", "runtime-smoke", "model-inference"}, r.Spec.Mode) || !slices.Contains([]string{"passed", "failed", "blocked"}, r.Spec.Outcome) {
 		items = append(items, diagnostics.Error("YARA-CTR-011", "Unsupported contract-test mode or outcome.", "spec"))
 	}
 	if r.Spec.AssertionRef == "" || r.Spec.Target.RuntimeRef == "" || r.Spec.Target.ModelRef == "" || r.Spec.Target.HardwareProfileRef == "" {
 		items = append(items, diagnostics.Error("YARA-CTR-012", "The exact assertion, runtime, model and hardware profile are required.", "spec.target"))
+	}
+	if r.Spec.Runner != nil && (strings.TrimSpace(r.Spec.Runner.Version) == "" || !sha256DigestPattern.MatchString(r.Spec.Runner.BinaryDigest)) {
+		items = append(items, diagnostics.Error("YARA-CTR-023", "Runner evidence requires a version and executable SHA-256 digest.", "spec.runner"))
 	}
 	if r.Spec.Environment.Transport != "ssh" || r.Spec.Environment.OperatingSystem == "" || r.Spec.Environment.Architecture == "" {
 		items = append(items, diagnostics.Error("YARA-CTR-013", "SSH transport and observed operating-system facts are required.", "spec.environment"))

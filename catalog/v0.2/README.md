@@ -19,9 +19,9 @@ Selectable means the manifest status is `experimental` or `supported`. Every gen
 
 Each real component records its exact upstream version, license facts, health contract, source links and an immutable OCI index digest. Each model records an immutable Git revision plus the size and SHA-256 digest of every weight shard. Compatibility assertions bind a runtime version and model revision to a hardware profile and execution envelope.
 
-Artifact verification proves identity; it does not prove operational compatibility. Six positive Ada assertions remain experimental and selectable. Both GB10 assertions remain knowledge-only even though each has passed artifact verification and a bounded runtime/CUDA smoke: no model was loaded and health, inference, capacity, policy and lifecycle gates remain open.
+Artifact verification proves identity; it does not prove operational compatibility. Six positive Ada assertions remain experimental and selectable. Both GB10 assertions remain knowledge-only even though each has passed artifact verification and a bounded runtime/CUDA smoke. The Qwen Coder tuple has additionally passed exact local shard verification, model load, health and one context-1024/concurrency-1 request. Advertised context, capacity, policy and lifecycle gates remain open.
 
-Read-only contract preflight and isolated runtime smoke are implemented. Both write content-addressed evidence plus mandatory audit chains. Neither satisfies the promotion gate by itself; see the [contract-testing guide](../../docs/implementation/contract-testing.md).
+Read-only contract preflight, isolated runtime smoke and bounded model inference are implemented. All write content-addressed evidence plus mandatory audit chains. No individual pass satisfies the promotion gate by itself; see the [contract-testing guide](../../docs/implementation/contract-testing.md).
 
 The first two GB10 smoke results and their verified audit chains are archived under [`evidence/gb10/`](evidence/gb10/README.md). They remain bounded evidence, not a support declaration.
 
@@ -99,3 +99,19 @@ go run ./cmd/yara contract runtime-smoke \
 ```
 
 The command verifies the cataloged OCI index, model revision and every weight-shard identity, performs preflight, and starts a uniquely named no-network container to exercise vLLM/PyTorch/CUDA on GB10. It does not download or load the model. Review the safety contract and image-staging command before use in the [contract-testing guide](../../docs/implementation/contract-testing.md).
+
+## Load and query the GB10 Qwen Coder tuple
+
+This explicit mutating test performs networked acquisition into a temporary volume and then serves the verified local snapshot without network or published ports:
+
+```bash
+go run ./cmd/yara contract model-inference \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example \
+  --name gb10-qwen-coder-model-inference \
+  --output .yara/contracts/gb10-qwen-coder-model-inference.yaml \
+  --audit-output .yara/audit/gb10-qwen-coder-model-inference.jsonl
+```
+
+The fixed run is intentionally limited to 16 GiB container memory, context 1024, concurrency 1 and eight output tokens. A pass is bounded evidence—not a capacity or production-support claim.

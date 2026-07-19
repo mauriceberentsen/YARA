@@ -35,6 +35,19 @@ type fixedRuntimeSmokeRunner struct {
 	called *bool
 }
 
+type fixedModelInferenceRunner struct {
+	checks []resources.ContractTestCheck
+	err    error
+	called *bool
+}
+
+func (r fixedModelInferenceRunner) Run(context.Context, string, catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
+	if r.called != nil {
+		*r.called = true
+	}
+	return r.checks, r.err
+}
+
 func (r fixedRuntimeSmokeRunner) Run(context.Context, string, catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
 	if r.called != nil {
 		*r.called = true
@@ -230,6 +243,86 @@ func TestContractRuntimeSmokeRollsBackResultWhenAuditCannotBeWritten(t *testing.
 	}
 }
 
+func TestContractModelInferencePersistsBoundedResultAndAuditEvidence(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	setModelInferenceDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedModelInferenceRunner{checks: []resources.ContractTestCheck{{ID: "model.inference-http", Status: "passed", EvidenceDigest: evidence}}},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "model.yaml"), filepath.Join(temp, "audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(modelContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitSuccess {
+		t.Fatalf("model inference failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	result, err := resources.LoadContractTestResult(outputPath)
+	if err != nil {
+		t.Fatalf("load model result: %v", err)
+	}
+	if result.Spec.Mode != "model-inference" || result.Spec.Outcome != "passed" {
+		t.Fatalf("unexpected model result: %#v", result.Spec)
+	}
+	if result.Spec.Runner == nil || result.Spec.Runner.Version == "" || !strings.HasPrefix(result.Spec.Runner.BinaryDigest, "sha256:") {
+		t.Fatalf("model result does not bind the runner executable: %#v", result.Spec.Runner)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "contract.model-inference.completed" || terminal.Spec.Subjects[1].Digest != result.Metadata.ResultID {
+		t.Fatalf("unexpected model audit: %#v", terminal.Spec)
+	}
+}
+
+func TestContractModelInferenceDoesNotStartWhenArtifactGateFails(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	called := false
+	setModelInferenceDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "failed", DiagnosticCode: "YARA-CTR-120", EvidenceDigest: evidence}}},
+		fixedModelInferenceRunner{called: &called},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "model.yaml"), filepath.Join(temp, "audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(modelContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected failed gate, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if called {
+		t.Fatal("model workload started after artifact verification failed")
+	}
+	result, err := resources.LoadContractTestResult(outputPath)
+	if err != nil {
+		t.Fatalf("load negative model result: %v", err)
+	}
+	if result.Spec.Outcome != "failed" || !slices.Contains(result.Spec.Limitations, "Model workload was not started because an earlier gate failed.") {
+		t.Fatalf("unexpected failed-gate evidence: %#v", result.Spec)
+	}
+}
+
+func TestContractModelInferenceRollsBackResultWhenAuditCannotBeWritten(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	setModelInferenceDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedModelInferenceRunner{checks: []resources.ContractTestCheck{{ID: "model.inference-http", Status: "passed", EvidenceDigest: evidence}}},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "model.yaml"), filepath.Join(temp, "audit.jsonl")
+	if err := os.WriteFile(auditPath, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("prepare audit: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(modelContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInvalidInput {
+		t.Fatalf("expected invalid input, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("model result must be rolled back after audit failure: %v", err)
+	}
+}
+
 func setRuntimeSmokeDependencies(t *testing.T, verifier fixedArtifactVerifier, runner fixedRuntimeSmokeRunner) {
 	t.Helper()
 	previousVerifier, previousRunner := runtimeSmokeArtifactVerifier, runtimeSmokeRunner
@@ -245,6 +338,25 @@ func runtimeContractArgs(outputPath, auditPath string) []string {
 		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
 		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
 		"--target", "tester@gpu-runner.example", "--name", "gb10-runtime-smoke",
+		"--output", outputPath, "--audit-output", auditPath,
+	}
+}
+
+func setModelInferenceDependencies(t *testing.T, verifier fixedArtifactVerifier, runner fixedModelInferenceRunner) {
+	t.Helper()
+	previousVerifier, previousRunner := runtimeSmokeArtifactVerifier, modelInferenceRunner
+	runtimeSmokeArtifactVerifier, modelInferenceRunner = verifier, runner
+	t.Cleanup(func() {
+		runtimeSmokeArtifactVerifier, modelInferenceRunner = previousVerifier, previousRunner
+	})
+}
+
+func modelContractArgs(outputPath, auditPath string) []string {
+	return []string{
+		"contract", "model-inference",
+		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
+		"--target", "tester@gpu-runner.example", "--name", "gb10-model-inference",
 		"--output", outputPath, "--audit-output", auditPath,
 	}
 }

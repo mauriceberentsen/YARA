@@ -48,7 +48,7 @@ A profile maps vendor identifiers and capabilities, including supported driver/c
 
 The v0.2 profiles record NVIDIA inventory aliases, memory amount and kind, architecture and compute capability for RTX 4090, RTX 6000 Ada, L40S and GB10. Ada profiles use `memoryKind: dedicated`; GB10 uses `memoryKind: coherent-unified` because its 128 GiB is shared coherent system memory rather than dedicated framebuffer memory. Capacity planning must continue to use observed allocatable inventory, not assume the full GB10 system-memory figure is available to inference.
 
-Separate compatibility assertions bind profiles to a minimum driver branch and CUDA runtime. Six Ada tuples are experimental/selectable. Two GB10 tuples are knowledge-only; both have passed exact-artifact and bounded runtime/CUDA smoke checks, but neither has model-load, inference, capacity, policy or lifecycle evidence sufficient for planner selection.
+Separate compatibility assertions bind profiles to a minimum driver branch and CUDA runtime. Six Ada tuples are experimental/selectable. Two GB10 tuples are knowledge-only and both have passed exact-artifact and bounded runtime/CUDA smoke checks. The Qwen Coder tuple additionally passed one bounded model-load/health/request path. Neither tuple has advertised-context, capacity, policy or lifecycle evidence sufficient for planner selection.
 
 ## Multi-device considerations
 
