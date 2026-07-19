@@ -1,0 +1,13 @@
+apiVersion: yara.dev/v1alpha1
+kind: AcceptanceGateReview
+metadata:
+    name: security-audit
+    reviewId: sha256:f5eef964d3f0a7cb283d42fade7710632062dbe2bcac343d63e7bceaa4f9db48
+spec:
+    acceptanceCriterion: 9
+    reviewer:
+        identity: Maurice Berentsen
+        role: security-reviewer
+        assurance: repository-owner
+    reviewedAt: "2026-07-19"
+    verdict: approved

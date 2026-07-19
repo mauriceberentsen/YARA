@@ -80,7 +80,7 @@ Exit: all golden scenarios yield valid expected semantic plans or explicit infea
 
 Exit: all [v0.1 acceptance criteria](product/scope.md#acceptance-criteria) pass offline in CI.
 
-Current gate: the ten-case technical scenario suite and hard-constraint counterexamples are implemented. Independent review is 0/10, so Milestone 4 and v0.1 remain open. See the [acceptance-status ledger](implementation/v0.1-acceptance-status.md).
+Current gate: all eleven v0.1 acceptance criteria pass with machine-counted review resources. Milestone 4 is complete. See the [acceptance-status ledger](implementation/v0.1-acceptance-status.md).
 
 ## Phase 2: v0.2 reference deployment
 

@@ -20,22 +20,25 @@ type scenarioValidationResult struct {
 		Status          string   `json:"status"`
 		MinimumRequired int      `json:"minimumRequired"`
 		RequiredRoles   []string `json:"requiredRoles"`
+		ReviewID        string   `json:"reviewId,omitempty"`
 	} `json:"independentReview"`
 	ReleaseEligible bool `json:"releaseEligible"`
 }
 
 type scenarioSuiteValidationResult struct {
-	Valid                      bool                  `json:"valid"`
-	RequiredScenarioCount      int                   `json:"requiredScenarioCount"`
-	ScenarioCount              int                   `json:"scenarioCount"`
-	TechnicallyConformant      int                   `json:"technicallyConformant"`
-	Planned                    int                   `json:"planned"`
-	Infeasible                 int                   `json:"infeasible"`
-	TechnicalCoverageComplete  bool                  `json:"technicalCoverageComplete"`
-	IndependentReviewsComplete int                   `json:"independentReviewsComplete"`
-	IndependentReviewStatus    string                `json:"independentReviewStatus"`
-	ReleaseEligible            bool                  `json:"releaseEligible"`
-	Scenarios                  []scenario.SuiteEntry `json:"scenarios"`
+	Valid                         bool                  `json:"valid"`
+	RequiredScenarioCount         int                   `json:"requiredScenarioCount"`
+	ScenarioCount                 int                   `json:"scenarioCount"`
+	TechnicallyConformant         int                   `json:"technicallyConformant"`
+	Planned                       int                   `json:"planned"`
+	Infeasible                    int                   `json:"infeasible"`
+	TechnicalCoverageComplete     bool                  `json:"technicalCoverageComplete"`
+	IndependentReviewsComplete    int                   `json:"independentReviewsComplete"`
+	IndependentReviewStatus       string                `json:"independentReviewStatus"`
+	AcceptanceGateReviewsComplete int                   `json:"acceptanceGateReviewsComplete"`
+	AcceptanceGateReviewStatus    string                `json:"acceptanceGateReviewStatus"`
+	ReleaseEligible               bool                  `json:"releaseEligible"`
+	Scenarios                     []scenario.SuiteEntry `json:"scenarios"`
 }
 
 func validateScenario(args []string, stdout, stderr io.Writer) int {
@@ -72,14 +75,18 @@ func validateScenario(args []string, stdout, stderr io.Writer) int {
 	response := scenarioValidationResult{
 		Valid: true, ScenarioID: golden.Metadata.ScenarioID, Outcome: result.Outcome,
 		ObservedDiagnosticCodes: result.ObservedDiagnosticCodes,
-		ReleaseEligible:         false,
 	}
 	if result.Outcome == resources.ScenarioOutcomePlanned {
 		response.PlanID = result.Plan.Metadata.PlanID
 	}
-	response.IndependentReview.Status = "required"
 	response.IndependentReview.MinimumRequired = golden.Spec.ReviewRequirements.MinimumIndependentReviewers
 	response.IndependentReview.RequiredRoles = golden.Spec.ReviewRequirements.RequiredRoles
+	response.IndependentReview.Status = "required"
+	if review, reviewReport := scenario.EvaluateScenarioReview(options.inputPath, golden); reviewReport.Valid {
+		response.IndependentReview.Status = "complete"
+		response.IndependentReview.ReviewID = review.Metadata.ReviewID
+		response.ReleaseEligible = true
+	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(response); err != nil {
@@ -117,9 +124,13 @@ func validateScenarioSuite(args []string, stdout, stderr io.Writer) int {
 		Valid: true, RequiredScenarioCount: scenario.RequiredV01ScenarioCount,
 		ScenarioCount: len(result.Entries), TechnicallyConformant: result.TechnicallyConformant,
 		Planned: result.Planned, Infeasible: result.Infeasible,
-		TechnicalCoverageComplete:  len(result.Entries) >= scenario.RequiredV01ScenarioCount && result.TechnicallyConformant == len(result.Entries),
-		IndependentReviewsComplete: 0, IndependentReviewStatus: "required",
-		ReleaseEligible: false, Scenarios: result.Entries,
+		TechnicalCoverageComplete:     len(result.Entries) >= scenario.RequiredV01ScenarioCount && result.TechnicallyConformant == len(result.Entries),
+		IndependentReviewsComplete:    result.Review.IndependentReviewsComplete,
+		IndependentReviewStatus:       result.Review.IndependentReviewStatus,
+		AcceptanceGateReviewsComplete: result.Review.AcceptanceGateReviewsComplete,
+		AcceptanceGateReviewStatus:    result.Review.AcceptanceGateReviewStatus,
+		ReleaseEligible:               result.Review.ReleaseEligible,
+		Scenarios:                     result.Entries,
 	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")

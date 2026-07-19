@@ -1,0 +1,14 @@
+apiVersion: yara.dev/v1alpha1
+kind: ScenarioReview
+metadata:
+    name: unasserted-accelerator
+    reviewId: sha256:91cd7601946d9b52b7ad3e91e3ca2e559d1b782fba7471a30f0f283f5e361242
+spec:
+    subject:
+        scenarioId: sha256:6a84869ea9c27564da06bdb68f243ea005b4ff523f9a3ab5a5e057e44240349d
+    reviewer:
+        identity: Wim Horst
+        role: ai-platform-architect
+        assurance: organization-approved-pseudonym
+    reviewedAt: "2026-07-19"
+    verdict: approved

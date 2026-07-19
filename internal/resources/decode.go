@@ -39,6 +39,14 @@ func LoadGoldenScenario(path string) (GoldenScenario, error) {
 	return loadResource[GoldenScenario](path)
 }
 
+func LoadScenarioReview(path string) (ScenarioReview, error) {
+	return loadResource[ScenarioReview](path)
+}
+
+func LoadAcceptanceGateReview(path string) (AcceptanceGateReview, error) {
+	return loadResource[AcceptanceGateReview](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

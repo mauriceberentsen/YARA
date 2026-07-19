@@ -22,9 +22,10 @@ func TestEvaluateConformsToPinnedScenario(t *testing.T) {
 	}
 }
 
-func TestPendingReviewPacketPinsScenarioAndPlanIdentity(t *testing.T) {
+func TestReviewPacketPinsScenarioAndPlanIdentity(t *testing.T) {
 	_, golden := loadExampleScenario(t)
-	path := filepath.Join("..", "..", "scenarios", "v0.1", "private-chat-coding", "review.md")
+	dir := filepath.Join("..", "..", "scenarios", "v0.1", "private-chat-coding")
+	path := filepath.Join(dir, "review.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read review packet: %v", err)
@@ -34,8 +35,17 @@ func TestPendingReviewPacketPinsScenarioAndPlanIdentity(t *testing.T) {
 			t.Fatalf("review packet does not pin %s", identity)
 		}
 	}
-	if !strings.Contains(string(data), "Status: **pending**") {
-		t.Fatal("review packet must not imply completed approval")
+	for _, expected := range []string{"Status: **approved**", "Verdict: approved", "Reviewer: Wim Horst"} {
+		if !strings.Contains(string(data), expected) {
+			t.Fatalf("review packet does not contain %q", expected)
+		}
+	}
+	review, err := resources.LoadScenarioReview(filepath.Join(dir, "review.yaml"))
+	if err != nil {
+		t.Fatalf("load scenario review: %v", err)
+	}
+	if report := review.ConformsTo(golden); !report.Valid {
+		t.Fatalf("scenario review does not conform: %#v", report.Diagnostics)
 	}
 }
 

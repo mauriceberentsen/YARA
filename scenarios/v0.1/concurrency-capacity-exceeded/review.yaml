@@ -1,0 +1,14 @@
+apiVersion: yara.dev/v1alpha1
+kind: ScenarioReview
+metadata:
+    name: concurrency-capacity-exceeded
+    reviewId: sha256:e5bd11500bcbab6099385d43bc11de82e9b7ea05d05eb2204596b554f4c38da3
+spec:
+    subject:
+        scenarioId: sha256:6582d3a9fe19d6b6edcbe23a277e809963eddda8bcdbf4d313475e6306c85502
+    reviewer:
+        identity: Wim Horst
+        role: ai-platform-architect
+        assurance: organization-approved-pseudonym
+    reviewedAt: "2026-07-19"
+    verdict: approved

@@ -25,8 +25,11 @@ func TestScenarioValidateReportsReviewRequiredAndAudits(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatalf("decode result: %v", err)
 	}
-	if !result.Valid || result.IndependentReview.Status != "required" || result.ReleaseEligible {
-		t.Fatalf("validator overstated review status: %#v", result)
+	if !result.Valid || result.IndependentReview.Status != "complete" || !result.ReleaseEligible {
+		t.Fatalf("validator understated review status: %#v", result)
+	}
+	if result.IndependentReview.ReviewID == "" {
+		t.Fatalf("result omits review identity: %#v", result)
 	}
 	if result.PlanID == "" || !slices.Contains(result.ObservedDiagnosticCodes, "YARA-CAT-055") {
 		t.Fatalf("result omits plan evidence: %#v", result)
@@ -105,7 +108,7 @@ func TestScenarioValidateAuditsConformanceFailure(t *testing.T) {
 	}
 }
 
-func TestScenarioValidateAllReportsTechnicalCoverageWithoutReviewApproval(t *testing.T) {
+func TestScenarioValidateAllReportsTechnicalCoverageWithReviewApproval(t *testing.T) {
 	root := filepath.Join("..", "..", "scenarios", "v0.1")
 	auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
 	var stdout, stderr bytes.Buffer
@@ -119,8 +122,8 @@ func TestScenarioValidateAllReportsTechnicalCoverageWithoutReviewApproval(t *tes
 	if !result.Valid || !result.TechnicalCoverageComplete || result.ScenarioCount != 10 || result.TechnicallyConformant != 10 {
 		t.Fatalf("unexpected technical coverage: %#v", result)
 	}
-	if result.IndependentReviewsComplete != 0 || result.IndependentReviewStatus != "required" || result.ReleaseEligible {
-		t.Fatalf("suite overstated human review: %#v", result)
+	if result.IndependentReviewsComplete != 10 || result.IndependentReviewStatus != "complete" || result.AcceptanceGateReviewsComplete != 5 || result.AcceptanceGateReviewStatus != "complete" || !result.ReleaseEligible {
+		t.Fatalf("suite understated human review: %#v", result)
 	}
 	events, err := audit.LoadJSONL(auditPath)
 	if err != nil {

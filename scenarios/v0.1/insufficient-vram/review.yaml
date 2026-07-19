@@ -1,0 +1,14 @@
+apiVersion: yara.dev/v1alpha1
+kind: ScenarioReview
+metadata:
+    name: insufficient-vram
+    reviewId: sha256:cc410812a6d2c7700d32726000e2db64730520746213241c54147627e18908c7
+spec:
+    subject:
+        scenarioId: sha256:da6b90617256b5dd1fa436209ed0324057608128b52737af6c6bb0fa613d95a1
+    reviewer:
+        identity: Wim Horst
+        role: ai-platform-architect
+        assurance: organization-approved-pseudonym
+    reviewedAt: "2026-07-19"
+    verdict: approved

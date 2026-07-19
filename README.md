@@ -185,7 +185,7 @@ Currently implemented:
 - tamper-evident audit chains for validation plus successful, infeasible and input-rejected planning outcomes, containing available input identities and stable diagnostic codes, including material warnings;
 - optional fail-closed validation, plan-explanation and plan-diff audit receipts, plus mandatory fail-closed persistence for `plan create` and `debug bundle`, with path- and payload-minimized evidence for resources that cannot be decoded.
 
-All bundled manifests remain explicitly `experimental`; their warning caps recommendation confidence and is preserved in generated plans, explanations, diffs, debug bundles, scenarios and audit evidence. Ten technically conformant golden scenarios now exist—seven planned and three infeasible—but all remain independently unreviewed and `releaseEligible: false`. The [v0.1 acceptance ledger](docs/implementation/v0.1-acceptance-status.md) records the remaining human and security review gates.
+All bundled manifests remain explicitly `experimental`; their warning caps recommendation confidence and is preserved in generated plans, explanations, diffs, debug bundles, scenarios and audit evidence. Ten technically conformant golden scenarios exist—seven planned and three infeasible—with approved `ScenarioReview` and `AcceptanceGateReview` resources counted by the CLI. Run `yara scenario validate-all scenarios/v0.1` to confirm `releaseEligible: true`. See the [v0.1 acceptance ledger](docs/implementation/v0.1-acceptance-status.md).
 
 ## Project status
 

@@ -30,10 +30,13 @@ func TestEvaluateAllMeetsTechnicalScenarioCount(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s review: %v", entry.Name, err)
 		}
-		for _, expected := range []string{"Status: **pending**", golden.Metadata.ScenarioID} {
+		for _, expected := range []string{"Status: **approved**", "Verdict: approved", golden.Metadata.ScenarioID} {
 			if !strings.Contains(string(review), expected) {
 				t.Fatalf("%s review does not contain %q", entry.Name, expected)
 			}
+		}
+		if _, err := resources.LoadScenarioReview(filepath.Join(root, entry.Name, "review.yaml")); err != nil {
+			t.Fatalf("load %s review.yaml: %v", entry.Name, err)
 		}
 		if golden.Spec.Expected.PlanID != "" && !strings.Contains(string(review), golden.Spec.Expected.PlanID) {
 			t.Fatalf("%s review does not pin plan ID", entry.Name)

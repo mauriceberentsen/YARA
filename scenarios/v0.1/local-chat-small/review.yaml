@@ -1,0 +1,15 @@
+apiVersion: yara.dev/v1alpha1
+kind: ScenarioReview
+metadata:
+    name: local-chat-small
+    reviewId: sha256:3f30305e0f5a6252f975c676c182f78e90cc14ba5955c93e5032e6feefbfbdae
+spec:
+    subject:
+        scenarioId: sha256:d038516b9510abd61535e793b156ed4b89e2f38fee78239bb985577c89bf27a1
+        planId: sha256:ab7b4c41649c7674765ffd570bec07f1fc7cb5b68ad2206d256ca78fed16915b
+    reviewer:
+        identity: Wim Horst
+        role: ai-platform-architect
+        assurance: organization-approved-pseudonym
+    reviewedAt: "2026-07-19"
+    verdict: approved
