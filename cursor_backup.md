@@ -7,8 +7,8 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-kubernetes-gitops-renderer` (branched from synchronized `main` at `0db6176`).
-- Latest completed merge on `main`: `71639f6` (`Merge bundle supply-chain manifests`), followed by handoff commit `0db6176`; both are pushed to `origin/main`.
+- Active branch: `main`.
+- Latest completed merge: `4775002` (`Merge Kubernetes GitOps reference renderer`), pushed to `origin/main` with the final handoff commit below.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: expand catalog knowledge without invalidating v0.2 evidence, implement audited component/topology integration contracts, then continue the v0.2 reference-deployment renderer.
 
@@ -174,7 +174,7 @@ Implementation and negative/determinism tests are complete. `make check`, `go te
 
 This slice was committed as `12432b6` and merged to `main` as `71639f6` under Maurice's configured author identity.
 
-## Current slice: Kubernetes/GitOps renderer and ADR-0009 decision
+## Completed slice: Kubernetes/GitOps renderer and ADR-0009 decision
 
 Implement a pure `yara.kubernetes-gitops@0.1.0` alternative renderer over the exact same plan/catalog boundary as Docker Compose. It reuses the immutable artifact, SPDX, offline-acquisition, bundle identity and fail-closed audit contracts. The CLI command is `render kubernetes-gitops`; audit actions are `render.kubernetes-gitops.*`.
 
@@ -185,6 +185,8 @@ Target-dependent facts remain explicit preflight/limitations: Kubernetes minor 1
 ADR-0009 is now Accepted and selects Kubernetes/GitOps as the first reference deployment target. Compose remains the single-host renderer and cheap CI fixture. GitOps is a future reviewed handoff; direct Kubernetes apply remains a separate executor requiring target identity, exact observed change set, approval, locks, verification and receipts.
 
 Validation status: deterministic/negative renderer tests, both CLI renderer paths, fail-closed rollback, `make check` and `go test -race ./...` pass. Manual manifest review caught catalog health ports defaulting to zero despite schema validity; the version adapter now binds LiteLLM to 4000 and vLLM to 8000, with explicit no-zero regression assertions. Final local bundle `sha256:d25083e98f1f97f633ddd7993f5b0cf76eda90ff26f60bc25b18aef7753c5a70`, offline manifest `sha256:a7e9272cc2145310307cd641e554d5aa83887c0d1a592c350710e84d75aaf3ec`, audit head `sha256:1a40019a0cfa3fb8e03fe91f9a939fcf197181139e88f6cfbae22cc554dcef42`. Kubeconform v0.8.0 strict validation against Kubernetes 1.34 and 1.36 endpoint schemas reported 12 valid, zero invalid/error/skipped resources at each endpoint. Docker was unavailable, so kubeconform ran as a pinned temporary Go tool; no cluster or container was started. Generated files remain ignored under `.yara/` and are not release evidence.
+
+This slice was committed as `c1e324a` and merged to `main` as `4775002` under Maurice's configured author identity.
 
 ## Audit requirements
 
