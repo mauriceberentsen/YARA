@@ -25,6 +25,26 @@ Read-only contract preflight, isolated runtime smoke, bounded model inference an
 
 The first two GB10 smoke results and their verified audit chains are archived under [`evidence/gb10/`](evidence/gb10/README.md). They remain bounded evidence, not a support declaration.
 
+## Completion status
+
+[`coverage.yaml`](coverage.yaml) is the deterministic completion ledger for this exact snapshot. It currently binds all seven archived contract results and their seven verified audit chains. The report enumerates all 13 capabilities, ten components, two models, four hardware profiles, eight compatibility assertions and the topology template. It remains `complete: false`: no assertion is promotion-eligible, the six Ada tuples have no observed target evidence, the Qwen3/GB10 tuple has only runtime smoke, most suite components have no integration-evidence model, and the topology lacks end-to-end integration evidence. The Qwen Coder/GB10 tuple has passed every currently executable contract mode but still lacks sustained-capacity evidence and independent promotion review.
+
+Regenerate the report after evidence changes, using a new output filename because YARA never overwrites evidence:
+
+```bash
+go run ./cmd/yara catalog coverage create \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --evidence-dir catalog/v0.2/evidence \
+  --name catalog-v0.2-coverage \
+  --output .yara/catalog-v0.2-coverage.yaml \
+  --audit-output .yara/audit/catalog-v0.2-coverage.jsonl
+
+go run ./cmd/yara catalog coverage validate catalog/v0.2/coverage.yaml
+go run ./cmd/yara audit verify catalog/v0.2/coverage.audit.jsonl
+```
+
+A result without its exact adjacent `.audit.jsonl`, a mismatched catalog/tuple, or an audit terminal event that does not bind the result is rejected rather than counted as missing.
+
 ## License and telemetry caveats
 
 - Open WebUI is recorded as source-available, not OSI open source, because its current license includes a branding restriction.

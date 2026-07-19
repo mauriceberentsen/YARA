@@ -110,6 +110,25 @@ func TestContractTargetResolvesBoundedArtifactsAndReturnsCopies(t *testing.T) {
 	}
 }
 
+func TestManifestInventoryReturnsSortedCoverageProjection(t *testing.T) {
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	inventory := snapshot.ManifestInventory()
+	if len(inventory.Components) != 10 || len(inventory.Models) != 2 || len(inventory.Hardware) != 4 || len(inventory.Compatibility) != 8 {
+		t.Fatalf("unexpected inventory: %#v", inventory)
+	}
+	if inventory.Components[0].ID != "core.clickhouse" || inventory.Compatibility[0].ID != "compat.vllm-qwen-coder-7b-awq-gb10" {
+		t.Fatalf("inventory is not sorted: %#v", inventory)
+	}
+	first := inventory.Components[0]
+	first.Status = "supported"
+	if snapshot.ManifestInventory().Components[0].Status == "supported" {
+		t.Fatal("inventory mutation changed compiled catalog")
+	}
+}
+
 func TestCatalogRejectsStaleManifestAtSnapshotTime(t *testing.T) {
 	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.1", "snapshot.yaml"))
 	if err != nil {

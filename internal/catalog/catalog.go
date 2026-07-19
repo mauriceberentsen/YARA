@@ -290,6 +290,84 @@ type PolicyFacts struct {
 	ArtifactVerified bool
 }
 
+// ManifestDescriptor exposes the immutable governance identity of a compiled
+// manifest without leaking the catalog's mutable internal representation.
+type ManifestDescriptor struct {
+	Kind    string `json:"kind" yaml:"kind"`
+	ID      string `json:"id" yaml:"id"`
+	Version string `json:"version" yaml:"version"`
+	Status  string `json:"status" yaml:"status"`
+}
+
+// AssertionDescriptor adds the exact tuple and catalog claim needed to assess
+// external contract-test coverage.
+type AssertionDescriptor struct {
+	ManifestDescriptor `json:",inline" yaml:",inline"`
+	RuntimeRef         string `json:"runtimeRef" yaml:"runtimeRef"`
+	ModelRef           string `json:"modelRef" yaml:"modelRef"`
+	HardwareProfileRef string `json:"hardwareProfileRef" yaml:"hardwareProfileRef"`
+	Compatibility      string `json:"compatibility" yaml:"compatibility"`
+	ArtifactVerified   bool   `json:"artifactVerified" yaml:"artifactVerified"`
+}
+
+type ManifestInventory struct {
+	Capabilities  []ManifestDescriptor  `json:"capabilities" yaml:"capabilities"`
+	Components    []ManifestDescriptor  `json:"components" yaml:"components"`
+	Models        []ManifestDescriptor  `json:"models" yaml:"models"`
+	Hardware      []ManifestDescriptor  `json:"hardware" yaml:"hardware"`
+	Compatibility []AssertionDescriptor `json:"compatibility" yaml:"compatibility"`
+	Topologies    []ManifestDescriptor  `json:"topologies" yaml:"topologies"`
+}
+
+func (s Snapshot) ManifestInventory() ManifestInventory {
+	inventory := ManifestInventory{
+		Capabilities:  make([]ManifestDescriptor, 0, len(s.manifests.Capabilities)),
+		Components:    make([]ManifestDescriptor, 0, len(s.manifests.Components)),
+		Models:        make([]ManifestDescriptor, 0, len(s.manifests.Models)),
+		Hardware:      make([]ManifestDescriptor, 0, len(s.manifests.Hardware)),
+		Compatibility: make([]AssertionDescriptor, 0, len(s.manifests.Compatibility)),
+		Topologies:    make([]ManifestDescriptor, 0, len(s.manifests.Topologies)),
+	}
+	descriptor := func(kind string, metadata ManifestMetadata) ManifestDescriptor {
+		return ManifestDescriptor{Kind: kind, ID: metadata.ID, Version: metadata.Version, Status: metadata.Status}
+	}
+	for _, item := range s.manifests.Capabilities {
+		inventory.Capabilities = append(inventory.Capabilities, descriptor(item.Kind, item.Metadata))
+	}
+	for _, item := range s.manifests.Components {
+		inventory.Components = append(inventory.Components, descriptor(item.Kind, item.Metadata))
+	}
+	for _, item := range s.manifests.Models {
+		inventory.Models = append(inventory.Models, descriptor(item.Kind, item.Metadata))
+	}
+	for _, item := range s.manifests.Hardware {
+		inventory.Hardware = append(inventory.Hardware, descriptor(item.Kind, item.Metadata))
+	}
+	for _, item := range s.manifests.Compatibility {
+		inventory.Compatibility = append(inventory.Compatibility, AssertionDescriptor{
+			ManifestDescriptor: descriptor(item.Kind, item.Metadata),
+			RuntimeRef:         item.Spec.RuntimeRef,
+			ModelRef:           item.Spec.ModelRef,
+			HardwareProfileRef: item.Spec.HardwareProfileRef,
+			Compatibility:      item.Spec.Compatibility,
+			ArtifactVerified:   item.Spec.ArtifactVerified,
+		})
+	}
+	for _, item := range s.manifests.Topologies {
+		inventory.Topologies = append(inventory.Topologies, descriptor(item.Kind, item.Metadata))
+	}
+	sortDescriptors := func(items []ManifestDescriptor) {
+		slices.SortFunc(items, func(left, right ManifestDescriptor) int { return strings.Compare(left.ID, right.ID) })
+	}
+	sortDescriptors(inventory.Capabilities)
+	sortDescriptors(inventory.Components)
+	sortDescriptors(inventory.Models)
+	sortDescriptors(inventory.Hardware)
+	sortDescriptors(inventory.Topologies)
+	slices.SortFunc(inventory.Compatibility, func(left, right AssertionDescriptor) int { return strings.Compare(left.ID, right.ID) })
+	return inventory
+}
+
 // ContractTarget is the immutable catalog projection needed by an external
 // compatibility test runner. It intentionally excludes unrelated manifests.
 type ContractTarget struct {

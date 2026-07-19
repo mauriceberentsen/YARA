@@ -1,0 +1,705 @@
+apiVersion: yara.dev/v1alpha1
+kind: CatalogCoverageReport
+metadata:
+    name: catalog-v0.2-coverage
+    reportId: sha256:2f0e078cc921f9522aabe565150e95adefc7c1b59ec18bb2c7fd2dc60720d559
+spec:
+    catalogDigest: sha256:0f7062b289e322a1c676cc52282cb9b0c816894bb3452535b790290e94ca0241
+    complete: false
+    summary:
+        manifestCount: 38
+        capabilityCount: 13
+        componentCount: 10
+        modelCount: 2
+        hardwareProfileCount: 4
+        assertionCount: 8
+        topologyCount: 1
+        acceptedEvidenceCount: 7
+        verifiedAuditChainCount: 7
+        promotionEligibleAssertions: 0
+    capabilities:
+        - id: chat
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: coding
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: experience.dashboard-grafana/v1
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: experience.web-chat/v1
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: inference.text-generation
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: integration.api.openai-chat/v1
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: observability.llm-tracing/v1
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: observability.metrics-prometheus/v1
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: retrieval.vector-search/v1
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: storage.cache-redis/v1
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: storage.columnar-clickhouse/v1
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: storage.object-s3/v1
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+        - id: storage.relational-postgresql/v1
+          version: 1.0.0
+          status: supported
+          coverage: complete
+          relatedAssertions: []
+          passedModes:
+            - catalog-validation
+          blockers: []
+    components:
+        - id: core.clickhouse
+          version: 25.8.28.1
+          status: known
+          coverage: none
+          relatedAssertions: []
+          passedModes: []
+          blockers:
+            - no-component-integration-evidence-model
+        - id: core.grafana
+          version: 13.1.0
+          status: known
+          coverage: none
+          relatedAssertions: []
+          passedModes: []
+          blockers:
+            - no-component-integration-evidence-model
+        - id: core.langfuse
+          version: 3.221.1
+          status: known
+          coverage: none
+          relatedAssertions: []
+          passedModes: []
+          blockers:
+            - no-component-integration-evidence-model
+        - id: core.litellm
+          version: 1.93.0
+          status: experimental
+          coverage: none
+          relatedAssertions: []
+          passedModes: []
+          blockers:
+            - no-component-integration-evidence-model
+        - id: core.open-webui
+          version: 0.10.2
+          status: known
+          coverage: none
+          relatedAssertions: []
+          passedModes: []
+          blockers:
+            - no-component-integration-evidence-model
+        - id: core.postgresql
+          version: "18.3"
+          status: known
+          coverage: none
+          relatedAssertions: []
+          passedModes: []
+          blockers:
+            - no-component-integration-evidence-model
+        - id: core.prometheus
+          version: 3.13.1
+          status: known
+          coverage: none
+          relatedAssertions: []
+          passedModes: []
+          blockers:
+            - no-component-integration-evidence-model
+        - id: core.qdrant
+          version: 1.18.3
+          status: known
+          coverage: none
+          relatedAssertions: []
+          passedModes: []
+          blockers:
+            - no-component-integration-evidence-model
+        - id: core.redis
+          version: 8.8.0
+          status: known
+          coverage: none
+          relatedAssertions: []
+          passedModes: []
+          blockers:
+            - no-component-integration-evidence-model
+        - id: core.vllm
+          version: 0.25.1
+          status: experimental
+          coverage: partial
+          relatedAssertions:
+            - compat.vllm-qwen-coder-7b-awq-gb10
+            - compat.vllm-qwen-coder-7b-awq-l40s
+            - compat.vllm-qwen-coder-7b-awq-rtx4090
+            - compat.vllm-qwen-coder-7b-awq-rtx6000ada
+            - compat.vllm-qwen3-8b-awq-gb10
+            - compat.vllm-qwen3-8b-awq-l40s
+            - compat.vllm-qwen3-8b-awq-rtx4090
+            - compat.vllm-qwen3-8b-awq-rtx6000ada
+          passedModes:
+            - capacity-boundary
+            - lifecycle-contract
+            - model-inference
+            - policy-contract
+            - runtime-smoke
+          blockers:
+            - related-assertions-not-promotion-eligible
+    models:
+        - id: models.qwen2.5-coder-7b-instruct-awq
+          version: 8e8ed24
+          status: experimental
+          coverage: partial
+          relatedAssertions:
+            - compat.vllm-qwen-coder-7b-awq-gb10
+            - compat.vllm-qwen-coder-7b-awq-l40s
+            - compat.vllm-qwen-coder-7b-awq-rtx4090
+            - compat.vllm-qwen-coder-7b-awq-rtx6000ada
+          passedModes:
+            - capacity-boundary
+            - lifecycle-contract
+            - model-inference
+            - policy-contract
+            - runtime-smoke
+          blockers:
+            - related-assertions-not-promotion-eligible
+        - id: models.qwen3-8b-awq
+          version: 4da05a8
+          status: experimental
+          coverage: partial
+          relatedAssertions:
+            - compat.vllm-qwen3-8b-awq-gb10
+            - compat.vllm-qwen3-8b-awq-l40s
+            - compat.vllm-qwen3-8b-awq-rtx4090
+            - compat.vllm-qwen3-8b-awq-rtx6000ada
+          passedModes:
+            - runtime-smoke
+          blockers:
+            - related-assertions-not-promotion-eligible
+    hardware:
+        - id: hardware.nvidia-gb10
+          version: 1.0.0
+          status: experimental
+          coverage: partial
+          relatedAssertions:
+            - compat.vllm-qwen-coder-7b-awq-gb10
+            - compat.vllm-qwen3-8b-awq-gb10
+          passedModes:
+            - capacity-boundary
+            - lifecycle-contract
+            - model-inference
+            - policy-contract
+            - runtime-smoke
+          blockers:
+            - related-assertions-not-promotion-eligible
+        - id: hardware.nvidia-geforce-rtx-4090
+          version: 1.0.0
+          status: experimental
+          coverage: none
+          relatedAssertions:
+            - compat.vllm-qwen-coder-7b-awq-rtx4090
+            - compat.vllm-qwen3-8b-awq-rtx4090
+          passedModes: []
+          blockers:
+            - no-accepted-contract-evidence
+        - id: hardware.nvidia-l40s
+          version: 1.0.0
+          status: experimental
+          coverage: none
+          relatedAssertions:
+            - compat.vllm-qwen-coder-7b-awq-l40s
+            - compat.vllm-qwen3-8b-awq-l40s
+          passedModes: []
+          blockers:
+            - no-accepted-contract-evidence
+        - id: hardware.nvidia-rtx-6000-ada
+          version: 1.0.0
+          status: experimental
+          coverage: none
+          relatedAssertions:
+            - compat.vllm-qwen-coder-7b-awq-rtx6000ada
+            - compat.vllm-qwen3-8b-awq-rtx6000ada
+          passedModes: []
+          blockers:
+            - no-accepted-contract-evidence
+    topologies:
+        - id: core.local-chat-coding-vllm
+          version: 1.0.0
+          status: experimental
+          coverage: none
+          relatedAssertions: []
+          passedModes: []
+          blockers:
+            - no-topology-integration-evidence
+    assertions:
+        - id: compat.vllm-qwen-coder-7b-awq-gb10
+          status: known
+          runtimeRef: core.vllm
+          modelRef: models.qwen2.5-coder-7b-instruct-awq
+          hardwareProfileRef: hardware.nvidia-gb10
+          promotionEligible: false
+          gates:
+            - id: artifact-identity
+              status: passed
+              observedEvidence: []
+            - id: capacity-boundary
+              status: passed
+              selectedResultId: sha256:56e08293c73b7b8cf2e6db4a2c824b38cb2bb8ff79fe5cb337cbe62dfb8f2441
+              selectedAuditHead: sha256:a7b9f4746bbeca827fe157ac4ea9e55cd235c7acbdf86f4229af85fec1452a56
+              observedEvidence:
+                - resultId: sha256:56e08293c73b7b8cf2e6db4a2c824b38cb2bb8ff79fe5cb337cbe62dfb8f2441
+                  outcome: passed
+                  auditHead: sha256:a7b9f4746bbeca827fe157ac4ea9e55cd235c7acbdf86f4229af85fec1452a56
+            - id: independent-promotion-review
+              status: missing
+              observedEvidence: []
+              blocker: promotion-review-not-recorded
+            - id: lifecycle-contract
+              status: passed
+              selectedResultId: sha256:d2ea66d99b1552f3b12bfd7d4c10c6ac3fda305ce4b60fb784df8c3cfef60e85
+              selectedAuditHead: sha256:70eb8a0545bee5c8744b0903b2639d7b3586d9a133ac3acf190fbb68fc162354
+              observedEvidence:
+                - resultId: sha256:d2ea66d99b1552f3b12bfd7d4c10c6ac3fda305ce4b60fb784df8c3cfef60e85
+                  outcome: passed
+                  auditHead: sha256:70eb8a0545bee5c8744b0903b2639d7b3586d9a133ac3acf190fbb68fc162354
+            - id: model-inference
+              status: passed
+              selectedResultId: sha256:5e631233d3936e40c533eb833b11cc7ae98529edc947c1dc30860d1e2ef7bf9b
+              selectedAuditHead: sha256:ec63273bf89d8a0b5dbaa77cc6b8deac64f94641223f075c50984ee10aadaff3
+              observedEvidence:
+                - resultId: sha256:c7fe98ed7574cce9ad7044a159703bb9df634f703ce652818cc4ebc7f4c12c99
+                  outcome: failed
+                  auditHead: sha256:7a7821586cb13f1c9f612decf71d7afbb5a8559f3b8fc597211d5c86720ac454
+                - resultId: sha256:5e631233d3936e40c533eb833b11cc7ae98529edc947c1dc30860d1e2ef7bf9b
+                  outcome: passed
+                  auditHead: sha256:ec63273bf89d8a0b5dbaa77cc6b8deac64f94641223f075c50984ee10aadaff3
+            - id: policy-contract
+              status: passed
+              selectedResultId: sha256:725b54027506733ff9514e1b2805165389940714b500afa4cd8e44188916ac0d
+              selectedAuditHead: sha256:23870ef3177e1e4df95caeb41270e7f011b0cacd201f6061d020bbb366400714
+              observedEvidence:
+                - resultId: sha256:725b54027506733ff9514e1b2805165389940714b500afa4cd8e44188916ac0d
+                  outcome: passed
+                  auditHead: sha256:23870ef3177e1e4df95caeb41270e7f011b0cacd201f6061d020bbb366400714
+            - id: runtime-smoke
+              status: passed
+              selectedResultId: sha256:19440545851599fe81ffe36d77cdcfa00dd945191ba568b1bf04721aaba0400b
+              selectedAuditHead: sha256:2f5f77ec956fe5e618629e940b3be48ad318a0efe76401061ba6750e7fc3c8a9
+              observedEvidence:
+                - resultId: sha256:19440545851599fe81ffe36d77cdcfa00dd945191ba568b1bf04721aaba0400b
+                  outcome: passed
+                  auditHead: sha256:2f5f77ec956fe5e618629e940b3be48ad318a0efe76401061ba6750e7fc3c8a9
+            - id: sustained-capacity
+              status: not-implemented
+              observedEvidence: []
+              blocker: sustained-capacity-contract-not-implemented
+          blockers:
+            - independent-promotion-review:promotion-review-not-recorded
+            - sustained-capacity:sustained-capacity-contract-not-implemented
+        - id: compat.vllm-qwen-coder-7b-awq-l40s
+          status: experimental
+          runtimeRef: core.vllm
+          modelRef: models.qwen2.5-coder-7b-instruct-awq
+          hardwareProfileRef: hardware.nvidia-l40s
+          promotionEligible: false
+          gates:
+            - id: artifact-identity
+              status: passed
+              observedEvidence: []
+            - id: capacity-boundary
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-capacity-boundary-evidence
+            - id: independent-promotion-review
+              status: missing
+              observedEvidence: []
+              blocker: promotion-review-not-recorded
+            - id: lifecycle-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-lifecycle-contract-evidence
+            - id: model-inference
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-model-inference-evidence
+            - id: policy-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-policy-contract-evidence
+            - id: runtime-smoke
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-runtime-smoke-evidence
+            - id: sustained-capacity
+              status: not-implemented
+              observedEvidence: []
+              blocker: sustained-capacity-contract-not-implemented
+          blockers:
+            - capacity-boundary:no-accepted-capacity-boundary-evidence
+            - external-target:no-observed-target-evidence
+            - independent-promotion-review:promotion-review-not-recorded
+            - lifecycle-contract:no-accepted-lifecycle-contract-evidence
+            - model-inference:no-accepted-model-inference-evidence
+            - policy-contract:no-accepted-policy-contract-evidence
+            - runtime-smoke:no-accepted-runtime-smoke-evidence
+            - sustained-capacity:sustained-capacity-contract-not-implemented
+        - id: compat.vllm-qwen-coder-7b-awq-rtx4090
+          status: experimental
+          runtimeRef: core.vllm
+          modelRef: models.qwen2.5-coder-7b-instruct-awq
+          hardwareProfileRef: hardware.nvidia-geforce-rtx-4090
+          promotionEligible: false
+          gates:
+            - id: artifact-identity
+              status: passed
+              observedEvidence: []
+            - id: capacity-boundary
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-capacity-boundary-evidence
+            - id: independent-promotion-review
+              status: missing
+              observedEvidence: []
+              blocker: promotion-review-not-recorded
+            - id: lifecycle-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-lifecycle-contract-evidence
+            - id: model-inference
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-model-inference-evidence
+            - id: policy-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-policy-contract-evidence
+            - id: runtime-smoke
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-runtime-smoke-evidence
+            - id: sustained-capacity
+              status: not-implemented
+              observedEvidence: []
+              blocker: sustained-capacity-contract-not-implemented
+          blockers:
+            - capacity-boundary:no-accepted-capacity-boundary-evidence
+            - external-target:no-observed-target-evidence
+            - independent-promotion-review:promotion-review-not-recorded
+            - lifecycle-contract:no-accepted-lifecycle-contract-evidence
+            - model-inference:no-accepted-model-inference-evidence
+            - policy-contract:no-accepted-policy-contract-evidence
+            - runtime-smoke:no-accepted-runtime-smoke-evidence
+            - sustained-capacity:sustained-capacity-contract-not-implemented
+        - id: compat.vllm-qwen-coder-7b-awq-rtx6000ada
+          status: experimental
+          runtimeRef: core.vllm
+          modelRef: models.qwen2.5-coder-7b-instruct-awq
+          hardwareProfileRef: hardware.nvidia-rtx-6000-ada
+          promotionEligible: false
+          gates:
+            - id: artifact-identity
+              status: passed
+              observedEvidence: []
+            - id: capacity-boundary
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-capacity-boundary-evidence
+            - id: independent-promotion-review
+              status: missing
+              observedEvidence: []
+              blocker: promotion-review-not-recorded
+            - id: lifecycle-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-lifecycle-contract-evidence
+            - id: model-inference
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-model-inference-evidence
+            - id: policy-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-policy-contract-evidence
+            - id: runtime-smoke
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-runtime-smoke-evidence
+            - id: sustained-capacity
+              status: not-implemented
+              observedEvidence: []
+              blocker: sustained-capacity-contract-not-implemented
+          blockers:
+            - capacity-boundary:no-accepted-capacity-boundary-evidence
+            - external-target:no-observed-target-evidence
+            - independent-promotion-review:promotion-review-not-recorded
+            - lifecycle-contract:no-accepted-lifecycle-contract-evidence
+            - model-inference:no-accepted-model-inference-evidence
+            - policy-contract:no-accepted-policy-contract-evidence
+            - runtime-smoke:no-accepted-runtime-smoke-evidence
+            - sustained-capacity:sustained-capacity-contract-not-implemented
+        - id: compat.vllm-qwen3-8b-awq-gb10
+          status: known
+          runtimeRef: core.vllm
+          modelRef: models.qwen3-8b-awq
+          hardwareProfileRef: hardware.nvidia-gb10
+          promotionEligible: false
+          gates:
+            - id: artifact-identity
+              status: passed
+              observedEvidence: []
+            - id: capacity-boundary
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-capacity-boundary-evidence
+            - id: independent-promotion-review
+              status: missing
+              observedEvidence: []
+              blocker: promotion-review-not-recorded
+            - id: lifecycle-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-lifecycle-contract-evidence
+            - id: model-inference
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-model-inference-evidence
+            - id: policy-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-policy-contract-evidence
+            - id: runtime-smoke
+              status: passed
+              selectedResultId: sha256:705dfd767bde71df7ee865eafdfe0f223166dfc30acaf9738a5b8c6513e2b4cc
+              selectedAuditHead: sha256:ab8eb4da1d1a76b05fc3fb46c8133b72c61d5234ff4f307bb80d2c3072baf096
+              observedEvidence:
+                - resultId: sha256:705dfd767bde71df7ee865eafdfe0f223166dfc30acaf9738a5b8c6513e2b4cc
+                  outcome: passed
+                  auditHead: sha256:ab8eb4da1d1a76b05fc3fb46c8133b72c61d5234ff4f307bb80d2c3072baf096
+            - id: sustained-capacity
+              status: not-implemented
+              observedEvidence: []
+              blocker: sustained-capacity-contract-not-implemented
+          blockers:
+            - capacity-boundary:no-accepted-capacity-boundary-evidence
+            - independent-promotion-review:promotion-review-not-recorded
+            - lifecycle-contract:no-accepted-lifecycle-contract-evidence
+            - model-inference:no-accepted-model-inference-evidence
+            - policy-contract:no-accepted-policy-contract-evidence
+            - sustained-capacity:sustained-capacity-contract-not-implemented
+        - id: compat.vllm-qwen3-8b-awq-l40s
+          status: experimental
+          runtimeRef: core.vllm
+          modelRef: models.qwen3-8b-awq
+          hardwareProfileRef: hardware.nvidia-l40s
+          promotionEligible: false
+          gates:
+            - id: artifact-identity
+              status: passed
+              observedEvidence: []
+            - id: capacity-boundary
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-capacity-boundary-evidence
+            - id: independent-promotion-review
+              status: missing
+              observedEvidence: []
+              blocker: promotion-review-not-recorded
+            - id: lifecycle-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-lifecycle-contract-evidence
+            - id: model-inference
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-model-inference-evidence
+            - id: policy-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-policy-contract-evidence
+            - id: runtime-smoke
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-runtime-smoke-evidence
+            - id: sustained-capacity
+              status: not-implemented
+              observedEvidence: []
+              blocker: sustained-capacity-contract-not-implemented
+          blockers:
+            - capacity-boundary:no-accepted-capacity-boundary-evidence
+            - external-target:no-observed-target-evidence
+            - independent-promotion-review:promotion-review-not-recorded
+            - lifecycle-contract:no-accepted-lifecycle-contract-evidence
+            - model-inference:no-accepted-model-inference-evidence
+            - policy-contract:no-accepted-policy-contract-evidence
+            - runtime-smoke:no-accepted-runtime-smoke-evidence
+            - sustained-capacity:sustained-capacity-contract-not-implemented
+        - id: compat.vllm-qwen3-8b-awq-rtx4090
+          status: experimental
+          runtimeRef: core.vllm
+          modelRef: models.qwen3-8b-awq
+          hardwareProfileRef: hardware.nvidia-geforce-rtx-4090
+          promotionEligible: false
+          gates:
+            - id: artifact-identity
+              status: passed
+              observedEvidence: []
+            - id: capacity-boundary
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-capacity-boundary-evidence
+            - id: independent-promotion-review
+              status: missing
+              observedEvidence: []
+              blocker: promotion-review-not-recorded
+            - id: lifecycle-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-lifecycle-contract-evidence
+            - id: model-inference
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-model-inference-evidence
+            - id: policy-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-policy-contract-evidence
+            - id: runtime-smoke
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-runtime-smoke-evidence
+            - id: sustained-capacity
+              status: not-implemented
+              observedEvidence: []
+              blocker: sustained-capacity-contract-not-implemented
+          blockers:
+            - capacity-boundary:no-accepted-capacity-boundary-evidence
+            - external-target:no-observed-target-evidence
+            - independent-promotion-review:promotion-review-not-recorded
+            - lifecycle-contract:no-accepted-lifecycle-contract-evidence
+            - model-inference:no-accepted-model-inference-evidence
+            - policy-contract:no-accepted-policy-contract-evidence
+            - runtime-smoke:no-accepted-runtime-smoke-evidence
+            - sustained-capacity:sustained-capacity-contract-not-implemented
+        - id: compat.vllm-qwen3-8b-awq-rtx6000ada
+          status: experimental
+          runtimeRef: core.vllm
+          modelRef: models.qwen3-8b-awq
+          hardwareProfileRef: hardware.nvidia-rtx-6000-ada
+          promotionEligible: false
+          gates:
+            - id: artifact-identity
+              status: passed
+              observedEvidence: []
+            - id: capacity-boundary
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-capacity-boundary-evidence
+            - id: independent-promotion-review
+              status: missing
+              observedEvidence: []
+              blocker: promotion-review-not-recorded
+            - id: lifecycle-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-lifecycle-contract-evidence
+            - id: model-inference
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-model-inference-evidence
+            - id: policy-contract
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-policy-contract-evidence
+            - id: runtime-smoke
+              status: missing
+              observedEvidence: []
+              blocker: no-accepted-runtime-smoke-evidence
+            - id: sustained-capacity
+              status: not-implemented
+              observedEvidence: []
+              blocker: sustained-capacity-contract-not-implemented
+          blockers:
+            - capacity-boundary:no-accepted-capacity-boundary-evidence
+            - external-target:no-observed-target-evidence
+            - independent-promotion-review:promotion-review-not-recorded
+            - lifecycle-contract:no-accepted-lifecycle-contract-evidence
+            - model-inference:no-accepted-model-inference-evidence
+            - policy-contract:no-accepted-policy-contract-evidence
+            - runtime-smoke:no-accepted-runtime-smoke-evidence
+            - sustained-capacity:sustained-capacity-contract-not-implemented
+    limitations:
+        - A missing gate means no accepted evidence was found in the supplied directory; it does not prove incompatibility.
+        - Audit verification proves local chain integrity, not target or actor attestation.
+        - Component, model and hardware coverage is derived from exact compatibility assertions and does not replace dedicated integration review.
+        - Sustained-capacity and independent-promotion gates are represented but are not yet executable YARA contract modes.

@@ -144,6 +144,12 @@ go run ./cmd/yara request validate docs/examples/platform-request.yaml \
 go run ./cmd/yara inventory validate docs/examples/inventory.yaml
 go run ./cmd/yara catalog validate catalog/v0.2/snapshot.yaml \
   --audit-output catalog-validation.audit.jsonl
+go run ./cmd/yara catalog coverage create \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --evidence-dir catalog/v0.2/evidence \
+  --name catalog-v0.2-coverage \
+  --output .yara/catalog-v0.2-coverage.yaml \
+  --audit-output .yara/audit/catalog-v0.2-coverage.jsonl
 go run ./cmd/yara plan create \
   --request docs/examples/v0.2-platform-request.yaml \
   --inventory docs/examples/v0.2-inventory.yaml \
@@ -215,6 +221,7 @@ Currently implemented:
 - append-only audit-event chaining, tamper verification and `audit verify` CLI support;
 - a frozen placeholder catalog for v0.1 acceptance plus a curated v0.2 snapshot with ten real components, two immutable model snapshots, three NVIDIA Ada profiles, one GB10 coherent-unified-memory profile, six selectable serving candidates and two knowledge-only GB10 hypotheses;
 - open-world compatibility governance where explicit negative evidence overrides positive claims and conflicts are quarantined;
+- a deterministic, content-addressed catalog coverage report that accepts only exact-catalog contract results with verified adjacent audit chains and exposes every missing promotion gate;
 - a catalog-authored abstract topology template resolved into gateway and inference component instances;
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;
 - a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;

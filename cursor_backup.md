@@ -7,10 +7,10 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-gb10-lifecycle-contract`.
-- Branch base: `main` at `5166c01` (`Merge audited GB10 serving policy contract`).
+- Active branch: `feature/v0-2-catalog-coverage`.
+- Branch base: `main` at `ae92b33` (`Merge audited GB10 lifecycle contract`).
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: implement and execute a bounded GB10 lifecycle-contract gate, then make the remaining catalog-completion gaps machine-readable without declaring untested tuples supported.
+- Working goal: make catalog v0.2 completion and every remaining evidence blocker machine-readable and audit-bound without declaring untested tuples supported.
 
 ## Current product boundary
 
@@ -61,7 +61,7 @@ Implementation status: `contract policy`, the `policy-contract` result mode, Doc
 
 The policy slice was committed as `cdfcfd1`, merged to `main` as `5166c01`, pushed, and passed a post-merge `make check`. Local `main` matched `origin/main` before this lifecycle branch was created.
 
-## Active slice: lifecycle contract
+## Completed slice: lifecycle contract
 
 Implement a separate audited lifecycle contract for the exact Qwen Coder/vLLM/GB10 tuple. Keep the claim deliberately narrow:
 
@@ -75,6 +75,16 @@ Implement a separate audited lifecycle contract for the exact Qwen Coder/vLLM/GB
 This gate proves bounded same-version restart recovery only. It must not imply stateful backup/restore, version upgrades, rollback, high availability, sustained availability, crash-loop recovery or disaster recovery. Prefer a fresh `lifecycle-contract` result mode and `contract.lifecycle.*` audit actions. Reuse the hardened serving profile and exact acquisition checks rather than creating a second independent shell implementation.
 
 Implementation status: `contract lifecycle`, the `lifecycle-contract` result mode, pre/post health and bounded inference, restart, container/configuration identity comparisons, start-timestamp advancement, owned cleanup, stable diagnostics and unit/CLI/fail-closed tests are implemented. The GB10 run passed with result `sha256:d2ea66d99b1552f3b12bfd7d4c10c6ac3fda305ce4b60fb784df8c3cfef60e85`, audit head `sha256:70eb8a0545bee5c8744b0903b2639d7b3586d9a133ac3acf190fbb68fc162354` and runner digest `sha256:f2ea12e312e58c7cf51d4119c4e03ddb9c097af23475210553176bcc752af980`. The archived result and adjacent audit chain are present in the working tree. Remote cleanup is complete and the pre-existing vLLM containers remain stopped.
+
+The lifecycle slice was committed as `339ce98`, merged to `main` as `ae92b33`, pushed, and passed a post-merge `make check`. Local `main` matched `origin/main` before this coverage branch was created.
+
+## Active slice: catalog coverage
+
+Build a deterministic machine-readable completion report for catalog v0.2. It must validate the snapshot, discover only valid `ContractTestResult` files bound to the exact catalog digest, verify every adjacent audit chain and bind accepted evidence by assertion and mode. The report must distinguish structural catalog validity from operational evidence completeness.
+
+At minimum the report must enumerate all components, models, hardware profiles and compatibility assertions; expose passed, failed, blocked and missing gates; state why no tuple is yet promotion-eligible; and record unavailable Ada targets and missing component integrations as blockers rather than inferred passes. Generation requires fail-closed audit persistence and a content-addressed report identity.
+
+Implementation status: `catalog coverage create` and `catalog coverage validate`, the strict `CatalogCoverageReport` resource/schema, manifest inventory projection, exact evidence/audit binding, report identity, fail-closed generation audit and rollback tests are implemented. The archived report is `catalog/v0.2/coverage.yaml`, report ID `sha256:2f0e078cc921f9522aabe565150e95adefc7c1b59ec18bb2c7fd2dc60720d559`; its audit head is `sha256:5f072b8a7a85470d99af01ad354d197d3b510883be369527a523aeea96d40eb6`. It explicitly enumerates all 38 manifests (13 capabilities, 10 components, 2 models, 4 hardware profiles, 8 assertions and 1 topology), accepts 7 results with 7 individually bound and verified evidence audit chains, and records 0 promotion-eligible assertions.
 
 Before executing the remote contract, review host capacity and confirm unrelated GPU workloads may be stopped. Temporary resources must use unique `yara-contract-*` names and cleanup must remove only owned resources. Never store the raw SSH target in results, audit files or this handoff.
 
@@ -127,8 +137,8 @@ Latest validation status: `make check`, `go test -race ./...`, every archived GB
 
 ## Immediate next actions
 
-1. Rebuild the exact lifecycle runner and validate all tests, archived results, audit chains and remote cleanup.
-2. Commit, push and merge the lifecycle slice.
-3. Start a catalog-coverage branch and add a machine-readable completion ledger.
-4. Record unavailable Ada hardware and unexercised component integrations as explicit evidence blockers, never as inferred passes.
-5. Use the ledger to choose the next executable GB10 evidence slice without weakening promotion gates.
+1. Validate the archived coverage report and its audit with the final binary, plus all earlier evidence and audit chains.
+2. Run race tests and inspect the coverage diff for accidental claims or target leakage.
+3. Commit, push and merge the catalog-coverage slice.
+4. Start a sustained-capacity branch for the Qwen Coder/GB10 tuple; define explicit concurrency/duration/latency bounds before executing it.
+5. Keep unavailable Ada hardware and unexercised component integrations as explicit blockers, never as inferred passes.
