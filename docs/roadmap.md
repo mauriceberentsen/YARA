@@ -95,7 +95,8 @@ Deliverables:
 - versioned renderer interface with Docker Compose and Kubernetes/GitOps reference renderers (**implemented**);
 - typed adapters for the narrow supported stack (**implemented for LiteLLM 1.93.0 to vLLM 0.25.1**);
 - artifact bundle with deterministic SPDX/license inventory and offline acquisition manifest (**implemented for both renderers**);
-- preflight, explicit approval and least-privilege executor;
+- content-addressed read-only Kubernetes target preflight (**implemented; deliberately cannot approve deployment**);
+- exact observed change set, explicit approval and least-privilege executor;
 - health verification, receipts and safe owned-resource removal;
 - blocked-egress end-to-end reference test.
 

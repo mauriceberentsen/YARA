@@ -31,6 +31,7 @@ YARA/
     planner/
     renderer/              # pure renderer prototypes before adapter extraction
     scenario/
+    targetpreflight/       # bounded read-only target observation and evaluation
     policy/
     validation/
   adapters/                # versioned discovery/renderer/executor adapters

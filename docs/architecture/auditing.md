@@ -29,6 +29,7 @@ The local CLI currently emits two-event started/terminal chains for:
 - golden-scenario suite validation when `--audit-output` is supplied, binding every scenario ID and every generated plan ID without claiming or counting human approval;
 - read-only SSH contract preflight, isolated runtime smoke, bounded model inference, advertised-context capacity, serving-policy and same-version lifecycle testing with mandatory fail-closed evidence, binding the catalog, exact runner executable and content-addressed test-result digests while pseudonymizing the remote reference;
 - catalog coverage generation and validation, binding the exact snapshot, accepted contract-result/audit set and content-addressed coverage report while keeping missing evidence explicit;
+- read-only Kubernetes target preflight with mandatory fail-closed evidence binding the exact deployment bundle, pseudonymous target and content-addressed `TargetPreflightResult`;
 - planning started/completed/failed/infeasible, with audit output mandatory;
 - request, inventory and catalog load/decode rejection during planning.
 
@@ -43,6 +44,8 @@ Catalog promotion is not yet a CLI operation. Until it is, the Git commit and re
 Component and topology observations use a distinct `IntegrationTestResult`. `integration validate` records only `integration.validate.*` and cannot satisfy an execution gate. Catalog coverage accepts only a matching two-event `integration.component-smoke.*` or `integration.topology-end-to-end.*` chain bound to the exact catalog, result and pseudonymized target identities. This prevents a valid hand-authored result from being presented as an executed test.
 
 Offline rendering records `render.docker-compose.*` or `render.kubernetes-gitops.*` started and terminal events. A successful terminal event binds the exact `PlatformPlan`, `CatalogSnapshot` and `DeploymentBundle` identities. The bundle identity includes the content digests of its SPDX SBOM and content-addressed offline-acquisition manifest, so the existing terminal event also binds both supply-chain documents without duplicating their potentially large inventories in audit events. The bundle is rolled back if the terminal audit cannot be persisted. This proves which inputs produced which review artifact; it does not prove that artifacts were acquired, scanned, transferred, imported, materialized, committed to Git or applied.
+
+Kubernetes preflight records `target.kubernetes-preflight.*`. A completed observation binds `DeploymentBundle`, `DeploymentTarget` and `TargetPreflightResult` digests and carries the non-passing check codes. The target field contains only the pseudonymous target digest. Kubeconfig paths, context names, API endpoints, namespace UIDs, node names and pod names are excluded. A failed observation uses `kubernetes:unresolved`; a blocked result is durable negative evidence, not approval. Result generation is rolled back when its mandatory terminal audit cannot be persisted.
 
 The current local actor comes from the operating-system identity and is labelled `self-asserted-local` (or `unknown-local` when unavailable). A future authenticated service or explicit actor input may provide stronger provenance, but the current value must not be presented as cryptographically verified identity.
 
@@ -115,6 +118,8 @@ scenario.validate.*
 scenario.validate-all.*
 approval.record.*
 artifact.render.*
+target.kubernetes-preflight.*
+target.preflight.validate.*
 deployment.apply.*
 lifecycle.upgrade.*
 lifecycle.backup.*
@@ -135,6 +140,7 @@ A future service uses durable append semantics, monotonically ordered sequences 
 - The current local `plan create` command requires an audit destination and fails closed if its start/terminal chain cannot be written.
 - The current local `debug bundle` command also requires an audit destination and removes its output if terminal evidence cannot be persisted.
 - Every current contract execution command requires an audit destination and removes its result if terminal evidence cannot be persisted. Blocked and failed evaluations remain persisted as negative evidence when a trustworthy environment observation exists.
+- Kubernetes target preflight requires an audit destination and removes its result if terminal evidence cannot be persisted. A trustworthy blocked/failed observation remains evidence but grants no mutation authority.
 - Read-only validation, plan explanation and plan comparison do not require persistent audit by default; once `--audit-output` is supplied, failure to persist it fails the command.
 - A future explicit no-persistence planning mode, if accepted by policy, must report `auditPersistence: unavailable` prominently rather than silently omitting evidence.
 - Production mutation MUST NOT start if the required audit sink is unavailable.
