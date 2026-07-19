@@ -107,6 +107,8 @@ Local approval is intentionally review-only: the operating-system identity is `s
 
 `DeploymentReceipt` is defined and validateable before privileged implementation. No current command can create a receipt. This prevents tests or hand-authored files from being mistaken for YARA execution evidence merely because they satisfy a schema.
 
+Execution authorization is now represented separately as a maximum-15-minute Ed25519-signed capability. It binds the exact plan, bundle, preflight, change set, review record, target and permitted non-delete operation set. Verification requires an explicitly trusted public key; schema validity or a self-declared assurance string is insufficient. The executor must re-observe target state after verification because signature validity does not make an earlier change set current.
+
 ## Kubernetes and GitOps
 
 The first Kubernetes adapter emits a deliberately narrow set of native resources for the exact LiteLLM/vLLM reference topology. Broader adapters should prefer established upstream charts/operators and generate values or custom resources rather than fork large templates. A GitOps mode writes a reviewed bundle to a repository and records the commit; YARA itself need not hold cluster-admin credentials. Direct apply remains a distinct executor mode.

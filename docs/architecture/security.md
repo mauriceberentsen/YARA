@@ -71,6 +71,8 @@ Controls: plan/bundle/change-set-bound approvals, target binding, short-lived sc
 
 The current implementation makes the assurance boundary executable: v1alpha1 approval has `review-only` effect even when its decision is `approved`. An assurance string is not authentication evidence, so execution authorization is rejected until a future schema includes a verifiable signed/authenticated envelope. No current command can issue authorization or create a deployment receipt.
 
+The separate `ExecutionAuthorization` now supplies that cryptographic envelope for the local v0.2 workflow: Ed25519 signature, explicit trusted-public-key verification, exact deployment bindings, a maximum 15-minute lifetime, non-delete constraints and fail-closed audit evidence. It proves possession of a trusted signing key, not human identity or separation of duties; key custody and trust-policy mapping remain organizational responsibilities.
+
 ### Unsafe generated configuration
 
 Threats include dropped security intent, open network exposure and excessive privilege.

@@ -76,6 +76,45 @@ go run ./cmd/yara approval record \
 
 The v1alpha1 contract permits only `review-only`; manually writing `assurance: signed` cannot create authority. A future execution-authorized schema needs a real authenticated/signature envelope, trust policy and verifier. Review records have a validity interval no longer than 24 hours.
 
+## Signed execution authorization
+
+Execution authority is a separate short-lived `ExecutionAuthorization`, not an upgraded approval field. Generate an Ed25519 key under organization-controlled policy:
+
+```bash
+openssl genpkey -algorithm ED25519 -out execution-private.pem
+chmod 600 execution-private.pem
+openssl pkey -in execution-private.pem -pubout -out execution-public.pem
+```
+
+Issue a capability over the exact reviewed inputs:
+
+```bash
+go run ./cmd/yara authorization issue \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --preflight reference-stack.preflight.yaml \
+  --change-set reference-stack.change-set.yaml \
+  --approval reference-stack.approval.yaml \
+  --private-key execution-private.pem \
+  --key-id operations-key-1 \
+  --name reference-stack-execution \
+  --valid-for 10m \
+  --output reference-stack.authorization.yaml \
+  --audit-output reference-stack.authorization.audit.jsonl
+```
+
+The issuer requires a preflight no older than 15 minutes, a change set no older than 5 minutes, a currently valid approved review record, a conflict-free operation set and private-key permissions no broader than `0600`. Authorization expires after at most 15 minutes and always forbids deletion. Its signed constraints contain the exact allowed actions, maximum operation count and explicitly accepted preflight blockers that the executor must verify or retain as limitations.
+
+Verify against an explicitly trusted public key:
+
+```bash
+go run ./cmd/yara authorization verify \
+  --authorization reference-stack.authorization.yaml \
+  --public-key execution-public.pem \
+  --audit-output reference-stack.authorization-verification.audit.jsonl
+```
+
+Structural schema validation alone never establishes authority. Consumers must verify the Ed25519 signature, public-key digest, trust-policy key selection and current validity. Private-key paths and bytes are excluded from result and audit evidence.
+
 ## Deployment receipt
 
 `DeploymentReceipt` is public and independently validateable through:

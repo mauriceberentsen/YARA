@@ -17,6 +17,7 @@
 | Desired state | What the user wants to achieve, independent of products or deployment syntax. |
 | Discovery | Collection of facts about an environment. Discovery reports evidence; it does not make recommendations. |
 | Evidence | A sourced fact with provenance, collection time, scope and confidence. |
+| ExecutionAuthorization | Short-lived Ed25519-signed capability binding one exact reviewed target operation set and non-delete constraints; it requires explicit trusted-key verification. |
 | Executor | A backend that applies an approved plan or rendered artifacts to a target environment. |
 | Fact | A normalized value derived from user input, discovery or catalog data. |
 | GoldenScenario | Content-addressed executable case that pins planner inputs, expected and forbidden outcomes, diagnostics and independent-review requirements without representing review approval. |
