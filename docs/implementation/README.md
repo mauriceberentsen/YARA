@@ -10,7 +10,7 @@ The bootstrap now includes strict resource decoding, public schemas, stable diag
 
 After v0.1 acceptance, `catalog/v0.2/` introduces the first curated real stack. It contains ten versioned suite components, two immutable Qwen AWQ model snapshots, three NVIDIA Ada hardware profiles, one GB10 coherent-unified-memory profile, six compatibility-bounded selectable serving candidates and two knowledge-only GB10 test hypotheses. LiteLLM and vLLM are selectable only as experimental components; Open WebUI, Qdrant, PostgreSQL, Redis, ClickHouse, Prometheus, Grafana and Langfuse remain knowledge-only until their YARA integration contracts are tested. The planner rejects requests outside a candidate's asserted context window or minimum driver branch. [Contract testing](contract-testing.md) includes read-only SSH preflight, isolated runtime smoke, bounded model inference, exact advertised-context capacity, repeated-request capacity, serving-container policy and same-version lifecycle recovery. [Integration testing](integration-testing.md) defines separately audited component-smoke and topology-end-to-end evidence bound to exact manifest versions. The audited `CatalogCoverageReport` compiles exact-catalog evidence into explicit passed, failed, blocked, missing and not-implemented gates. Both GB10 tuples passed every implemented technical compatibility gate, but remain knowledge-only because component/topology integration coverage and independent promotion are incomplete.
 
-The [offline renderers](rendering.md) translate the exact LiteLLM/vLLM plan into content-addressed Docker Compose or Kubernetes/GitOps `DeploymentBundle` resources. Both pin OCI digests and model files, embed an SPDX 2.3 SBOM and content-addressed offline-acquisition manifest, carry license and pre/postflight metadata and write an audit chain bound to plan, catalog and bundle. ADR-0009 selects Kubernetes/GitOps as the first reference deployment target; neither renderer acquires or deploys anything.
+The [offline renderers](rendering.md) translate the exact LiteLLM/vLLM plan into content-addressed Docker Compose or Kubernetes/GitOps `DeploymentBundle` resources. Both pin OCI digests and model files, embed an SPDX 2.3 SBOM and content-addressed offline-acquisition manifest, carry license and pre/postflight metadata and write an audit chain bound to plan, catalog and bundle. ADR-0009 selects Kubernetes/GitOps as the first reference deployment target; neither renderer acquires or deploys anything. The [Kubernetes target preflight](target-preflight.md) is the first target-aware layer: it performs bounded reads only and emits a content-addressed result, not approval or apply authority.
 
 ## Fixed decisions
 
@@ -82,6 +82,7 @@ internal/debugbundle     allowlisted support summaries and secret-pattern gate
 internal/scenario        offline golden-scenario conformance evaluation
 internal/contracttest    read-only environment observation and pure contract evaluation
 internal/renderer        pure versioned plan-to-bundle prototype; no target access
+internal/targetpreflight bounded read-only target observation and pure evaluation
 internal/diagnostics     stable codes and structured reports
 internal/audit           event construction, redaction and local sink
 internal/canonical       canonical JSON and content digests
@@ -136,6 +137,10 @@ yara contract lifecycle --catalog catalog/v0.2/snapshot.yaml \
   --target user@gb10-runner.example --name gb10-lifecycle \
   --output gb10-lifecycle.yaml --audit-output gb10-lifecycle.audit.jsonl
 yara contract validate contract-result.yaml
+yara target preflight kubernetes --bundle kubernetes-bundle.yaml \
+  --name reference-preflight --output preflight.yaml \
+  --audit-output preflight.audit.jsonl
+yara target-preflight validate preflight.yaml
 yara audit verify audit.jsonl
 ```
 

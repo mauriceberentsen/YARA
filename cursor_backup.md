@@ -7,10 +7,10 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `main`.
+- Active branch: `feature/v0-2-kubernetes-readonly-preflight`.
 - Latest completed merge: `4775002` (`Merge Kubernetes GitOps reference renderer`), pushed to `origin/main` with the final handoff commit below.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: expand catalog knowledge without invalidating v0.2 evidence, implement audited component/topology integration contracts, then continue the v0.2 reference-deployment renderer.
+- Working goal: complete the audited target/change-set/approval boundary in thin slices without granting mutation authority prematurely.
 
 ## Current product boundary
 
@@ -187,6 +187,22 @@ ADR-0009 is now Accepted and selects Kubernetes/GitOps as the first reference de
 Validation status: deterministic/negative renderer tests, both CLI renderer paths, fail-closed rollback, `make check` and `go test -race ./...` pass. Manual manifest review caught catalog health ports defaulting to zero despite schema validity; the version adapter now binds LiteLLM to 4000 and vLLM to 8000, with explicit no-zero regression assertions. Final local bundle `sha256:d25083e98f1f97f633ddd7993f5b0cf76eda90ff26f60bc25b18aef7753c5a70`, offline manifest `sha256:a7e9272cc2145310307cd641e554d5aa83887c0d1a592c350710e84d75aaf3ec`, audit head `sha256:1a40019a0cfa3fb8e03fe91f9a939fcf197181139e88f6cfbae22cc554dcef42`. Kubeconform v0.8.0 strict validation against Kubernetes 1.34 and 1.36 endpoint schemas reported 12 valid, zero invalid/error/skipped resources at each endpoint. Docker was unavailable, so kubeconform ran as a pinned temporary Go tool; no cluster or container was started. Generated files remain ignored under `.yara/` and are not release evidence.
 
 This slice was committed as `c1e324a` and merged to `main` as `4775002` under Maurice's configured author identity.
+
+## Current slice: content-addressed read-only Kubernetes preflight
+
+Implement the first target-aware boundary after rendering, without apply authority. `yara target preflight kubernetes` consumes an exact Kubernetes/GitOps `DeploymentBundle`, performs bounded kubectl reads and emits a strict content-addressed `TargetPreflightResult` plus mandatory audit chain.
+
+Implemented in the current feature branch:
+
+- a public v1alpha1 `TargetPreflightResult` resource/schema with canonical result identity, derived outcome, sorted checks, stable diagnostics and recomputed allowlisted evidence digests;
+- a kubectl observer limited to local `config view` and Kubernetes `get` reads, with a 4 MiB output cap, overall 1s–5m timeout and no create/apply/patch/delete/exec/server-side-dry-run path;
+- pseudonymous cluster identity derived from API address and kube-system UID, while excluding raw endpoint, kubeconfig, context, namespace UID, node and pod names from durable evidence;
+- checks for tested Kubernetes version, required APIs, DNS selector, aggregate GPU capacity, namespace ownership and model-PVC phase;
+- explicit blocked checks for model-file digests, CNI NetworkPolicy enforcement, executable temporary storage and verifier-label governance because passive API observation cannot prove them;
+- CLI validation, fail-closed result rollback when audit persistence fails, and terminal audit subjects binding bundle, target and result;
+- documentation of command behavior, exit code 3 for trustworthy blocked/failed observations and the boundary before change-set/approval work.
+
+The result is observation evidence only. The initial observer cannot produce deployment approval because active/administrative checks remain blocked. No cluster was contacted by the implementation validation; observer behavior is covered by injected command-runner and CLI tests. `make check` and `go test -race ./...` pass.
 
 ## Audit requirements
 

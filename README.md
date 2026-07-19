@@ -4,7 +4,7 @@
 
 YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
 
-YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate deterministic plans, explain and compare them, compile exact evidence coverage, run bounded compatibility contracts, and render the narrow v0.2 LiteLLM/vLLM plan into an audited content-addressed Docker Compose bundle. Rendering is offline and non-mutating; YARA does not deploy a platform yet.
+YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate deterministic plans, explain and compare them, compile exact evidence coverage, run bounded compatibility contracts, and render the narrow v0.2 LiteLLM/vLLM plan into audited content-addressed Docker Compose and Kubernetes/GitOps bundles. A strictly read-only Kubernetes preflight can bind a bundle to a pseudonymous observed target and report proven, failed and blocked prerequisites. Rendering and preflight do not deploy a platform.
 
 ## The problem
 
@@ -170,6 +170,13 @@ go run ./cmd/yara render kubernetes-gitops \
   --audit-output reference-stack.kubernetes.render.audit.jsonl
 go run ./cmd/yara bundle validate reference-stack.bundle.yaml
 go run ./cmd/yara bundle validate reference-stack.kubernetes.bundle.yaml
+go run ./cmd/yara target preflight kubernetes \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --name reference-stack-preflight \
+  --output reference-stack.preflight.yaml \
+  --audit-output reference-stack.preflight.audit.jsonl
+go run ./cmd/yara target-preflight validate reference-stack.preflight.yaml
+go run ./cmd/yara audit verify reference-stack.preflight.audit.jsonl
 go run ./cmd/yara plan diff docs/examples/platform-plan.yaml plan.yaml \
   --audit-output plan-diff.audit.jsonl
 go run ./cmd/yara debug bundle \

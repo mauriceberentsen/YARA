@@ -81,6 +81,12 @@ Threats include manipulated inventory leading to unsafe capacity or compatibilit
 
 Controls: provenance, timestamps, source precedence, contradiction reporting, optional attestation and preflight re-verification before mutation.
 
+### Target preflight credential and metadata exposure
+
+Threats include using over-privileged Kubernetes credentials, accidentally issuing a mutating command, and persisting cluster endpoints, contexts or object names in results and audit records.
+
+Controls: a dedicated read-only observer with an allowlisted `config view`/`get` command surface, bounded output and timeout, generic external-command failures, pseudonymous target identity, aggregate facts only, secret-canary tests and mandatory fail-closed audit persistence. This reduces exposure but does not prove the supplied Kubernetes identity is least-privilege; operators remain responsible for its RBAC scope.
+
 ## Secure defaults
 
 - No telemetry or external network call without explicit configuration.

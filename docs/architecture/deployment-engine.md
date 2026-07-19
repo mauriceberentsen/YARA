@@ -87,7 +87,17 @@ On failure the executor stops at a safe checkpoint, preserves diagnostics and re
 
 After bounded Docker Compose and Kubernetes/GitOps prototypes over the same plan and catalog, [ADR-0009](../adr/0009-docker-compose-reference-renderer-prototype.md) selects Kubernetes/GitOps as the first reference deployment target. Docker Compose remains the lower-friction single-host renderer and CI fixture.
 
-The selection is not apply authority. The Kubernetes renderer is pure and offline. Target identity, inspection, change-set calculation, approval, operation locking, mutation, health verification, ownership-safe removal and receipts remain executor responsibilities.
+The selection is not apply authority. The Kubernetes renderer is pure and offline. YARA now implements only the first target-aware boundary: a content-addressed, strictly read-only Kubernetes preflight. Change-set calculation, approval, operation locking, mutation, health verification, ownership-safe removal and receipts remain executor responsibilities.
+
+## Read-only target preflight
+
+`yara target preflight kubernetes` observes an explicitly selected kubectl target with a bounded timeout. It reads API discovery, server version, aggregated allocatable NVIDIA GPU count, matching DNS-pod count, target namespace ownership and the phase of the expected model PVC. It never creates, applies, patches, deletes, executes in, or server-side dry-runs an object.
+
+The resulting `TargetPreflightResult` binds the exact bundle and plan IDs, observer version, observation time and a pseudonymous target digest. Every check has a stable status, diagnostic code where non-passing, allowlisted facts and an evidence digest. The overall outcome is derived from the checks and cannot overstate them. Raw API addresses, kubeconfig paths, context names, node names and pod names are not durable evidence.
+
+A read-only observation cannot prove model-file digests inside a PVC, CNI enforcement, executable temporary storage or admission/RBAC governance of verifier labels. Those checks remain `blocked` even when all observable prerequisites pass. Consequently this initial preflight cannot produce deployment approval. Its audit output is mandatory and binds bundle, target and result identities; result output is removed if terminal audit persistence fails.
+
+See the [implementation contract](../implementation/target-preflight.md).
 
 ## Kubernetes and GitOps
 

@@ -34,4 +34,5 @@
 | Runtime manager | Future subsystem that observes a deployed plan and coordinates health, drift and lifecycle actions. |
 | Semantic plan | The normalized meaning of a plan excluding volatile presentation fields such as timestamps. |
 | Supported | A versioned combination backed by required metadata, evidence, automated tests and maintenance ownership. |
+| TargetPreflightResult | Content-addressed result of bounded read-only target observation, binding a bundle, plan and pseudonymous target to passed, failed and blocked checks; it is not deployment approval. |
 | Topology | Components, instances, relationships, trust boundaries and placement decisions forming the platform. |

@@ -63,6 +63,10 @@ func LoadOfflineAcquisitionManifest(path string) (OfflineAcquisitionManifest, er
 	return loadResource[OfflineAcquisitionManifest](path)
 }
 
+func LoadTargetPreflightResult(path string) (TargetPreflightResult, error) {
+	return loadResource[TargetPreflightResult](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)
