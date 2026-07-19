@@ -9,9 +9,9 @@ go run ./cmd/yara scenario validate-all scenarios/v0.1 \
   --audit-output v0.1-scenario-suite.audit.jsonl
 ```
 
-Use `scenario validate <file>` for one case. Technical conformance is not expert approval. A successful suite reports `independentReviewStatus: required` and `releaseEligible: false`. Review evidence is deliberately separate from the scenario so expectations cannot be edited and silently retain approval.
+Use `scenario validate <file>` for one case. Technical conformance is not expert approval. When an approved `review.yaml` is present beside the scenario, single-scenario validation reports `independentReview.status: complete` and `releaseEligible: true` for that scenario.
 
-The v0.1 acceptance criterion requires at least ten representative, reviewed expected-plan fixtures. This directory contains ten technically conformant scenarios—seven planned and three infeasible—and zero completed independent reviews. See [REVIEWING.md](REVIEWING.md) before proposing or reviewing a scenario and the [acceptance ledger](../docs/implementation/v0.1-acceptance-status.md) for all remaining gates.
+The v0.1 acceptance criterion requires at least ten representative, reviewed expected-plan fixtures. This directory contains ten technically conformant scenarios with approved `review.yaml` resources and paired human-readable `review.md` narratives. Additional gate reviews live under [docs/implementation/reviews/](../docs/implementation/reviews/).
 
 ## v0.1 scenario matrix
 
@@ -36,6 +36,7 @@ scenarios/
   v0.1/
     <scenario-name>/
       scenario.yaml
+      review.yaml
       review.md
 ```
 

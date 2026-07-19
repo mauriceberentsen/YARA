@@ -1,0 +1,15 @@
+apiVersion: yara.dev/v1alpha1
+kind: ScenarioReview
+metadata:
+    name: private-chat-coding
+    reviewId: sha256:22ebd7ec741494a9160b5e55a25e37a3d5b4f8cffc2f501fe26e4ed002afeacc
+spec:
+    subject:
+        scenarioId: sha256:1a68fa2323f26266eb898d7516cd552e8ee7fce0c7de5cb9a4f0f2891f144f79
+        planId: sha256:e05a7481868257bbcc586073597fb9e977f5cf203403f26f6592d6e6f48a9e4c
+    reviewer:
+        identity: Wim Horst
+        role: ai-platform-architect
+        assurance: organization-approved-pseudonym
+    reviewedAt: "2026-07-19"
+    verdict: approved

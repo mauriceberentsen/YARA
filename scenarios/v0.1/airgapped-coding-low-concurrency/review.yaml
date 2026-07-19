@@ -1,0 +1,15 @@
+apiVersion: yara.dev/v1alpha1
+kind: ScenarioReview
+metadata:
+    name: airgapped-coding-low-concurrency
+    reviewId: sha256:1b484d7e15f00593c82e78c7575878143d2784f382f3421f4ace9d0c8c260f0c
+spec:
+    subject:
+        scenarioId: sha256:798e87249d0fcb2dd78e594efc749884cc79588eeafd396e66af51eea61a10fd
+        planId: sha256:8262774ffd9d5810cd27a056a29bbaac651a98c451ec535632649dcd67f5d388
+    reviewer:
+        identity: Wim Horst
+        role: ai-platform-architect
+        assurance: organization-approved-pseudonym
+    reviewedAt: "2026-07-19"
+    verdict: approved

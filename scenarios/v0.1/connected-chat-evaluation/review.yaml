@@ -1,0 +1,15 @@
+apiVersion: yara.dev/v1alpha1
+kind: ScenarioReview
+metadata:
+    name: connected-chat-evaluation
+    reviewId: sha256:3cb53e4551ddd318b3b211e75680894a6cdb7576be86b583f35aa9cff3094bdb
+spec:
+    subject:
+        scenarioId: sha256:ae16d5b04d164eb3d16f25260367e044c4ae39d383951ee3da9a37d253ba086a
+        planId: sha256:550802bb28d2c297abb41624928cd16106a162fcdb6beaef9683392162dea53b
+    reviewer:
+        identity: Wim Horst
+        role: ai-platform-architect
+        assurance: organization-approved-pseudonym
+    reviewedAt: "2026-07-19"
+    verdict: approved

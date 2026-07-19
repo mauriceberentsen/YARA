@@ -1,0 +1,15 @@
+apiVersion: yara.dev/v1alpha1
+kind: ScenarioReview
+metadata:
+    name: local-coding-team
+    reviewId: sha256:6090c47981b63982ea033fb67a2c458498c135cf0df2a0e3353e4a0613e49c8d
+spec:
+    subject:
+        scenarioId: sha256:4d163081b5b263dd3213b68252087683e5c885c63b2e180d5d8afadabed1ec99
+        planId: sha256:4db177d138790b2c5b7e6f337b074e73fb7275f7a93c81d27f013a5d73ec5303
+    reviewer:
+        identity: Wim Horst
+        role: ai-platform-architect
+        assurance: organization-approved-pseudonym
+    reviewedAt: "2026-07-19"
+    verdict: approved

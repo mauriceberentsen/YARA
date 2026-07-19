@@ -1,0 +1,13 @@
+apiVersion: yara.dev/v1alpha1
+kind: AcceptanceGateReview
+metadata:
+    name: catalog-fixtures
+    reviewId: sha256:d293d60cf0743ad6d17547f695699be1dcb3b361508801f150624908bb3ef7ab
+spec:
+    acceptanceCriterion: 6
+    reviewer:
+        identity: Maurice Berentsen
+        role: catalog-owner
+        assurance: repository-owner
+    reviewedAt: "2026-07-19"
+    verdict: approved

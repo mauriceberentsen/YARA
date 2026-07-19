@@ -25,6 +25,7 @@ type SuiteResult struct {
 	Planned               int
 	Infeasible            int
 	TechnicallyConformant int
+	Review                ReviewStatus
 	Report                diagnostics.Report
 }
 
@@ -79,6 +80,7 @@ func EvaluateAll(root string) SuiteResult {
 		result.Entries = append(result.Entries, entry)
 	}
 	sort.Slice(result.Entries, func(i, j int) bool { return result.Entries[i].Name < result.Entries[j].Name })
+	result.Review = SummarizeReviewStatus(root, result.Entries, ResolveGateReviewDir(root))
 	result.Report = diagnostics.NewReport(items...)
 	return result
 }

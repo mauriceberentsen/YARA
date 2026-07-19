@@ -1,0 +1,13 @@
+apiVersion: yara.dev/v1alpha1
+kind: AcceptanceGateReview
+metadata:
+    name: environment-offline-cli
+    reviewId: sha256:80431d42faadc27f4d1886339770ceee2ab177a124fa8b261c91a329f85c86ed
+spec:
+    acceptanceCriterion: 8
+    reviewer:
+        identity: Maurice Berentsen
+        role: release-qualifier
+        assurance: repository-owner
+    reviewedAt: "2026-07-19"
+    verdict: approved

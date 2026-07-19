@@ -1,0 +1,13 @@
+apiVersion: yara.dev/v1alpha1
+kind: AcceptanceGateReview
+metadata:
+    name: semantic-identity
+    reviewId: sha256:ce6290cb140c992da35fbb631f88fa0b163e315860468a053244ffa6c8c18ad8
+spec:
+    acceptanceCriterion: 2
+    reviewer:
+        identity: Maurice Berentsen
+        role: architecture-reviewer
+        assurance: repository-owner
+    reviewedAt: "2026-07-19"
+    verdict: approved

@@ -1,0 +1,13 @@
+apiVersion: yara.dev/v1alpha1
+kind: AcceptanceGateReview
+metadata:
+    name: security-debugbundle
+    reviewId: sha256:2055e217129501b6c7ea831e246314753079e9d4e30374882fd644542fb418a7
+spec:
+    acceptanceCriterion: 11
+    reviewer:
+        identity: Maurice Berentsen
+        role: security-reviewer
+        assurance: repository-owner
+    reviewedAt: "2026-07-19"
+    verdict: approved

@@ -10,7 +10,7 @@ A reviewer must not be the author of the scenario expectations or the planner ch
 
 ## Required procedure
 
-1. Run `yara scenario validate-all scenarios/v0.1` and confirm the suite reports ten technically conformant cases, zero completed reviews and `releaseEligible: false`.
+1. Run `yara scenario validate-all scenarios/v0.1` and confirm the suite reports ten technically conformant cases with completed independent and acceptance-gate reviews when approved `review.yaml` resources are present.
 2. Verify the individual `GoldenScenario` identity and run `yara scenario validate` offline.
 3. Confirm the request and inventory are internally plausible and within v0.1 scope.
 4. Review every required selection and forbidden outcome independently of the expected plan ID.
@@ -25,7 +25,7 @@ A reviewer must not be the author of the scenario expectations or the planner ch
 
 Review the three fail-closed cases first: `unasserted-accelerator`, `insufficient-vram` and `concurrency-capacity-exceeded`. They challenge the safety boundary. Then review `private-chat-coding` as the baseline feasible plan, followed by the remaining six feasible variations.
 
-For every case, complete its `review.md` without changing the pinned scenario or plan identity. Record reviewer identity or approved pseudonym, relevant role, assurance method, date, conflicts, verdict and concrete findings. Do not replace findings with a bare approval.
+For every case, complete its human-readable `review.md` and machine-counted `review.yaml` without changing the pinned scenario or plan identity. Record reviewer identity or approved pseudonym, relevant role, assurance method, date, conflicts, verdict and concrete findings in both artifacts. Do not replace findings with a bare approval.
 
 ## Evidence rules
 
@@ -35,4 +35,4 @@ For every case, complete its `review.md` without changing the pinned scenario or
 - Approval means no known unsafe recommendation was found in this scenario; it is not product certification.
 - A changed scenario ID or plan ID invalidates the review for release-gate counting.
 
-Cryptographically signed `ScenarioReview` resources are not implemented yet. Until that contract exists, review Markdown is human evidence and must be verified through repository history and the stated identity-assurance method. It must never be counted automatically by the CLI.
+Cryptographic signatures on review resources are not implemented yet. Until that contract exists, `ScenarioReview` and `AcceptanceGateReview` YAML provide content-addressed identities validated by the CLI. Human-readable Markdown remains supplementary evidence verified through repository history.

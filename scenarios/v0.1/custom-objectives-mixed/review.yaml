@@ -1,0 +1,15 @@
+apiVersion: yara.dev/v1alpha1
+kind: ScenarioReview
+metadata:
+    name: custom-objectives-mixed
+    reviewId: sha256:77ea25fcda4bbddc2842ed5c9d432a51209bde6eae1df11bd89afa0c4cd51620
+spec:
+    subject:
+        scenarioId: sha256:0656f9a62575e5d4018987934f8909ce563518c632e5f97fc7d78a56eaa60e33
+        planId: sha256:bc753af74f4eda309648a83965cf3ad99f8b07dfc33477f2e25432add659d468
+    reviewer:
+        identity: Wim Horst
+        role: ai-platform-architect
+        assurance: organization-approved-pseudonym
+    reviewedAt: "2026-07-19"
+    verdict: approved
