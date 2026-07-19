@@ -97,7 +97,8 @@ Deliverables:
 - artifact bundle with deterministic SPDX/license inventory and offline acquisition manifest (**implemented for both renderers**);
 - content-addressed read-only Kubernetes target preflight (**implemented; deliberately cannot approve deployment**);
 - exact observed Kubernetes change set (**implemented read-only, no delete/prune**);
-- explicit approval (**implemented as local review-only; strong execution authorization remains open**);
+- explicit approval (**implemented as local review-only**);
+- short-lived cryptographic execution authorization (**implemented with Ed25519 and explicit trusted-key verification**);
 - public deployment-receipt contract (**implemented validate-only**) and least-privilege executor;
 - health verification, receipts and safe owned-resource removal;
 - blocked-egress end-to-end reference test.

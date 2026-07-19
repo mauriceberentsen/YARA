@@ -50,6 +50,8 @@ Kubernetes preflight records `target.kubernetes-preflight.*`. A completed observ
 
 Change-set generation records `target.kubernetes-changeset.*` and binds bundle, preflight, pseudonymous target and change-set identities. Approval recording uses `approval.record.*` and additionally binds the approval identity. The audit contains classifications and stable diagnostic codes by reference, not Kubernetes object bodies or free-form review text. Both generated outputs are removed if terminal audit persistence fails. `deployment.receipt.validate.*` validates a receipt artifact only; it is not evidence that YARA executed the deployment.
 
+Execution authorization records `authorization.issue.*` bound to bundle, preflight, change set, approval and signed authorization IDs. Verification records `authorization.verify.*` against the authorization ID. Key IDs and public-key digests are resource metadata; private-key paths and material never enter audit evidence.
+
 The current local actor comes from the operating-system identity and is labelled `self-asserted-local` (or `unknown-local` when unavailable). A future authenticated service or explicit actor input may provide stronger provenance, but the current value must not be presented as cryptographically verified identity.
 
 ## Event envelope
@@ -127,6 +129,8 @@ target.kubernetes-changeset.*
 target.changeset.validate.*
 approval.record.*
 approval.validate.*
+authorization.issue.*
+authorization.verify.*
 deployment.receipt.validate.*
 deployment.apply.*
 lifecycle.upgrade.*

@@ -7,7 +7,7 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `main`.
+- Active branch: `feature/v0-2-execution-prerequisites`.
 - Latest completed merge: `e8aa06c` (`Merge change set and approval contracts`), pushed to `origin/main` with the final handoff commit below.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: complete the audited target/change-set/approval boundary in thin slices without granting mutation authority prematurely.
@@ -224,6 +224,21 @@ Full-suite/race validation and documentation consistency checks pass. No live cl
 
 This slice was committed as `8502199`, merged to `main` as `e8aa06c` and pushed under Maurice's configured author identity.
 
+## Current slice: signed execution authorization
+
+Implement the first cryptographically enforceable mutation prerequisite without adding apply yet:
+
+- strict content-addressed `ExecutionAuthorization` resource and public schema;
+- Ed25519 signature over the exact plan, bundle, preflight, change set, approval, target and constraints;
+- explicit public-key digest/key ID and verification against a caller-selected trusted PEM public key;
+- maximum 15-minute lifetime, no deletes, bounded operation count and exact allowed actions;
+- issuance requires approved conflict-free bindings, preflight age <=15 minutes, change-set age <=5 minutes and authorization expiry within the review record;
+- private signing key must be PKCS#8 Ed25519 PEM with no group/world permissions;
+- only the four explicitly active/risk-verification preflight blockers may be accepted; failed or other blocked checks prevent issuance;
+- mandatory fail-closed issuance audit bound to all five resource identities; key paths/material never enter durable evidence.
+
+Implementation/unit/CLI tests plus full-suite/race validation pass; publication and merge remain. No cluster, container or remote host has been contacted.
+
 ## Audit requirements
 
 Auditing is a core domain capability, not an optional log:
@@ -274,9 +289,10 @@ Latest validation status: `make check`, `go test -race ./...`, deterministic tes
 
 ## Immediate next actions
 
-1. Design authenticated/signed execution approval issuance and verification; never upgrade a local review record in place.
-2. Add acquisition/import receipts and exact internal artifact locations before an air-gap completeness or apply claim.
-3. Implement active, separately authorized checks for model PVC contents, CNI enforcement, executable temporary storage and verifier-label governance.
-4. Design the least-privilege executor permission manifest, target lock, stale-state revalidation and audit/receipt transaction before writing apply code.
-5. Implement a generic integration executor independently of deployment apply; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
-6. Keep Ada tuples unobserved until authorized hardware exists and never self-approve independent promotion review.
+1. Add acquisition/import receipts and exact internal artifact locations before an air-gap completeness claim.
+2. Implement active, signed-authorization-gated checks for model PVC contents, executable temporary storage and observable NetworkPolicy behavior; retain governance limitations honestly.
+3. Implement the least-privilege Kubernetes executor with durable started audit, target Lease, stale-state revalidation, create/update/no-op only and no adoption/delete.
+4. Add postflight health/network verification and produce a receipt for success, partial or failed mutation.
+5. Prove second-apply idempotency and owned cleanup in fake and controlled-cluster tests before a support claim.
+6. Implement a generic integration executor independently of deployment apply; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
+7. Keep Ada tuples unobserved until authorized hardware exists and never self-approve independent promotion review.

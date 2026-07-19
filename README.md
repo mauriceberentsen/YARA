@@ -262,6 +262,7 @@ Currently implemented:
 - a pure versioned Docker Compose renderer for the exact LiteLLM/vLLM topology, producing pinned files, artifact/license inventory, checks, limitations and a fail-closed render audit;
 - a pure Kubernetes/GitOps renderer for the same exact topology plus content-addressed read-only target preflight and object-level change-set observation;
 - explicit deployment approvals whose local assurance is constrained to review-only, plus a validate-only deployment-receipt contract and no apply command;
+- short-lived Ed25519-signed execution authorization bound to exact reviewed inputs and an explicitly trusted public key;
 - a catalog-authored abstract topology template resolved into gateway and inference component instances;
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;
 - a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;
