@@ -1,6 +1,7 @@
 package renderer
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/planner"
 	"github.com/mauriceberentsen/YARA/internal/resources"
+	"gopkg.in/yaml.v3"
 )
 
 func TestDockerComposeRenderIsDeterministicAndPinned(t *testing.T) {
@@ -43,6 +45,46 @@ func TestDockerComposeRenderIsDeterministicAndPinned(t *testing.T) {
 	}
 	if len(first.Spec.Artifacts) != 3 || first.Spec.Artifacts[0].Type != "huggingface-snapshot" || len(first.Spec.Artifacts[0].Files) != 2 {
 		t.Fatalf("immutable artifact inventory is incomplete: %#v", first.Spec.Artifacts)
+	}
+	if len(first.Spec.Files) != 4 || first.Spec.SupplyChain.SBOMPath != sbomPath || first.Spec.SupplyChain.OfflineAcquisitionPath != offlineAcquisitionPath {
+		t.Fatalf("supply-chain documents are not explicit bundle members: %#v", first.Spec.SupplyChain)
+	}
+	assertSupplyChainInventory(t, first)
+}
+
+func assertSupplyChainInventory(t *testing.T, bundle resources.DeploymentBundle) {
+	t.Helper()
+	files := map[string]string{}
+	for _, file := range bundle.Spec.Files {
+		files[file.Path] = file.Content
+	}
+	var offline resources.OfflineAcquisitionManifest
+	if err := yaml.Unmarshal([]byte(files[offlineAcquisitionPath]), &offline); err != nil {
+		t.Fatalf("decode offline acquisition manifest: %v", err)
+	}
+	if report := offline.Validate(); !report.Valid {
+		t.Fatalf("offline acquisition manifest is invalid: %#v", report.Diagnostics)
+	}
+	if offline.Spec.PlanID != bundle.Spec.PlanID || offline.Spec.CatalogDigest != bundle.Spec.CatalogDigest || len(offline.Spec.Artifacts) != len(bundle.Spec.Artifacts) {
+		t.Fatalf("offline acquisition manifest does not bind the bundle inventory: %#v", offline.Spec)
+	}
+	var sbom spdxDocument
+	if err := json.Unmarshal([]byte(files[sbomPath]), &sbom); err != nil {
+		t.Fatalf("decode SPDX SBOM: %v", err)
+	}
+	if sbom.SPDXVersion != "SPDX-2.3" || sbom.DataLicense != "CC0-1.0" || len(sbom.Packages) != len(bundle.Spec.Artifacts)+2 {
+		t.Fatalf("SPDX inventory is incomplete: %#v", sbom)
+	}
+	for index, artifact := range bundle.Spec.Artifacts {
+		if sbom.Packages[index].Name != artifact.Ref || sbom.Packages[index].LicenseDeclared != artifact.LicenseID || sbom.Packages[index].LicenseConcluded != "NOASSERTION" {
+			t.Fatalf("SPDX package %d does not preserve artifact/license facts: %#v", index, sbom.Packages[index])
+		}
+	}
+	for index, shard := range bundle.Spec.Artifacts[0].Files {
+		pkg := sbom.Packages[len(bundle.Spec.Artifacts)+index]
+		if pkg.Name != bundle.Spec.Artifacts[0].Ref+"/"+shard.Path || pkg.VersionInfo != shard.Digest || pkg.PrimaryPurpose != "FILE" || pkg.FilesAnalyzed {
+			t.Fatalf("SPDX shard package %d is incomplete or claims file analysis: %#v", index, pkg)
+		}
 	}
 }
 

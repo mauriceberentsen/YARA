@@ -73,26 +73,32 @@ func (r DockerCompose) Render(name string, plan resources.PlatformPlan, snapshot
 	if err != nil {
 		return resources.DeploymentBundle{}, fmt.Errorf("render LiteLLM configuration: %w", err)
 	}
-	files := []resources.BundleFile{
-		bundleFile("compose.yaml", "application/vnd.docker.compose.project+yaml", compose),
-		bundleFile("litellm-config.yaml", "application/yaml", litellmConfig),
-	}
 	artifacts := []resources.BundleArtifact{
 		componentBundleArtifact(gatewayComponent, gatewayImage),
 		componentBundleArtifact(inferenceComponent, inferenceImage),
 		modelBundleArtifact(model),
 	}
 	slices.SortFunc(artifacts, func(left, right resources.BundleArtifact) int { return strings.Compare(left.Ref, right.Ref) })
-	operations := operationsFromPlan(plan, instances)
 	identity := r.Identity()
+	bundleRenderer := resources.BundleRenderer{Name: identity.Name, Version: identity.Version, Target: identity.Target}
+	supplyFiles, supplyChain, err := supplyChainFiles(name, snapshot.Metadata.PublishedAt, plan.Metadata.PlanID, catalogDigest, bundleRenderer, artifacts)
+	if err != nil {
+		return resources.DeploymentBundle{}, fmt.Errorf("render supply-chain documents: %w", err)
+	}
+	files := []resources.BundleFile{
+		bundleFile("compose.yaml", "application/vnd.docker.compose.project+yaml", compose),
+		bundleFile("litellm-config.yaml", "application/yaml", litellmConfig),
+	}
+	files = append(files, supplyFiles...)
+	slices.SortFunc(files, func(left, right resources.BundleFile) int { return strings.Compare(left.Path, right.Path) })
+	operations := operationsFromPlan(plan, instances)
 	bundle := resources.DeploymentBundle{
 		APIVersion: resources.APIVersion,
 		Kind:       "DeploymentBundle",
 		Metadata:   resources.DeploymentBundleMetadata{Name: name},
 		Spec: resources.DeploymentBundleSpec{
 			PlanID: plan.Metadata.PlanID, CatalogDigest: catalogDigest,
-			Renderer: resources.BundleRenderer{Name: identity.Name, Version: identity.Version, Target: identity.Target},
-			Files:    files, Artifacts: artifacts,
+			Renderer: bundleRenderer, SupplyChain: supplyChain, Files: files, Artifacts: artifacts,
 			RequiredInputs: []resources.BundleRequiredInput{{
 				Name: "YARA_MODEL_PATH", Secret: false,
 				Description: "Absolute host path containing the exact verified model snapshot listed in spec.artifacts.",

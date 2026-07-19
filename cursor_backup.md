@@ -7,8 +7,8 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `main`.
-- Latest completed merge: `b69d9ba` (`Merge pure Docker Compose reference renderer`), pushed to `origin/main`.
+- Active branch: `feature/v0-2-bundle-sbom-offline-manifest` (branched from synchronized `main` at `f624098`).
+- Latest completed merge on `main`: `b69d9ba` (`Merge pure Docker Compose reference renderer`), followed by handoff commit `f624098`; both are pushed to `origin/main`.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: expand catalog knowledge without invalidating v0.2 evidence, implement audited component/topology integration contracts, then continue the v0.2 reference-deployment renderer.
 
@@ -142,7 +142,7 @@ This slice was committed as `83125f6`, merged to `main` as `93c7f48` and pushed.
 
 Implement the plan/render/executor boundary from ADR-0002 without adding target mutation. The new public `DeploymentBundle` binds the exact plan and catalog, renderer identity, rendered file contents/digests, immutable OCI and model artifacts, license sources, required inputs, ordered plan stages, pre/postflight contracts and explicit limitations.
 
-Implementation in progress:
+Implemented:
 
 - `internal/renderer` defines the versioned interface and `yara.docker-compose@0.1.0` prototype;
 - the typed adapter accepts only LiteLLM 1.93.0 -> vLLM 0.25.1 over the cataloged OpenAI chat contract and one exact model snapshot;
@@ -157,6 +157,20 @@ The local CLI demonstration produced plan `sha256:5b12b6a739b697d256668c37296d67
 ADR-0009 remains Proposed because Docker Compose is a prototype until at least one alternative is compared.
 
 This slice was committed as `cb6447c`, merged to `main` as `b69d9ba` and pushed. Post-merge `make check` passed and `origin/main...main` was `0 0`.
+
+## Current slice: bundle SBOM and offline acquisition manifest
+
+Complete the reference deployment bundle's supply-chain boundary without adding acquisition or target mutation. Every rendered bundle now embeds:
+
+- `sbom.spdx.json`, a deterministic SPDX 2.3 inventory;
+- `offline-acquisition.yaml`, a strict content-addressed `OfflineAcquisitionManifest`;
+- explicit `spec.supplyChain` paths that make both documents discoverable.
+
+The offline manifest binds the exact plan, catalog, renderer, sorted OCI/model inventory, declared licenses and mirroring method. Its policy requires connected acquisition, network-denied execution, complete-set handling and digest verification. Bundle validation strictly decodes it and rejects identity or inventory drift.
+
+The SPDX document preserves every top-level artifact, catalog-declared license and model-shard digest. `licenseConcluded` remains `NOASSERTION`. All packages use `filesAnalyzed: false`; exact model shards are separate checksum-bearing packages because the renderer has metadata but has not acquired/analyzed their contents and cannot emit an SPDX package verification code honestly. Bundle validation rejects malformed/incomplete SPDX or inventory drift. The enclosing bundle ID and existing render audit bind both documents and their content digests.
+
+Implementation and negative/determinism tests are complete. `make check`, `go test -race ./...` and a real offline CLI render/bundle-validate/audit-verify cycle pass. Demo bundle `sha256:ded731d8c98ccecb40ad4131a51192da2bbb5272a2684d7e630e4c127e52d9d9`, embedded offline manifest `sha256:7c089a51d7e6a10336ee592f070dc295755c0f98f8b3e2dfa09a3ba21a06d31c`, audit head `sha256:dd9464d30307a08105a99c590121ec5a1b73c33747b3979fa21268c774e5c9df`. These files remain under ignored `.yara/` and are not release evidence. No network acquisition, container start or v0.3 operational test occurred.
 
 ## Audit requirements
 
@@ -209,7 +223,7 @@ Latest validation status: `make check`, `go test -race ./...`, deterministic ren
 ## Immediate next actions
 
 1. Prototype one alternative renderer enough to resolve Proposed ADR-0009 without building an executor twice.
-2. Complete the artifact bundle with a machine-readable SBOM/offline acquisition manifest.
+2. Add target identity, read-only preflight, exact change-set, approval and receipt resources before any apply-capable executor.
 3. Implement a generic integration executor that produces fail-closed execution audit chains; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
-4. Add target preflight, approval and receipt resources before any apply-capable executor.
+4. Add acquisition/import receipts and internal location mapping before presenting an air-gap completeness claim.
 5. Keep Ada tuples unobserved until authorized hardware exists and never self-approve independent promotion review.

@@ -40,8 +40,19 @@ The terminal render event binds the exact plan, catalog and bundle digests. If a
 
 ## Bundle contents
 
-The bundle contains pinned Compose services, a generated LiteLLM configuration, exact model files, license sources, ordered create operations, required inputs, checks and limitations. The Compose preview uses a Docker-internal network, publishes no host port, drops all Linux capabilities, enables `no-new-privileges`, uses read-only roots and gives vLLM only its documented executable `/tmp` exception. These are rendered intentions, not proof that a target enforced them.
+The bundle contains four embedded, content-addressed files:
+
+- `compose.yaml`, with the pinned service topology;
+- `litellm-config.yaml`, with the typed gateway-to-inference connection;
+- `sbom.spdx.json`, an SPDX 2.3 inventory of every OCI/model package, catalog-declared license and exact model shard;
+- `offline-acquisition.yaml`, a content-addressed `OfflineAcquisitionManifest` containing every immutable source artifact and its required mirroring method.
+
+`spec.supplyChain` names the two supply-chain files explicitly. Bundle validation strictly decodes the offline manifest, validates its own `manifestId`, compares its plan, catalog, renderer and artifact inventory with the enclosing bundle, and checks that the SPDX package inventory preserves every artifact and declared license. Changing either document therefore requires a new manifest ID, file digest and bundle ID.
+
+The acquisition policy makes the phase boundary explicit: connected acquisition requires network access, execution must not, every digest must be verified and partial artifact sets are forbidden. It does not select a mirror, transfer medium or internal destination and does not authorize acquisition. License values are catalog declarations; SPDX `licenseConcluded` remains `NOASSERTION` because YARA has not performed legal review. Packages use `filesAnalyzed: false`: exact model shards are separate checksum-bearing SPDX packages, because rendering has metadata but has not acquired or analyzed their contents and therefore cannot honestly emit a package verification code.
+
+The Compose preview uses a Docker-internal network, publishes no host port, drops all Linux capabilities, enables `no-new-privileges`, uses read-only roots and gives vLLM only its documented executable `/tmp` exception. These are rendered intentions, not proof that a target enforced them.
 
 ## Deliberate omissions
 
-There is no executor yet. YARA does not currently materialize bundle files, acquire artifacts, add an access boundary, calculate an observed change set, request approval, call `docker compose up`, issue a receipt or safely remove owned resources. Those operations require separate target identity, approval and receipt schemas and must not be added to the renderer.
+There is no executor or acquisition implementation yet. YARA does not currently materialize bundle files, pull or mirror the declared artifacts, prove completeness beyond catalog metadata, scan contents, verify signatures, add an access boundary, calculate an observed change set, request approval, call `docker compose up`, issue an import/deployment receipt or safely remove owned resources. Those operations require separate target identity, approval and receipt schemas and must not be added to the renderer.
