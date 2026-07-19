@@ -70,6 +70,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "scenario" && args[1] == "validate-all" {
 		return validateScenarioSuite(args[2:], stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "contract" && args[1] == "preflight" {
+		return preflightContract(args[2:], stdout, stderr)
+	}
 	if len(args) < 2 || args[1] != "validate" {
 		writeUsage(stderr)
 		return ExitInvalidInput
@@ -132,6 +135,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			return writeLoadError(stdout, "YARA-AUD-500", err)
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "plan.validate", subject, plan.APIVersion, plan.Kind, plan.Metadata.Name, plan.Validate())
+	case "contract":
+		result, err := resources.LoadContractTestResult(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "contract.validate", "ContractTestResult", options.inputPath, "YARA-CTR-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("ContractTestResult", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "ContractTestResult", Digest: result.Metadata.ResultID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "contract.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -193,5 +210,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara debug bundle --plan <file> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara scenario validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate-all <directory> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara contract preflight --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara contract validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara audit verify <file>")
 }

@@ -21,6 +21,8 @@ Each real component records its exact upstream version, license facts, health co
 
 Artifact verification proves identity; it does not prove operational compatibility. The six positive compatibility assertions remain experimental until the same tuple passes the planned startup, health, inference, policy and restart contract tests on the named hardware.
 
+The first read-only contract preflight is now implemented. It verifies whether an SSH target is eligible for a later workload test and writes content-addressed evidence plus a mandatory audit chain. It deliberately does not satisfy the promotion gate by itself; see the [contract-testing guide](../../docs/implementation/contract-testing.md).
+
 ## License and telemetry caveats
 
 - Open WebUI is recorded as source-available, not OSI open source, because its current license includes a branding restriction.
@@ -63,3 +65,19 @@ make build
 ```
 
 `go yara` is not a valid Go command. A bare `yara` command works only after a YARA executable has been installed somewhere on your `PATH`.
+
+## Preflight a compatibility assertion
+
+The following command only reads OS, Docker and NVIDIA accelerator facts from the target:
+
+```bash
+go run ./cmd/yara contract preflight \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-rtx4090 \
+  --target user@gpu-runner.example \
+  --name rtx4090-preflight \
+  --output .yara/contracts/rtx4090-preflight.yaml \
+  --audit-output .yara/audit/rtx4090-preflight.jsonl
+```
+
+Exit code `3` with outcome `blocked` is expected when the reachable host does not contain an RTX 4090. The result remains valid evidence and can be inspected with `contract validate`; it must not be described as a successful test of the RTX 4090 assertion.

@@ -4,7 +4,7 @@
 
 YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
 
-YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate deterministic plans from both the frozen v0.1 fixtures and the first real v0.2 catalog, explain and semantically compare plans, produce a redacted local debug bundle, validate individual or complete golden-scenario suites, and verify tamper-evident local audit chains. It does not deploy a platform yet.
+YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate deterministic plans from both the frozen v0.1 fixtures and the first real v0.2 catalog, explain and semantically compare plans, produce a redacted local debug bundle, validate individual or complete golden-scenario suites, perform read-only remote compatibility preflights, and verify tamper-evident local audit chains. It does not deploy a platform yet.
 
 ## The problem
 
@@ -161,6 +161,13 @@ go run ./cmd/yara scenario validate \
   --audit-output scenario-validation.audit.jsonl
 go run ./cmd/yara scenario validate-all scenarios/v0.1 \
   --audit-output v0.1-scenario-suite.audit.jsonl
+go run ./cmd/yara contract preflight \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-rtx4090 \
+  --target user@host \
+  --name rtx4090-preflight \
+  --output contract-result.yaml \
+  --audit-output contract-preflight.audit.jsonl
 ```
 
 Currently implemented:
@@ -182,6 +189,7 @@ Currently implemented:
 - deterministic, content-addressed `DebugBundle` output containing only an inspectable redacted plan summary, section inventory and successful secret-scan assertion;
 - a content-addressed `GoldenScenario` contract and offline validator for exact inputs, plan identity, required decisions, forbidden outcomes, diagnostics and review requirements;
 - a bounded, deterministic ten-case acceptance-suite validator with duplicate-identity rejection, planned/infeasible coverage and fail-closed audit evidence;
+- a content-addressed `ContractTestResult` and read-only SSH preflight that checks Docker/Linux, OCI platform, NVIDIA runtime, driver and exact hardware identity without mutating the target;
 - tamper-evident audit chains for validation plus successful, infeasible and input-rejected planning outcomes, containing available input identities and stable diagnostic codes, including material warnings;
 - optional fail-closed validation, plan-explanation and plan-diff audit receipts, plus mandatory fail-closed persistence for `plan create` and `debug bundle`, with path- and payload-minimized evidence for resources that cannot be decoded.
 

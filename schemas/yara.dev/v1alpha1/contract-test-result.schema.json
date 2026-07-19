@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/contract-test-result.schema.json",
+  "title": "YARA ContractTestResult v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "ContractTestResult" },
+    "metadata": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "resultId"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$" },
+        "resultId": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "spec": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "outcome", "catalogDigest", "assertionRef", "target", "environment", "checks", "limitations"],
+      "properties": {
+        "mode": { "const": "preflight" },
+        "outcome": { "enum": ["passed", "failed", "blocked"] },
+        "catalogDigest": { "$ref": "#/$defs/digest" },
+        "assertionRef": { "type": "string", "minLength": 1 },
+        "target": { "$ref": "#/$defs/target" },
+        "environment": { "$ref": "#/$defs/environment" },
+        "checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/check" } },
+        "limitations": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runtimeRef", "modelRef", "hardwareProfileRef"],
+      "properties": {
+        "runtimeRef": { "type": "string", "minLength": 1 },
+        "modelRef": { "type": "string", "minLength": 1 },
+        "hardwareProfileRef": { "type": "string", "minLength": 1 }
+      }
+    },
+    "environment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["transport", "referenceDigest", "operatingSystem", "architecture", "docker", "accelerators"],
+      "properties": {
+        "transport": { "const": "ssh" },
+        "referenceDigest": { "$ref": "#/$defs/digest" },
+        "operatingSystem": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "docker": { "$ref": "#/$defs/docker" },
+        "accelerators": { "type": "array", "items": { "$ref": "#/$defs/accelerator" } }
+      }
+    },
+    "docker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["available", "nvidiaRuntime"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "version": { "type": "string", "minLength": 1 },
+        "operatingSystem": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "nvidiaRuntime": { "type": "boolean" }
+      }
+    },
+    "accelerator": {
+      "type": "object", "additionalProperties": false,
+      "required": ["vendor", "model", "driverVersion", "computeCapability"],
+      "properties": {
+        "vendor": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "driverVersion": { "type": "string", "minLength": 1 },
+        "computeCapability": { "type": "string", "minLength": 1 }
+      }
+    },
+    "check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "status", "evidenceDigest"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["passed", "failed", "blocked"] },
+        "diagnosticCode": { "type": "string", "pattern": "^YARA-[A-Z]+-[0-9]{3}$" },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

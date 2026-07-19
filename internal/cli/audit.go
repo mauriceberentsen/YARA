@@ -17,6 +17,10 @@ import (
 const maxAuditedInputBytes = 4 << 20
 
 func operationAudit(baseAction, terminalSuffix, outcome string, subjects []audit.Subject, diagnosticCodes []string) ([]byte, error) {
+	return operationAuditForTarget(baseAction, terminalSuffix, outcome, "local", subjects, diagnosticCodes)
+}
+
+func operationAuditForTarget(baseAction, terminalSuffix, outcome, target string, subjects []audit.Subject, diagnosticCodes []string) ([]byte, error) {
 	now := time.Now().UTC()
 	correlationID := fmt.Sprintf("operation-%d", now.UnixNano())
 	actorID, assurance := localActor()
@@ -24,7 +28,7 @@ func operationAudit(baseAction, terminalSuffix, outcome string, subjects []audit
 		CorrelationID:   correlationID,
 		Actor:           audit.Actor{ID: actorID, Type: "user", Assurance: assurance},
 		Reason:          audit.Reason{Type: "user-request", Reference: "cli"},
-		Target:          "local",
+		Target:          target,
 		DiagnosticCodes: []string{},
 	}
 	chain := audit.NewChain()
@@ -53,10 +57,14 @@ func operationAudit(baseAction, terminalSuffix, outcome string, subjects []audit
 }
 
 func persistOperationAudit(path, baseAction, terminalSuffix, outcome string, subjects []audit.Subject, diagnosticCodes []string) error {
+	return persistOperationAuditForTarget(path, baseAction, terminalSuffix, outcome, "local", subjects, diagnosticCodes)
+}
+
+func persistOperationAuditForTarget(path, baseAction, terminalSuffix, outcome, target string, subjects []audit.Subject, diagnosticCodes []string) error {
 	if path == "" {
 		return nil
 	}
-	data, err := operationAudit(baseAction, terminalSuffix, outcome, subjects, diagnosticCodes)
+	data, err := operationAuditForTarget(baseAction, terminalSuffix, outcome, target, subjects, diagnosticCodes)
 	if err != nil {
 		return err
 	}

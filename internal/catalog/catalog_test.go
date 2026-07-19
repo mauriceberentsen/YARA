@@ -77,6 +77,35 @@ func TestCuratedV02SnapshotCompilesOnlyBoundedEvidence(t *testing.T) {
 	}
 }
 
+func TestContractTargetResolvesBoundedArtifactsAndReturnsCopies(t *testing.T) {
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load curated catalog: %v", err)
+	}
+	target, ok := snapshot.ContractTarget("compat.vllm-qwen-coder-7b-awq-rtx4090")
+	if !ok {
+		t.Fatal("expected selectable compatibility assertion")
+	}
+	if target.RuntimeRef != "core.vllm@0.25.1" || target.ModelRef != "models.qwen2.5-coder-7b-instruct-awq@8e8ed24" || target.HardwareProfileID != "hardware.nvidia-geforce-rtx-4090" {
+		t.Fatalf("unexpected target identity: %#v", target)
+	}
+	if len(target.RuntimeArtifacts) != 1 || target.RuntimeArtifacts[0].Digest == "" || len(target.RuntimeArtifacts[0].Platforms) != 2 || target.ModelArtifact.Revision == "" || len(target.ModelArtifact.Files) == 0 {
+		t.Fatalf("expected immutable runtime and model artifacts: %#v", target)
+	}
+	if target.Conditions.MinimumDriverVersion != "535" || target.Conditions.ComputePlatform != "cuda-13.0" {
+		t.Fatalf("expected compatibility conditions: %#v", target.Conditions)
+	}
+	target.RuntimeArtifacts[0].Platforms[0] = "mutated"
+	target.HardwareModels[0] = "mutated"
+	again, ok := snapshot.ContractTarget("compat.vllm-qwen-coder-7b-awq-rtx4090")
+	if !ok || again.RuntimeArtifacts[0].Platforms[0] == "mutated" || again.HardwareModels[0] == "mutated" {
+		t.Fatal("contract target leaked mutable catalog storage")
+	}
+	if _, ok := snapshot.ContractTarget("compat.unknown"); ok {
+		t.Fatal("unknown assertion became a contract target")
+	}
+}
+
 func TestCatalogRejectsStaleManifestAtSnapshotTime(t *testing.T) {
 	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.1", "snapshot.yaml"))
 	if err != nil {

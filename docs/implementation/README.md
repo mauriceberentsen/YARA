@@ -8,7 +8,7 @@ The foundational architecture is sufficiently defined to begin a thin v0.1 imple
 
 The bootstrap now includes strict resource decoding, public schemas, stable diagnostics, canonical digests and audit-event chaining. The catalog compiler resolves capability, component, model, hardware, compatibility and topology manifests. Every manifest declares lifecycle status, owners, evidence sources, confidence and a verification/review window. Freshness is evaluated deterministically against the immutable snapshot `publishedAt`; missing ownership, malformed provenance and expired evidence invalidate the snapshot. The bundled fixtures remain experimental and emit `YARA-CAT-055` into catalog output, plans, explanations, diffs, debug bundles, scenarios and audit evidence. Compatibility quarantine, multi-component topology resolution and independent plan validation remain active. Generated plans state bounded search and ordinal confidence; explanation, diff and debug-bundle paths are auditable. `scenario validate-all` proves exact offline technical conformance for ten content-addressed cases and counts approved review resources for release eligibility. See the [v0.1 acceptance ledger](v0.1-acceptance-status.md).
 
-After v0.1 acceptance, `catalog/v0.2/` introduces the first curated real stack. It contains ten versioned suite components, two immutable Qwen AWQ model snapshots, three NVIDIA Ada hardware profiles and six compatibility-bounded serving candidates. LiteLLM and vLLM are selectable only as experimental components; Open WebUI, Qdrant, PostgreSQL, Redis, ClickHouse, Prometheus, Grafana and Langfuse remain knowledge-only until their YARA integration contracts are tested. The planner now rejects requests outside a candidate's asserted context window or minimum driver branch.
+After v0.1 acceptance, `catalog/v0.2/` introduces the first curated real stack. It contains ten versioned suite components, two immutable Qwen AWQ model snapshots, three NVIDIA Ada hardware profiles and six compatibility-bounded serving candidates. LiteLLM and vLLM are selectable only as experimental components; Open WebUI, Qdrant, PostgreSQL, Redis, ClickHouse, Prometheus, Grafana and Langfuse remain knowledge-only until their YARA integration contracts are tested. The planner now rejects requests outside a candidate's asserted context window or minimum driver branch. A read-only SSH [contract preflight](contract-testing.md) records whether a host is eligible for later workload testing without overstating operational compatibility.
 
 ## Fixed decisions
 
@@ -78,6 +78,7 @@ internal/planner         pure stages and decision construction
 internal/plandiff        pure semantic plan comparison and impact classification
 internal/debugbundle     allowlisted support summaries and secret-pattern gate
 internal/scenario        offline golden-scenario conformance evaluation
+internal/contracttest    read-only environment observation and pure contract evaluation
 internal/diagnostics     stable codes and structured reports
 internal/audit           event construction, redaction and local sink
 internal/canonical       canonical JSON and content digests
@@ -103,11 +104,16 @@ yara scenario validate scenarios/v0.1/private-chat-coding/scenario.yaml \
   --audit-output scenario-validation.audit.jsonl
 yara scenario validate-all scenarios/v0.1 \
   --audit-output v0.1-scenario-suite.audit.jsonl
+yara contract preflight --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-rtx4090 \
+  --target user@host --name rtx4090-preflight \
+  --output contract-result.yaml --audit-output contract-preflight.audit.jsonl
+yara contract validate contract-result.yaml
 yara audit verify audit.jsonl
 ```
 
 Commands must work with networking disabled. Human output goes to stderr when structured output is written to stdout. Existing output files are not overwritten without an explicit flag.
 
-`--audit-output` remains optional for read-only validation, explanation and diff commands to preserve simple local inspection. When supplied, the command writes a two-event started/terminal chain and fails if that evidence cannot be persisted. Explanation events bind the plan ID and exact selected-decision or decision-list digest without copying the explanation. `plan create` and `debug bundle` always require audit output. Debug-bundle generation binds the plan and bundle IDs, refuses secret-like output and rolls the artifact back when audit persistence fails. Load failures record stable diagnostic codes and only content or opaque input-reference digests; resource bodies and local paths are never copied into audit evidence.
+`--audit-output` remains optional for read-only validation, explanation and diff commands to preserve simple local inspection. When supplied, the command writes a two-event started/terminal chain and fails if that evidence cannot be persisted. Explanation events bind the plan ID and exact selected-decision or decision-list digest without copying the explanation. `plan create`, `debug bundle` and `contract preflight` always require audit output. Debug-bundle and contract-result generation roll their artifact back when audit persistence fails. Contract audit events use a digest of the remote SSH reference rather than storing it. Load failures record stable diagnostic codes and only content or opaque input-reference digests; resource bodies and local paths are never copied into audit evidence.
 
 Continue with the [first vertical slice](first-vertical-slice.md).

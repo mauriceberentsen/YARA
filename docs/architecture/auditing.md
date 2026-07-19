@@ -27,6 +27,7 @@ The local CLI currently emits two-event started/terminal chains for:
 - redacted debug-bundle generation, with mandatory audit evidence binding the source plan ID and resulting bundle ID;
 - golden-scenario validation when `--audit-output` is supplied, binding the scenario ID and generated plan ID without claiming review approval;
 - golden-scenario suite validation when `--audit-output` is supplied, binding every scenario ID and every generated plan ID without claiming or counting human approval;
+- read-only SSH contract preflight with mandatory fail-closed evidence, binding the catalog and content-addressed test-result digests while pseudonymizing the remote reference;
 - planning started/completed/failed/infeasible, with audit output mandatory;
 - request, inventory and catalog load/decode rejection during planning.
 
@@ -36,7 +37,7 @@ For a successful planning run, the event records the request, inventory, catalog
 
 The v0.2 catalog path preserves the same boundary: `catalog validate` binds its terminal event to the exact `CatalogSnapshot` digest, and `plan create` binds both the catalog and resulting plan digests while retaining material maturity diagnostics such as `YARA-CAT-055`. Immutable artifact digests and evidence URLs live in the catalog referenced by that digest; they are not copied into every event.
 
-Catalog promotion is not yet a CLI operation. Until it is, the Git commit and review record are the approval evidence. Before any manifest can be promoted to `supported`, YARA must add auditable artifact-verification, contract-test and promotion actions that bind the exact manifest, artifact, test result, actor and resulting snapshot digest. A status edit alone is not sufficient evidence.
+Catalog promotion is not yet a CLI operation. Until it is, the Git commit and review record are the approval evidence. The implemented preflight is eligibility evidence only; it does not perform artifact verification or a workload test. Before any manifest can be promoted to `supported`, YARA must add auditable artifact-verification, workload-contract and promotion actions that bind the exact manifest, artifact, test result, actor and resulting snapshot digest. A status edit or passing preflight alone is not sufficient evidence.
 
 The current local actor comes from the operating-system identity and is labelled `self-asserted-local` (or `unknown-local` when unavailable). A future authenticated service or explicit actor input may provide stronger provenance, but the current value must not be presented as cryptographically verified identity.
 
@@ -91,6 +92,7 @@ catalog.validate.*
 catalog.artifact-verify.*
 catalog.contract-test.*
 catalog.promote.*
+contract.preflight.*
 policy.resolve.*
 plan.create.*
 plan.validate.*
@@ -120,6 +122,7 @@ A future service uses durable append semantics, monotonically ordered sequences 
 
 - The current local `plan create` command requires an audit destination and fails closed if its start/terminal chain cannot be written.
 - The current local `debug bundle` command also requires an audit destination and removes its output if terminal evidence cannot be persisted.
+- The current `contract preflight` command requires an audit destination and removes its result if terminal evidence cannot be persisted. Blocked and failed evaluations remain persisted as negative evidence.
 - Read-only validation, plan explanation and plan comparison do not require persistent audit by default; once `--audit-output` is supplied, failure to persist it fails the command.
 - A future explicit no-persistence planning mode, if accepted by policy, must report `auditPersistence: unavailable` prominently rather than silently omitting evidence.
 - Production mutation MUST NOT start if the required audit sink is unavailable.
