@@ -7,8 +7,8 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-change-set-approval-contracts`.
-- Latest completed merge: `1863f7a` (`Merge audited read-only Kubernetes preflight`), pushed to `origin/main` with the final handoff commit below.
+- Active branch: `main`.
+- Latest completed merge: `e8aa06c` (`Merge change set and approval contracts`), pushed to `origin/main` with the final handoff commit below.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: complete the audited target/change-set/approval boundary in thin slices without granting mutation authority prematurely.
 
@@ -206,7 +206,7 @@ The result is observation evidence only. The initial observer cannot produce dep
 
 This slice was committed as `49e1541`, merged to `main` as `1863f7a` and pushed under Maurice's configured author identity.
 
-## Current slice: observed change set, approval and receipt contracts
+## Completed slice: observed change set, approval and receipt contracts
 
 Continue Phase 2 without granting mutation authority. The current branch adds:
 
@@ -220,7 +220,9 @@ Continue Phase 2 without granting mutation authority. The current branch adds:
 - a public validate-only deployment-receipt contract; there is intentionally no receipt-generation or apply command;
 - ADR-0010 recording that future mutation requires exact observed state and strongly assured approval.
 
-Full-suite/race validation and documentation consistency checks pass. Publication/merge remains. No live cluster, container or remote host has been contacted.
+Full-suite/race validation and documentation consistency checks pass. No live cluster, container or remote host was contacted.
+
+This slice was committed as `8502199`, merged to `main` as `e8aa06c` and pushed under Maurice's configured author identity.
 
 ## Audit requirements
 
