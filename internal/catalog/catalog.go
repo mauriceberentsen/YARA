@@ -289,6 +289,22 @@ type PolicyFacts struct {
 	ArtifactVerified bool
 }
 
+// ContractTarget is the immutable catalog projection needed by an external
+// compatibility test runner. It intentionally excludes unrelated manifests.
+type ContractTarget struct {
+	AssertionID               string
+	AssertionStatus           string
+	RuntimeRef                string
+	RuntimeArtifacts          []ArtifactReference
+	ModelRef                  string
+	ModelArtifact             ArtifactReference
+	HardwareProfileID         string
+	HardwareVendor            string
+	HardwareModels            []string
+	HardwareComputeCapability string
+	Conditions                CompatibilityConditions
+}
+
 func (s Snapshot) Candidates() []ServingCandidate {
 	candidates := slices.Clone(s.candidates)
 	for index := range candidates {
@@ -298,6 +314,67 @@ func (s Snapshot) Candidates() []ServingCandidate {
 		candidates[index].Evidence = slices.Clone(candidates[index].Evidence)
 	}
 	return candidates
+}
+
+func (s Snapshot) ContractTarget(assertionID string) (ContractTarget, bool) {
+	var assertion *CompatibilityAssertion
+	for index := range s.manifests.Compatibility {
+		if s.manifests.Compatibility[index].Metadata.ID == assertionID {
+			assertion = &s.manifests.Compatibility[index]
+			break
+		}
+	}
+	if assertion == nil || assertion.Spec.Compatibility != "supported" || !selectableStatus(assertion.Metadata.Status) {
+		return ContractTarget{}, false
+	}
+	var component *ComponentManifest
+	for index := range s.manifests.Components {
+		if s.manifests.Components[index].Metadata.ID == assertion.Spec.RuntimeRef {
+			component = &s.manifests.Components[index]
+			break
+		}
+	}
+	var model *ModelManifest
+	for index := range s.manifests.Models {
+		if s.manifests.Models[index].Metadata.ID == assertion.Spec.ModelRef {
+			model = &s.manifests.Models[index]
+			break
+		}
+	}
+	var hardware *HardwareProfileManifest
+	for index := range s.manifests.Hardware {
+		if s.manifests.Hardware[index].Metadata.ID == assertion.Spec.HardwareProfileRef {
+			hardware = &s.manifests.Hardware[index]
+			break
+		}
+	}
+	if component == nil || model == nil || model.Spec.Artifact == nil || hardware == nil {
+		return ContractTarget{}, false
+	}
+	return ContractTarget{
+		AssertionID: assertion.Metadata.ID, AssertionStatus: assertion.Metadata.Status,
+		RuntimeRef:        component.Metadata.ID + "@" + component.Metadata.Version,
+		RuntimeArtifacts:  cloneArtifacts(component.Spec.Artifacts),
+		ModelRef:          model.Metadata.ID + "@" + model.Metadata.Version,
+		ModelArtifact:     cloneArtifact(*model.Spec.Artifact),
+		HardwareProfileID: hardware.Metadata.ID, HardwareVendor: hardware.Spec.Vendor,
+		HardwareModels: slices.Clone(hardware.Spec.Models), HardwareComputeCapability: hardware.Spec.ComputeCapability,
+		Conditions: compatibilityConditions(assertion.Spec.Conditions),
+	}, true
+}
+
+func cloneArtifacts(values []ArtifactReference) []ArtifactReference {
+	result := make([]ArtifactReference, len(values))
+	for index := range values {
+		result[index] = cloneArtifact(values[index])
+	}
+	return result
+}
+
+func cloneArtifact(value ArtifactReference) ArtifactReference {
+	value.Platforms = slices.Clone(value.Platforms)
+	value.Files = slices.Clone(value.Files)
+	return value
 }
 
 func (s Snapshot) Diagnostics() []diagnostics.Diagnostic {

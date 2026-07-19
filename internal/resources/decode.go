@@ -47,6 +47,10 @@ func LoadAcceptanceGateReview(path string) (AcceptanceGateReview, error) {
 	return loadResource[AcceptanceGateReview](path)
 }
 
+func LoadContractTestResult(path string) (ContractTestResult, error) {
+	return loadResource[ContractTestResult](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

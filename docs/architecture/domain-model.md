@@ -146,6 +146,10 @@ Content-addressed local support metadata derived from a validated plan. The v0.1
 
 Content-addressed executable review case binding exact request, inventory and catalog inputs to expected planning outcome, plan identity, required decisions/selections, forbidden selections, diagnostic codes and independent-review requirements. Technical conformance never implies expert approval; review evidence remains a separate identity-bound record.
 
+### ContractTestResult
+
+Immutable, content-addressed evidence for evaluating one exact compatibility assertion against one observed environment. The preflight mode records pseudonymized target identity, OS/Docker/accelerator facts, sorted checks, stable diagnostics and explicit limitations. A passing preflight is eligibility evidence, not workload compatibility or catalog promotion.
+
 ### AuditEvent
 
 Append-only evidence of a security-relevant or state-changing action. An event identifies actor, action, subject/resource digests, reason, effective policy, target, outcome, correlation/causation IDs, time source and integrity metadata. Payloads contain references and redacted summaries, never secrets or full sensitive resources by default.
