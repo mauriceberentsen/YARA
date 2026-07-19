@@ -7,10 +7,10 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-gb10-capacity-contract`.
-- Branch base: `main` at `ad42257` (`Merge audited GB10 model inference contract`).
+- Active branch: `feature/v0-2-gb10-policy-contract`.
+- Branch base: `main` at `037a8f9` (`Merge audited GB10 context capacity contract`).
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: implement and execute the next GB10 promotion gate without declaring the tuple supported prematurely.
+- Working goal: implement and execute the GB10 policy-contract gate without declaring the tuple supported prematurely.
 
 ## Current product boundary
 
@@ -23,7 +23,7 @@ YARA v0.1 is an offline deterministic planner. The v0.2 catalog introduces a nar
 
 The last merged slice added `yara contract model-inference`. Its positive result is `sha256:5e631233d3936e40c533eb833b11cc7ae98529edc947c1dc30860d1e2ef7bf9b`, with audit head `sha256:ec63273bf89d8a0b5dbaa77cc6b8deac64f94641223f075c50984ee10aadaff3`. The exact runner binary digest is `sha256:448d503b90b40a1262b1d23349f51ecae9ef0961cb4ce05626d50af38dec01ba`.
 
-## Active slice: capacity boundary
+## Completed slice: capacity boundary
 
 Implement a separate, bounded and audited capacity contract for `compat.vllm-qwen-coder-7b-awq-gb10`.
 
@@ -41,6 +41,21 @@ The catalog currently asserts `maximumContextTokens: 32768` but does not declare
 Implementation status: runner, evaluator, CLI dispatch, schema mode, unit/CLI tests and archived evidence are present in the working tree. The request starts vLLM with `--max-model-len 32768` and `--max-num-seqs 1`, submits an oversized chat payload with `truncate_prompt_tokens: 32760` and reserves eight completion tokens. A pass requires the API usage record to report exactly 32760 prompt tokens, 1–8 completion tokens, a consistent total and no total above 32768. The contract records no prompt, completion or raw log. Non-sensitive integer counts are reviewable in `check.measurements` and remain bound by the evidence digest and result ID.
 
 The final GB10 run passed with result ID `sha256:56e08293c73b7b8cf2e6db4a2c824b38cb2bb8ff79fe5cb337cbe62dfb8f2441`, audit head `sha256:a7b9f4746bbeca827fe157ac4ea9e55cd235c7acbdf86f4229af85fec1452a56` and runner digest `sha256:021d3f399b89400bbb83b3d345f121583b8c222144ead40885971d83fac28148`. Measurements: requested prompt 32760, observed prompt 32760, completion 8 and total 32768 at concurrency 1.
+
+The slice was committed as `6fcc4a1` and merged to `main` as `037a8f9`. Post-merge `make check` passed and local `main` matched `origin/main` before the next branch was created.
+
+## Active slice: policy contract
+
+Implement a separate audited policy contract for the same exact Qwen Coder/vLLM/GB10 tuple. The gate must test observable controls, not claim general security or compliance. At minimum, design explicit checks for:
+
+- serving-container egress isolation and absence of published ports;
+- telemetry disabled through known runtime controls, while documenting that environment configuration is not proof of all upstream behavior;
+- read-only root filesystem plus the smallest explicit writable tmpfs set;
+- no secrets, host environment, Docker socket or unrelated host mounts passed to the serving container;
+- non-privileged execution, no added Linux capabilities and an explicit privilege-escalation posture;
+- ownership-scoped cleanup and fail-closed audit persistence.
+
+First determine which controls can be proved from Docker inspect state and which require an active negative probe. Prefer a fresh `policy-contract` result mode and `contract.policy.*` audit actions. Do not silently weaken the tmpfs controls required for Triton-generated executable objects; record that exception explicitly.
 
 Before executing the remote contract, review host capacity and confirm unrelated GPU workloads may be stopped. Temporary resources must use unique `yara-contract-*` names and cleanup must remove only owned resources. Never store the raw SSH target in results, audit files or this handoff.
 
@@ -93,6 +108,8 @@ Latest validation status: `make check`, `go test -race ./...`, every archived GB
 
 ## Immediate next actions
 
-1. Review the final diff for scope and secrets.
-2. Commit, push, merge and perform post-merge checks.
-3. Continue with the policy-contract gate on a new branch; do not promote the GB10 assertion yet.
+1. Define the policy threat model, observable controls and non-goals in `docs/implementation/contract-testing.md`.
+2. Decide whether policy reuses a loaded model or runs a smaller container-inspection contract; preserve exact tuple binding either way.
+3. Add pass and negative unit tests before remote execution.
+4. Execute on the authorized GB10 only after the safety review, archive evidence and retain `known` maturity.
+5. Commit, push, merge and move to the lifecycle gate.
