@@ -57,6 +57,8 @@ Implement a separate audited policy contract for the same exact Qwen Coder/vLLM/
 
 First determine which controls can be proved from Docker inspect state and which require an active negative probe. Prefer a fresh `policy-contract` result mode and `contract.policy.*` audit actions. Do not silently weaken the tmpfs controls required for Triton-generated executable objects; record that exception explicitly.
 
+Implementation status: `contract policy`, the `policy-contract` result mode, Docker inspect and active egress probes, hardening flags, cleanup verification, stable diagnostics and unit/CLI/fail-closed tests are implemented. `make check` and `go test -race ./...` pass. The GB10 run passed with result `sha256:725b54027506733ff9514e1b2805165389940714b500afa4cd8e44188916ac0d`, audit head `sha256:23870ef3177e1e4df95caeb41270e7f011b0cacd201f6061d020bbb366400714` and runner digest `sha256:c63f64b2215ba817f61115a54f1c2f2e4cf9f5e7dbf4deb8191dd862e7f8238e`. The profile deliberately retains image-default root while applying `cap-drop ALL`, `no-new-privileges`, non-privileged mode, read-only root and restricted mounts; non-root compatibility remains a documented open claim.
+
 Before executing the remote contract, review host capacity and confirm unrelated GPU workloads may be stopped. Temporary resources must use unique `yara-contract-*` names and cleanup must remove only owned resources. Never store the raw SSH target in results, audit files or this handoff.
 
 ## Audit requirements
@@ -108,8 +110,8 @@ Latest validation status: `make check`, `go test -race ./...`, every archived GB
 
 ## Immediate next actions
 
-1. Define the policy threat model, observable controls and non-goals in `docs/implementation/contract-testing.md`.
-2. Decide whether policy reuses a loaded model or runs a smaller container-inspection contract; preserve exact tuple binding either way.
-3. Add pass and negative unit tests before remote execution.
-4. Execute on the authorized GB10 only after the safety review, archive evidence and retain `known` maturity.
-5. Commit, push, merge and move to the lifecycle gate.
+1. Rebuild and revalidate the exact policy runner, all GB10 evidence and audit chains.
+2. Commit, push and merge the policy slice.
+3. Start the lifecycle contract on a new branch.
+4. Add a machine-readable catalog coverage ledger before any final completion claim.
+5. Record unavailable Ada hardware as an explicit external evidence blocker, never as an inferred pass.
