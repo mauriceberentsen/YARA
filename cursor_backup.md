@@ -7,10 +7,10 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-kubernetes-apply-executor`.
-- Latest completed merge on main: `3ace2b2` (`Merge signed execution authorization`), followed by handoff commit `d3d9739`.
+- Active branch: `main`.
+- Latest completed slice: feature commit `4b67f19`, merged to main as `89d5786` (`Merge authorized Kubernetes apply executor`) and pushed to `origin/main`.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: finish, validate and publish the first fail-closed direct Kubernetes apply slice.
+- Working goal: controlled-cluster review of the first fail-closed direct Kubernetes apply slice, followed by acquisition/import receipts and safe lifecycle operations.
 
 ## Current product boundary
 
@@ -291,13 +291,11 @@ Latest validation status: `make check`, `go test -race ./...`, deterministic tes
 
 ## Immediate next actions
 
-1. Finish full-suite, race, schema/link and static validation for the apply branch; review the final diff for secret/path leakage.
-2. Commit under `Maurice Berentsen <mauriceberentsen@live.nl>`, push the feature branch, merge with `--no-ff`, push main and rerun post-merge checks.
-3. Run the documented command chain on a deliberately disposable Kubernetes environment with an existing owned namespace and verified `yara-model` PVC; do not use production first.
-4. Add acquisition/import receipts and exact internal artifact locations before an air-gap completeness claim.
-5. Prove an independently reviewed second apply is all no-op against a controlled cluster and archive its receipt/audit chain.
-6. Add safe owned-resource retirement and rollback as separately authorized operations; do not extend ordinary apply with implicit prune.
-7. Implement a generic integration executor independently of deployment apply; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
+1. Run the documented command chain on a deliberately disposable Kubernetes environment with an existing owned namespace and verified `yara-model` PVC; do not use production first.
+2. Add acquisition/import receipts and exact internal artifact locations before an air-gap completeness claim.
+3. Prove an independently reviewed second apply is all no-op against a controlled cluster and archive its receipt/audit chain.
+4. Add safe owned-resource retirement and rollback as separately authorized operations; do not extend ordinary apply with implicit prune.
+5. Implement a generic integration executor independently of deployment apply; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
 
 ## Current branch slice: fail-closed Kubernetes apply
 
@@ -309,4 +307,4 @@ When authorized, a hardened temporary Pod verifies every model shard size/digest
 
 After Lease acquisition, success and partial/failure paths produce a content-addressed `DeploymentReceipt` that now also binds `authorizationId`. The receipt is durable before the terminal audit event. The audit chain and receipt exclude kubeconfig, context, raw API address and object bodies. Model artifact paths now reject absolute, unclean and parent-traversal forms.
 
-Tests use an injected fake executor to prove the start audit is durable before mutation and wrong confirmation never reaches the executor while still producing a failed audit chain. A fake kubectl target proves Lease ordering, exact approved apply count, namespace no-op, second-apply idempotency, cleanup identity checks and stale/foreign-state rejection before object apply. `make check`, `go test -race ./...` and `git diff --check` pass on the feature branch. No live cluster, container or remote host has been contacted by this slice.
+Tests use an injected fake executor to prove the start audit is durable before mutation and wrong confirmation never reaches the executor while still producing a failed audit chain. A fake kubectl target proves Lease ordering, exact approved apply count, namespace no-op, second-apply idempotency, cleanup identity checks and stale/foreign-state rejection before object apply. `make check`, `go test -race ./...` and `git diff --check` passed before merge; post-merge `make check` also passed on main. No live cluster, container or remote host has been contacted by this slice.
