@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -148,6 +149,10 @@ func (o KubectlObserver) observeNodes(ctx context.Context, observation *Observat
 		Items []struct {
 			Status struct {
 				Allocatable map[string]string `json:"allocatable"`
+				NodeInfo    struct {
+					Architecture    string `json:"architecture"`
+					OperatingSystem string `json:"operatingSystem"`
+				} `json:"nodeInfo"`
 			} `json:"status"`
 		} `json:"items"`
 	}
@@ -155,12 +160,22 @@ func (o KubectlObserver) observeNodes(ctx context.Context, observation *Observat
 		return
 	}
 	observation.NodesReadable = true
+	platforms := map[string]struct{}{}
 	for _, node := range list.Items {
+		architecture := strings.TrimSpace(node.Status.NodeInfo.Architecture)
+		operatingSystem := strings.TrimSpace(node.Status.NodeInfo.OperatingSystem)
+		if architecture != "" && operatingSystem != "" {
+			platforms[operatingSystem+"/"+architecture] = struct{}{}
+		}
 		count, err := strconv.Atoi(node.Status.Allocatable["nvidia.com/gpu"])
 		if err == nil && count > 0 {
 			observation.GPUCount += count
 		}
 	}
+	for platform := range platforms {
+		observation.NodePlatforms = append(observation.NodePlatforms, platform)
+	}
+	slices.Sort(observation.NodePlatforms)
 }
 
 func (o KubectlObserver) observeDNS(ctx context.Context, observation *Observation) {

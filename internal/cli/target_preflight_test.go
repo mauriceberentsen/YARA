@@ -32,7 +32,7 @@ func TestKubernetesTargetPreflightWritesBlockedResultAndPseudonymousAudit(t *tes
 	reference := "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	observation := targetpreflight.Observation{
 		ReferenceDigest: reference, ServerVersion: "v1.35.2", CoreV1: true, AppsV1: true, NetworkingV1: true,
-		NodesReadable: true, GPUCount: 2, DNSReadable: true, DNSPodCount: 2,
+		NodesReadable: true, GPUCount: 2, NodePlatforms: []string{"linux/amd64"}, DNSReadable: true, DNSPodCount: 2,
 		NamespaceReadable: true, PVCReadable: true, PVCExists: true, PVCPhase: "Bound",
 	}
 	factory := func(kubeconfig, contextName string) (targetpreflight.Observer, error) {

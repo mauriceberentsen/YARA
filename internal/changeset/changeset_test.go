@@ -145,7 +145,7 @@ func changeSetPreflight(t *testing.T, bundle resources.DeploymentBundle, target 
 	t.Helper()
 	observation := targetpreflight.Observation{
 		ReferenceDigest: target.ReferenceDigest, ServerVersion: target.ServerVersion,
-		CoreV1: true, AppsV1: true, NetworkingV1: true, NodesReadable: true, GPUCount: 1,
+		CoreV1: true, AppsV1: true, NetworkingV1: true, NodesReadable: true, GPUCount: 1, NodePlatforms: []string{"linux/amd64"},
 		DNSReadable: true, DNSPodCount: 1, NamespaceReadable: true, PVCReadable: true, PVCExists: true, PVCPhase: "Bound",
 	}
 	result, err := targetpreflight.Evaluate("reference-preflight", bundle, observation, time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC))

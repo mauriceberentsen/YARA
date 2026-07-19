@@ -216,7 +216,7 @@ func TestChangeSetRejectsStalePreflightBeforeObservation(t *testing.T) {
 
 func writeFreshPreflight(t *testing.T, directory string, bundle resources.DeploymentBundle, target resources.TargetIdentity, observedAt time.Time) string {
 	t.Helper()
-	observation := targetpreflight.Observation{ReferenceDigest: target.ReferenceDigest, ServerVersion: target.ServerVersion, CoreV1: true, AppsV1: true, NetworkingV1: true, NodesReadable: true, GPUCount: 1, DNSReadable: true, DNSPodCount: 1, NamespaceReadable: true, PVCReadable: true, PVCExists: true, PVCPhase: "Bound"}
+	observation := targetpreflight.Observation{ReferenceDigest: target.ReferenceDigest, ServerVersion: target.ServerVersion, CoreV1: true, AppsV1: true, NetworkingV1: true, NodesReadable: true, GPUCount: 1, NodePlatforms: []string{"linux/amd64"}, DNSReadable: true, DNSPodCount: 1, NamespaceReadable: true, PVCReadable: true, PVCExists: true, PVCPhase: "Bound"}
 	result, err := targetpreflight.Evaluate("reference-preflight", bundle, observation, observedAt)
 	if err != nil {
 		t.Fatal(err)
