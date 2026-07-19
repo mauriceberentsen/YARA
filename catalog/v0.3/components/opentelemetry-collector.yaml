@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.opentelemetry-collector, version: 0.155.0, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/tag/v0.155.0"}
+    - {type: upstream-documentation, ref: "https://opentelemetry.io/docs/collector/configuration/"}
+  verifiedAt: 2026-07-19T19:49:58Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: telemetry-collector
+  upstreamVersion: 0.155.0
+  homepage: https://opentelemetry.io/docs/collector/
+  license:
+    id: Apache-2.0
+    source: https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/v0.155.0/LICENSE
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: otel/opentelemetry-collector-contrib:0.155.0
+      digest: sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
+      platforms: [linux/386, linux/amd64, linux/arm/v7, linux/arm64, linux/ppc64le, linux/riscv64, linux/s390x]
+  health: {protocol: tcp, port: 4317}
+  roles: [observability.telemetry]
+  provides: [observability.telemetry-otlp/v1]
+  consumes: []
+  apiContracts: [observability.telemetry-otlp/v1]
+  runtimeOverheadGiB: 0.5
+  policy: {openSource: true, externalEgress: true, telemetry: true, artifactVerified: true}

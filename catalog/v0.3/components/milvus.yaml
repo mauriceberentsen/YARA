@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.milvus, version: 2.6.18, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/milvus-io/milvus/releases/tag/v2.6.18"}
+    - {type: upstream-documentation, ref: "https://milvus.io/docs/install_standalone-docker.md"}
+  verifiedAt: 2026-07-19T19:49:58Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: vector-database
+  upstreamVersion: 2.6.18
+  homepage: https://milvus.io/
+  license:
+    id: Apache-2.0
+    source: https://github.com/milvus-io/milvus/blob/v2.6.18/LICENSE
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: milvusdb/milvus:v2.6.18
+      digest: sha256:c6e332d3783c2c42649d5f76c5dae79d553927196a60547f619be13484ab44f6
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: tcp, port: 19530}
+  roles: [database.vector]
+  provides: [retrieval.vector-search/v1]
+  consumes: [storage.object-s3/v1]
+  apiContracts: [retrieval.vector-search/v1, storage.object-s3/v1]
+  runtimeOverheadGiB: 4
+  policy: {openSource: true, externalEgress: false, telemetry: false, artifactVerified: true}

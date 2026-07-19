@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.prometheus, version: 3.13.1, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/prometheus/prometheus/releases/tag/v3.13.1"}
+    - {type: upstream-documentation, ref: "https://prometheus.io/docs/prometheus/latest/management_api/"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-10-19T00:00:00Z
+  confidence: high
+spec:
+  category: metrics
+  upstreamVersion: 3.13.1
+  homepage: https://prometheus.io/
+  license:
+    id: Apache-2.0
+    source: https://github.com/prometheus/prometheus/blob/v3.13.1/LICENSE
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: prom/prometheus:v3.13.1
+      digest: sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: http, path: /-/ready}
+  roles: [observability.metrics]
+  provides: [observability.metrics-prometheus/v1]
+  consumes: []
+  apiContracts: [observability.metrics-prometheus/v1]
+  runtimeOverheadGiB: 0.5
+  policy: {openSource: true, externalEgress: false, telemetry: false, artifactVerified: true}

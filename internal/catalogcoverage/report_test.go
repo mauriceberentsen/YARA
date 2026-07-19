@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
+	"github.com/mauriceberentsen/YARA/internal/resources"
 )
 
 func TestBuildReportsExactV02EvidenceGaps(t *testing.T) {
@@ -30,6 +32,14 @@ func TestBuildReportsExactV02EvidenceGaps(t *testing.T) {
 	if len(report.Spec.Capabilities) != 13 || report.Spec.Capabilities[0].Coverage != "complete" || len(report.Spec.Topologies) != 1 || report.Spec.Topologies[0].Coverage != "none" {
 		t.Fatalf("catalog categories are not fully enumerated: capabilities=%#v topologies=%#v", report.Spec.Capabilities, report.Spec.Topologies)
 	}
+	if !contains(report.Spec.Topologies[0].Blockers, "no-topology-integration-evidence") {
+		t.Fatalf("topology integration blocker disappeared: %#v", report.Spec.Topologies[0])
+	}
+	for _, component := range report.Spec.Components {
+		if !contains(component.Blockers, "no-component-smoke-evidence") || !contains(component.Blockers, "no-topology-integration-evidence") {
+			t.Fatalf("component integration blockers are incomplete: %#v", component)
+		}
+	}
 	coder := findAssertion(t, report, "compat.vllm-qwen-coder-7b-awq-gb10")
 	for _, mode := range requiredContractModes {
 		gate := findGate(t, coder, mode)
@@ -51,6 +61,33 @@ func TestBuildReportsExactV02EvidenceGaps(t *testing.T) {
 	capacity := findGate(t, qwen3, "capacity-boundary")
 	if len(capacity.ObservedEvidence) != 2 || capacity.ObservedEvidence[0].Outcome != "failed" || capacity.ObservedEvidence[1].Outcome != "passed" {
 		t.Fatalf("Qwen3 capacity remediation history disappeared: %#v", capacity)
+	}
+}
+
+func TestIntegrationValidationAuditIsNotExecutionEvidence(t *testing.T) {
+	result := resources.IntegrationTestResult{
+		Metadata: resources.IntegrationTestResultMetadata{ResultID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Spec: resources.IntegrationTestResultSpec{
+			Mode:          "component-smoke",
+			Outcome:       "passed",
+			CatalogDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			Environment: resources.ContractTestEnvironment{
+				Transport:       "local",
+				ReferenceDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+			},
+		},
+	}
+	events := []audit.Event{{}, {Spec: audit.Spec{
+		Action:  "integration.validate.completed",
+		Outcome: "success",
+		Target:  "local:" + result.Spec.Environment.ReferenceDigest,
+		Subjects: []audit.Subject{
+			{Kind: "CatalogSnapshot", Digest: result.Spec.CatalogDigest},
+			{Kind: "IntegrationTestResult", Digest: result.Metadata.ResultID},
+		},
+	}}}
+	if err := verifyIntegrationEvidenceAudit(events, result, result.Spec.CatalogDigest); err == nil {
+		t.Fatal("validation-only audit was accepted as integration execution evidence")
 	}
 }
 

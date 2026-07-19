@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.clickhouse, version: 25.8.28.1, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/ClickHouse/ClickHouse/releases/tag/v25.8.28.1-lts"}
+    - {type: upstream-documentation, ref: "https://clickhouse.com/docs/operations/monitoring"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-10-19T00:00:00Z
+  confidence: high
+spec:
+  category: columnar-database
+  upstreamVersion: 25.8.28.1
+  homepage: https://clickhouse.com/clickhouse
+  license:
+    id: Apache-2.0
+    source: https://github.com/ClickHouse/ClickHouse/blob/v25.8.28.1-lts/LICENSE
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: clickhouse/clickhouse-server:25.8.28.1
+      digest: sha256:a9d328123ff8a61bf6b16448528b577d59deb85758172e13b09054b0727f8adf
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: http, path: /ping}
+  roles: [database.columnar]
+  provides: [storage.columnar-clickhouse/v1]
+  consumes: []
+  apiContracts: [storage.columnar-clickhouse/v1]
+  runtimeOverheadGiB: 1
+  policy: {openSource: true, externalEgress: false, telemetry: false, artifactVerified: true}

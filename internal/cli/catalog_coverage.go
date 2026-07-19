@@ -94,7 +94,7 @@ func parseCatalogCoverageOptions(args []string, stderr io.Writer) (catalogCovera
 	flags := flag.NewFlagSet("catalog coverage create", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.catalogPath, "catalog", "", "Validated CatalogSnapshot file")
-	flags.StringVar(&options.evidenceDir, "evidence-dir", "", "Directory containing ContractTestResult YAML and adjacent audit chains")
+	flags.StringVar(&options.evidenceDir, "evidence-dir", "", "Directory containing contract or integration result YAML and adjacent audit chains")
 	flags.StringVar(&options.name, "name", "", "CatalogCoverageReport name")
 	flags.StringVar(&options.outputPath, "output", "", "Generated CatalogCoverageReport YAML file")
 	flags.StringVar(&options.auditPath, "audit-output", "", "Generated audit JSONL file")

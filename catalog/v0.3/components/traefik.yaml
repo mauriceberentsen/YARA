@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.traefik, version: 3.7.1, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/traefik/traefik/releases/tag/v3.7.1"}
+    - {type: upstream-documentation, ref: "https://doc.traefik.io/traefik/reference/install-configuration/observability/healthcheck/ping/"}
+  verifiedAt: 2026-07-19T19:49:58Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: reverse-proxy
+  upstreamVersion: 3.7.1
+  homepage: https://traefik.io/traefik/
+  license:
+    id: MIT
+    source: https://github.com/traefik/traefik/blob/v3.7.1/LICENSE.md
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: traefik:v3.7.1
+      digest: sha256:6b9cbca6fac42ab0075f5437d8dc1685cfd188626d8d515839ea94f8b6271c42
+      platforms: [linux/amd64, linux/arm64, linux/ppc64le, linux/riscv64, linux/s390x]
+  health: {protocol: http, path: /ping}
+  roles: [networking.reverse-proxy]
+  provides: [networking.reverse-proxy/v1]
+  consumes: []
+  apiContracts: [networking.reverse-proxy/v1]
+  runtimeOverheadGiB: 0.25
+  policy: {openSource: true, externalEgress: false, telemetry: true, artifactVerified: true}

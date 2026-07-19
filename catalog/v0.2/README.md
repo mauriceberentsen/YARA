@@ -27,7 +27,7 @@ The first two GB10 smoke results and their verified audit chains are archived un
 
 ## Completion status
 
-[`coverage.yaml`](coverage.yaml) is the deterministic completion ledger for this exact snapshot. It currently binds all 14 archived contract results and their 14 verified audit chains. The report enumerates all 13 capabilities, ten components, two models, four hardware profiles, eight compatibility assertions and the topology template. It remains `complete: false`: no assertion is promotion-eligible, the six Ada tuples have no observed target evidence, most suite components have no integration-evidence model, and the topology lacks end-to-end integration evidence. Both GB10 assertions have passed every implemented technical contract mode and now only lack independent promotion review.
+[`coverage.yaml`](coverage.yaml) is the deterministic completion ledger for this exact snapshot. It currently binds all 14 archived contract results and their 14 verified audit chains. The report enumerates all 13 capabilities, ten components, two models, four hardware profiles, eight compatibility assertions and the topology template. It remains `complete: false`: no assertion is promotion-eligible, the six Ada tuples have no observed target evidence, every component lacks accepted component-smoke and topology integration evidence, and the topology lacks end-to-end integration evidence. Both GB10 compatibility assertions have passed every implemented technical contract mode and now only lack independent promotion review; that does not complete component integration.
 
 Regenerate the report after evidence changes, using a new output filename because YARA never overwrites evidence:
 

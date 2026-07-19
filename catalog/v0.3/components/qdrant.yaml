@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.qdrant, version: 1.18.3, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/qdrant/qdrant/releases/tag/v1.18.3"}
+    - {type: upstream-documentation, ref: "https://qdrant.tech/documentation/guides/monitoring/"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: vector-database
+  upstreamVersion: 1.18.3
+  homepage: https://qdrant.tech/
+  license:
+    id: Apache-2.0
+    source: https://github.com/qdrant/qdrant/blob/v1.18.3/LICENSE
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: qdrant/qdrant:v1.18.3
+      digest: sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: http, path: /readyz}
+  roles: [database.vector]
+  provides: [retrieval.vector-search/v1]
+  consumes: []
+  apiContracts: [retrieval.vector-search/v1]
+  runtimeOverheadGiB: 0.5
+  policy: {openSource: true, externalEgress: true, telemetry: true, artifactVerified: true}

@@ -1,0 +1,32 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.grafana, version: 13.1.0, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/grafana/grafana/releases/tag/v13.1.0"}
+    - {type: upstream-license, ref: "https://github.com/grafana/grafana/blob/v13.1.0/LICENSE"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-10-19T00:00:00Z
+  confidence: high
+spec:
+  category: observability-dashboard
+  upstreamVersion: 13.1.0
+  homepage: https://grafana.com/oss/grafana/
+  license:
+    id: AGPL-3.0-only
+    source: https://github.com/grafana/grafana/blob/v13.1.0/LICENSE
+    osiApproved: true
+    redistribution: allowed-with-conditions
+    restrictions: [AGPLv3 network copyleft and source obligations apply.]
+  artifacts:
+    - type: oci-image
+      ref: grafana/grafana:13.1.0
+      digest: sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: http, path: /api/health}
+  roles: [observability.dashboard]
+  provides: [experience.dashboard-grafana/v1]
+  consumes: [observability.metrics-prometheus/v1]
+  apiContracts: [experience.dashboard-grafana/v1, observability.metrics-prometheus/v1]
+  runtimeOverheadGiB: 0.5
+  policy: {openSource: true, externalEgress: true, telemetry: true, artifactVerified: true}

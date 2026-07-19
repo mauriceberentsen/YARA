@@ -1,0 +1,37 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.langfuse, version: 3.221.1, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/langfuse/langfuse/releases/tag/v3.221.1"}
+    - {type: upstream-license, ref: "https://github.com/langfuse/langfuse/blob/v3.221.1/LICENSE"}
+    - {type: upstream-architecture, ref: "https://langfuse.com/self-hosting"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: llm-observability
+  upstreamVersion: 3.221.1
+  homepage: https://langfuse.com/
+  license:
+    id: LicenseRef-Langfuse-Open-Core
+    source: https://github.com/langfuse/langfuse/blob/v3.221.1/LICENSE
+    osiApproved: false
+    redistribution: allowed-with-conditions
+    restrictions: [Core is MIT; directories identified by the upstream license use the Langfuse Enterprise License.]
+  artifacts:
+    - type: oci-image
+      ref: ghcr.io/langfuse/langfuse:3.221.1
+      digest: sha256:d9f082c0a7c18e967ae11b2ea1cb769644d125c5f27c559bd03108e2eb36acc2
+      platforms: [linux/amd64, linux/arm64]
+    - type: oci-image
+      ref: ghcr.io/langfuse/langfuse-worker:3.221.1
+      digest: sha256:dbdb379956060ea0dbe3cb30c139bed9dad99b2ec37e28b9018486d066251763
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: http, path: /api/public/health}
+  roles: [observability.llm-tracing]
+  provides: [observability.llm-tracing/v1]
+  consumes: [storage.relational-postgresql/v1, storage.cache-redis/v1, storage.columnar-clickhouse/v1, storage.object-s3/v1]
+  apiContracts: [observability.llm-tracing/v1, storage.relational-postgresql/v1, storage.cache-redis/v1, storage.columnar-clickhouse/v1, storage.object-s3/v1]
+  runtimeOverheadGiB: 1
+  policy: {openSource: false, externalEgress: true, telemetry: true, artifactVerified: true}

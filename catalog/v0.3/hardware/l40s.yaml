@@ -1,0 +1,17 @@
+apiVersion: yara.dev/v1alpha1
+kind: HardwareProfile
+metadata: {id: hardware.nvidia-l40s, version: 1.0.0, status: experimental, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: vendor-specification, ref: "https://www.nvidia.com/en-us/data-center/l40s/"}
+    - {type: vendor-architecture, ref: "https://developer.nvidia.com/cuda-gpus"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2027-01-19T00:00:00Z
+  confidence: high
+spec:
+  vendor: nvidia
+  models: [NVIDIA L40S, L40S]
+  memoryGiB: 48
+  memoryKind: dedicated
+  architecture: ada-lovelace
+  computeCapability: "8.9"

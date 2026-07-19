@@ -7,14 +7,14 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-sustained-capacity-contract`.
-- Branch base: `main` at `1c922d3` (`Merge audited Qwen3 capacity diagnosis`).
+- Active branch: `feature/v0-2-component-integration-contract`.
+- Branch base: `main` at `bee6162` (`Merge audited sustained capacity contracts`).
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: close the remaining catalog v0.2 evidence gaps without fabricating support for unavailable Ada hardware, unimplemented component/topology integration contracts or sustained capacity.
+- Working goal: expand catalog knowledge without invalidating v0.2 evidence, implement audited component/topology integration contracts, then continue the v0.2 reference-deployment renderer.
 
 ## Current product boundary
 
-YARA v0.1 is an offline deterministic planner. The v0.2 catalog introduces a narrow real LiteLLM/vLLM/Qwen stack. The GB10 assertions remain `known` and planner-ineligible. Existing evidence proves:
+YARA v0.1 is an offline deterministic planner. The v0.2 catalog introduces a narrow real LiteLLM/vLLM/Qwen stack. The GB10 assertions remain `known` and planner-ineligible. Existing evidence now covers exact artifacts, preflight, runtime smoke, bounded inference, advertised context, serving policy, same-version lifecycle and bounded 32-request sustained capacity for both GB10 tuples. It does not prove component/topology integration, performance, production readiness or independent approval.
 
 1. read-only host preflight;
 2. exact OCI/model artifact identity;
@@ -84,7 +84,7 @@ Build a deterministic machine-readable completion report for catalog v0.2. It mu
 
 At minimum the report must enumerate all components, models, hardware profiles and compatibility assertions; expose passed, failed, blocked and missing gates; state why no tuple is yet promotion-eligible; and record unavailable Ada targets and missing component integrations as blockers rather than inferred passes. Generation requires fail-closed audit persistence and a content-addressed report identity.
 
-Implementation status: `catalog coverage create` and `catalog coverage validate`, the strict `CatalogCoverageReport` resource/schema, manifest inventory projection, exact evidence/audit binding, report identity, fail-closed generation audit and rollback tests are implemented. The archived report is `catalog/v0.2/coverage.yaml`, report ID `sha256:2f0e078cc921f9522aabe565150e95adefc7c1b59ec18bb2c7fd2dc60720d559`; its audit head is `sha256:5f072b8a7a85470d99af01ad354d197d3b510883be369527a523aeea96d40eb6`. It explicitly enumerates all 38 manifests (13 capabilities, 10 components, 2 models, 4 hardware profiles, 8 assertions and 1 topology), accepts 7 results with 7 individually bound and verified evidence audit chains, and records 0 promotion-eligible assertions.
+Implementation status: `catalog coverage create` and `catalog coverage validate`, the strict `CatalogCoverageReport` resource/schema, manifest inventory projection, exact evidence/audit binding, report identity, fail-closed generation audit and rollback tests are implemented. The current archived report is `catalog/v0.2/coverage.yaml`, report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`; its audit head is `sha256:5986a78d6d1636690db36d69b35a88fbdbfbf9c15f0aeb14b9b0888708a814a3`. It explicitly enumerates all 38 manifests, accepts 14 results with 14 individually bound and verified evidence audit chains, and records separate missing component-smoke and topology-end-to-end gates.
 
 The coverage slice was committed as `09e676c`, merged to `main` as `4d7898a`, pushed, and passed a post-merge `make check`. Local `main` matched `origin/main` before this Qwen3 evidence branch was created.
 
@@ -114,7 +114,7 @@ Before both remote runs, host capacity and unrelated workloads were reviewed. Te
 
 The capacity-diagnosis slice was committed as `981131d`, merged to `main` as `1c922d3`, pushed, and passed a post-merge `make check` with local `main` matching `origin/main`.
 
-## Active slice: sustained capacity
+## Completed slice: sustained capacity
 
 Implement `contract sustained-capacity` as a deliberately bounded repeated-request contract, not a performance benchmark. It uses the exact artifact/preflight/offline-serving controls, context 1024, concurrency 1, at most eight completion tokens and the ordinary 8% GPU-memory profile. A pass requires 32/32 consecutive valid requests and internally consistent aggregate token counts. Evidence exposes only attempted/completed counts and token totals; it stores no prompt, response, raw log, latency or throughput data.
 
@@ -123,6 +123,18 @@ Implementation status: runner, evaluator, CLI dispatch, schema mode, fail-closed
 GB10 Qwen Coder passed with result `sha256:5387ae8f8e8a7869f15ae0285012f3de7f37136e86bebf7969261e70e369b65f`, audit head `sha256:b9c34d08d5a9482b25f6804732c0eff27ecb5071d58909cb1bcad6590583b860`, 32/32 requests and 1248 aggregate tokens. GB10 Qwen3 passed with result `sha256:825cca84c847f1f65deb6dbe3c5f4eb30b8f75814ecba0f30e6dc414268357dd`, audit head `sha256:2c6d1f8c08b0909425250f439ff918da225f05f8f5938802ea8b4fad3c195608`, 32/32 requests and 704 aggregate tokens. Both adjacent audit chains are archived; remote cleanup completed; unrelated vLLM containers remain stopped.
 
 The regenerated coverage report is `sha256:0d040fd0fe430940bf1fb9ef3ce034dd3a54a238539378c2bd8af1fef4b22541` with audit head `sha256:4a8bdc6b1f5d9040a1f85185911e0e12bf3133f24f10e95b0fbb62fbd90fee30`. It accepts 14 results and 14 verified adjacent audit chains. Both GB10 assertions pass every implemented technical gate and are blocked only by independent promotion review. They remain `known` and planner-ineligible.
+
+The sustained-capacity slice was committed as `45da32d`, merged to `main` as `bee6162`, pushed, and passed a post-merge `make check` with local `main` matching `origin/main`.
+
+## Active slice: component and topology integration evidence
+
+Design a generic, audited integration-evidence resource and execution contract before changing any component status. The contract must bind the exact catalog digest and component/topology identities, verify immutable artifacts before mutation, use explicit per-component health/readiness semantics, retain ownership-scoped cleanup and distinguish a single-component smoke check from an end-to-end topology path. Start with the selectable LiteLLM-to-vLLM topology and its direct PostgreSQL/Redis dependencies; do not mark Open WebUI, Qdrant, Langfuse, ClickHouse, Prometheus or Grafana complete from image startup alone.
+
+Coverage must accept only exact adjacent audit chains and expose missing/failed integration gates without flattening them into compatibility-assertion evidence. No raw target, secret, configuration body or service response may enter durable audit evidence.
+
+Implementation status: the strict content-addressed `IntegrationTestResult` Go resource and public schema are implemented for `component-smoke` and `topology-end-to-end`. `integration validate` writes a validation-only audit. Coverage now accepts both evidence classes, but rejects `integration.validate.*` as execution evidence and requires matching `integration.component-smoke.*` or `integration.topology-end-to-end.*` two-event chains. Exact component/topology version references, observed environment, checks, limitations and optional runner identity are validated. No integration executor or operational result exists yet.
+
+Catalog v0.3 is staged as a knowledge-only successor instead of editing the evidence-frozen v0.2 snapshot. It copies v0.2 and adds Ollama 0.32.0, SGLang 0.5.12, Milvus 2.6.18, Keycloak 26.6.3, Traefik 3.7.1 and OpenTelemetry Collector Contrib 0.155.0 with researched release/license/OCI-index facts. Every addition is `known`, planner-ineligible and operationally untested. Do not copy v0.2 evidence to the new catalog digest.
 
 ## Audit requirements
 
@@ -139,8 +151,9 @@ See `docs/architecture/auditing.md`, ADR 0007 and `docs/implementation/contract-
 
 ## Likely implementation touchpoints
 
-- `internal/contracttest/`: shared bounded serving runner, lifecycle runner, evaluator and tests.
-- `internal/cli/contract.go`: command orchestration, audit actions and fail-closed output.
+- `internal/resources/integration_test_result.go`: component/topology evidence resource and validation.
+- `internal/catalogcoverage/report.go`: exact evidence/audit binding and integration coverage.
+- `internal/cli/run.go`: validation dispatch; a later executor needs dedicated orchestration and fail-closed audit output.
 - `internal/cli/run.go`: dispatch and usage.
 - `internal/resources/contract_test_result.go`: add the mode only if a distinct mode is selected.
 - `schemas/yara.dev/v1alpha1/contract-test-result.schema.json`: keep schema and Go validation aligned.
@@ -160,7 +173,7 @@ GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...
 
 Validate every new result and audit chain independently with the exact built runner. Confirm its SHA-256 matches `spec.runner.binaryDigest`. Confirm the GB10 has no temporary `yara-contract-*` containers or volumes after execution.
 
-Latest validation status: `make check` and `go test -race ./...` pass; all 14 archived GB10 results and all 14 adjacent audit chains validate; catalog v0.2, the coverage report and its audit validate; coverage regeneration is byte-for-byte identical; the runner digest matches both new results; and no raw SSH target occurs in the repository. Remote cleanup is complete and the pre-existing `vllm_qwen` and `vllm_nomic` containers remain stopped.
+Latest validation status: targeted resource/CLI/coverage tests and `go test ./...` pass after the integration-contract implementation. The regenerated v0.2 coverage report and its audit validate. Catalog v0.3 has deliberately not received operational testing; the user plans to delegate that to a cheaper agent. Remote cleanup remains complete and the pre-existing `vllm_qwen` and `vllm_nomic` containers remain stopped.
 
 ## Publishing checklist
 
@@ -173,7 +186,8 @@ Latest validation status: `make check` and `go test -race ./...` pass; all 14 ar
 
 ## Immediate next actions
 
-1. Commit, push and merge the sustained-capacity slice.
-2. Present both complete GB10 evidence sets for independent, identity-bound promotion review; do not self-approve on the user's behalf.
-3. Design component-integration and topology end-to-end evidence contracts before promoting suite components.
-4. Acquire authorized Ada targets (RTX 4090, RTX 6000 Ada and L40S) or keep all six external tuples explicitly unobserved.
+1. Commit and merge the integration-contract plus knowledge-only v0.3 catalog slice under Maurice's Git identity.
+2. Implement a generic integration executor that produces fail-closed execution audit chains; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
+3. Implement the versioned renderer interface and a deterministic Docker Compose reference renderer from `PlatformPlan`; rendered artifacts must remain inspectable and non-mutating.
+4. Add preflight/approval/executor boundaries only after renderer output has independent validation and stable audit subjects.
+5. Keep Ada tuples unobserved until authorized hardware exists and never self-approve independent promotion review.

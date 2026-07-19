@@ -1,0 +1,18 @@
+apiVersion: yara.dev/v1alpha1
+kind: HardwareProfile
+metadata: {id: hardware.nvidia-gb10, version: 1.0.0, status: experimental, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: vendor-specification, ref: "https://www.nvidia.com/en-us/products/workstations/dgx-spark/"}
+    - {type: vendor-architecture, ref: "https://developer.nvidia.com/cuda-gpus"}
+    - {type: vendor-memory-guidance, ref: "https://docs.nvidia.com/dgx/dgx-spark/known-issues.html"}
+  verifiedAt: 2026-07-19T11:00:00Z
+  reviewAfter: 2027-01-19T00:00:00Z
+  confidence: high
+spec:
+  vendor: nvidia
+  models: [NVIDIA GB10]
+  memoryGiB: 128
+  memoryKind: coherent-unified
+  architecture: grace-blackwell
+  computeCapability: "12.1"

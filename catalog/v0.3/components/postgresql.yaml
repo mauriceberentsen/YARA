@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.postgresql, version: 18.3, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://www.postgresql.org/docs/release/18.3/"}
+    - {type: artifact-registry, ref: "https://hub.docker.com/_/postgres"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-10-19T00:00:00Z
+  confidence: high
+spec:
+  category: relational-database
+  upstreamVersion: 18.3
+  homepage: https://www.postgresql.org/
+  license:
+    id: PostgreSQL
+    source: https://www.postgresql.org/about/licence/
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: postgres:18.3
+      digest: sha256:7e32e9833a6fb1c92c32552794cb6ed569d51b445a54907d35fc112ef39684db
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: exec, command: [pg_isready, -U, postgres]}
+  roles: [database.relational]
+  provides: [storage.relational-postgresql/v1]
+  consumes: []
+  apiContracts: [storage.relational-postgresql/v1]
+  runtimeOverheadGiB: 0.5
+  policy: {openSource: true, externalEgress: false, telemetry: false, artifactVerified: true}

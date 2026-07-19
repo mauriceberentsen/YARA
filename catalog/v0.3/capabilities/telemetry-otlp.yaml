@@ -1,0 +1,10 @@
+apiVersion: yara.dev/v1alpha1
+kind: Capability
+metadata: {id: observability.telemetry-otlp/v1, version: 1.0.0, status: supported, owners: [yara-catalog]}
+provenance:
+  sources: [{type: standard, ref: "https://opentelemetry.io/docs/specs/otlp/"}]
+  verifiedAt: 2026-07-19T19:49:58Z
+  reviewAfter: 2027-07-19T00:00:00Z
+  confidence: high
+spec:
+  description: OpenTelemetry Protocol receiver and exporter contract.
