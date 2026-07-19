@@ -7,10 +7,10 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/kubernetes-platform-preflight`.
-- Latest completed implementation slice: feature commit `4b67f19`, merged as `89d5786`. The Rancher Desktop safety review was documented in `0b3b096`, merged as `083f943`, and pushed to `origin/main`.
+- Active branch: `main`.
+- Latest completed implementation slice: node-platform preflight commit `ea490d0`, merged as `94b9706`. The Rancher Desktop safety review was documented in `0b3b096` and merged as `083f943`.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: close and validate the node-platform preflight gap exposed during the Rancher Desktop review, then design a separate lightweight executor-conformance contract or move positive apply testing to compatible NVIDIA Kubernetes hardware.
+- Working goal: design a separate lightweight executor-conformance contract or move positive apply testing to compatible NVIDIA Kubernetes hardware.
 
 ## Current product boundary
 
