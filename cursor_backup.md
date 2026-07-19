@@ -7,8 +7,8 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `docs/rancher-desktop-conformance-boundary`.
-- Latest completed slice: feature commit `4b67f19`, merged to main as `89d5786` (`Merge authorized Kubernetes apply executor`) and pushed to `origin/main`.
+- Active branch: `main`.
+- Latest completed implementation slice: feature commit `4b67f19`, merged as `89d5786`. The Rancher Desktop safety review was documented in `0b3b096`, merged as `083f943`, and pushed to `origin/main`.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: record the Rancher Desktop negative-path review, then design a separate lightweight executor-conformance contract or move positive apply testing to compatible NVIDIA Kubernetes hardware.
 
