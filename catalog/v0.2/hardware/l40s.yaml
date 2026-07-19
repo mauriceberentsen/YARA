@@ -12,5 +12,6 @@ spec:
   vendor: nvidia
   models: [NVIDIA L40S, L40S]
   memoryGiB: 48
+  memoryKind: dedicated
   architecture: ada-lovelace
   computeCapability: "8.9"

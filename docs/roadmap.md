@@ -88,7 +88,7 @@ Estimated effort: 10–16 weeks; starts only after real users approve v0.1 plans
 
 Decision gate: prototype Docker Compose and one alternative enough to write an ADR selecting the first target.
 
-Current foundation: the evidence-backed v0.2 catalog can already produce a review-required LiteLLM/vLLM/Qwen plan for three NVIDIA Ada profiles. Artifact identity, licensing, telemetry posture, health contracts and compatibility bounds are represented. A content-addressed, audited, read-only SSH preflight now establishes whether a host is eligible for later tests, but no tuple is `supported` until artifact, workload-contract and promotion gates pass.
+Current foundation: the evidence-backed v0.2 catalog can already produce a review-required LiteLLM/vLLM/Qwen plan for three NVIDIA Ada profiles and records two knowledge-only hypotheses for GB10 coherent unified memory. Artifact identity, licensing, telemetry posture, health contracts and compatibility bounds are represented. Content-addressed audited preflight and runtime smoke now verify host eligibility, upstream artifact identities and bounded CUDA execution. No tuple is `supported` until model-load/inference, capacity, policy, lifecycle and promotion gates pass.
 
 Deliverables:
 

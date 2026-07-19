@@ -172,6 +172,7 @@ type HardwareProfileManifestSpec struct {
 	Vendor            string   `json:"vendor" yaml:"vendor"`
 	Models            []string `json:"models" yaml:"models"`
 	MemoryGiB         int      `json:"memoryGiB,omitempty" yaml:"memoryGiB,omitempty"`
+	MemoryKind        string   `json:"memoryKind,omitempty" yaml:"memoryKind,omitempty"`
 	Architecture      string   `json:"architecture,omitempty" yaml:"architecture,omitempty"`
 	ComputeCapability string   `json:"computeCapability,omitempty" yaml:"computeCapability,omitempty"`
 }
@@ -301,6 +302,8 @@ type ContractTarget struct {
 	HardwareProfileID         string
 	HardwareVendor            string
 	HardwareModels            []string
+	HardwareMemoryGiB         int
+	HardwareMemoryKind        string
 	HardwareComputeCapability string
 	Conditions                CompatibilityConditions
 }
@@ -324,7 +327,7 @@ func (s Snapshot) ContractTarget(assertionID string) (ContractTarget, bool) {
 			break
 		}
 	}
-	if assertion == nil || assertion.Spec.Compatibility != "supported" || !selectableStatus(assertion.Metadata.Status) {
+	if assertion == nil || assertion.Spec.Compatibility != "supported" || !contractTestableStatus(assertion.Metadata.Status) {
 		return ContractTarget{}, false
 	}
 	var component *ComponentManifest
@@ -358,7 +361,8 @@ func (s Snapshot) ContractTarget(assertionID string) (ContractTarget, bool) {
 		ModelRef:          model.Metadata.ID + "@" + model.Metadata.Version,
 		ModelArtifact:     cloneArtifact(*model.Spec.Artifact),
 		HardwareProfileID: hardware.Metadata.ID, HardwareVendor: hardware.Spec.Vendor,
-		HardwareModels: slices.Clone(hardware.Spec.Models), HardwareComputeCapability: hardware.Spec.ComputeCapability,
+		HardwareModels: slices.Clone(hardware.Spec.Models), HardwareMemoryGiB: hardware.Spec.MemoryGiB,
+		HardwareMemoryKind: hardware.Spec.MemoryKind, HardwareComputeCapability: hardware.Spec.ComputeCapability,
 		Conditions: compatibilityConditions(assertion.Spec.Conditions),
 	}, true
 }
@@ -511,9 +515,10 @@ func validateManifestSet(set manifestSet, publishedAt string) []diagnostics.Diag
 		if profile.APIVersion != APIVersion || profile.Kind != "HardwareProfile" || profile.Metadata.ID == "" || profile.Metadata.Version == "" || profile.Spec.Vendor == "" || len(profile.Spec.Models) == 0 {
 			items = append(items, diagnostics.Error("YARA-CAT-027", "Hardware profile is incomplete.", profile.Metadata.ID))
 		}
-		hasHardwareEvidence := profile.Spec.MemoryGiB > 0 || profile.Spec.Architecture != "" || profile.Spec.ComputeCapability != ""
-		if (profile.Metadata.Status == "supported" || hasHardwareEvidence) && (profile.Spec.MemoryGiB <= 0 || profile.Spec.Architecture == "" || profile.Spec.ComputeCapability == "") {
-			items = append(items, diagnostics.Error("YARA-CAT-059", "Hardware evidence requires memory, architecture and compute capability as one complete set.", profile.Metadata.ID))
+		hasHardwareEvidence := profile.Spec.MemoryGiB > 0 || profile.Spec.MemoryKind != "" || profile.Spec.Architecture != "" || profile.Spec.ComputeCapability != ""
+		validMemoryKind := profile.Spec.MemoryKind == "dedicated" || profile.Spec.MemoryKind == "coherent-unified"
+		if (profile.Metadata.Status == "supported" || hasHardwareEvidence) && (profile.Spec.MemoryGiB <= 0 || !validMemoryKind || profile.Spec.Architecture == "" || profile.Spec.ComputeCapability == "") {
+			items = append(items, diagnostics.Error("YARA-CAT-059", "Hardware evidence requires memory amount and kind, architecture and compute capability as one complete set.", profile.Metadata.ID))
 		}
 	}
 	for _, assertion := range set.Compatibility {
@@ -820,6 +825,10 @@ func experimentalManifestDiagnostic(set manifestSet) []diagnostics.Diagnostic {
 
 func selectableStatus(status string) bool {
 	return status == "experimental" || status == "supported"
+}
+
+func contractTestableStatus(status string) bool {
+	return status == "known" || selectableStatus(status)
 }
 
 func isSubset(required, available []string) bool {

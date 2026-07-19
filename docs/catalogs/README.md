@@ -33,7 +33,7 @@ schemas/
 
 The repository should introduce these directories only with executable schema validation and a small curated dataset. Documentation examples are not a substitute for that implementation.
 
-The frozen v0.1 fixture follows this model under `catalog/v0.1/`. The evidence-backed `catalog/v0.2/` snapshot adds real upstream versions, license facts, immutable OCI digests, model revisions and weight-shard digests, protocol-specific health contracts and bounded compatibility conditions. Its two selectable components, two models, three hardware profiles and six serving tuples remain experimental. Eight additional suite components are `known` and therefore cannot enter a plan.
+The frozen v0.1 fixture follows this model under `catalog/v0.1/`. The evidence-backed `catalog/v0.2/` snapshot adds real upstream versions, license facts, immutable OCI digests, model revisions and weight-shard digests, protocol-specific health contracts and bounded compatibility conditions. Its two selectable components, two models, three Ada hardware profiles and six serving tuples remain experimental. A fourth GB10 coherent-unified-memory profile is experimental, while its two positive compatibility assertions are deliberately `known` and cannot enter a plan. Eight additional suite components are also `known`.
 
 Every `CatalogSnapshot` indexes relative manifest paths. The strict loader prevents path traversal, rejects unknown fields and validates typed references. Only explicit `compatibility: supported` assertions with selectable lifecycle status become serving candidates; `unsupported` takes precedence and conflicts emit `YARA-CAT-040`. A `TopologyTemplate` declares product-neutral gateway and inference roles plus their required interface. YARA resolves those roles separately and derives a dependency-safe stage order. Neither snapshot is a production support claim.
 
@@ -106,7 +106,7 @@ The current in-process compiler implements schema-shaped strict decoding, refere
 
 Ownership and freshness are executable gates. Every manifest requires at least one owner and a provenance record containing sources, confidence, `verifiedAt` and `reviewAfter`. A snapshot provides `publishedAt`; validation compares evidence to that timestamp rather than the operator's wall clock. This preserves offline reproducibility. Evidence verified after publication or due for review at publication fails with `YARA-CAT-054`.
 
-The v0.2 compiler also validates immutable OCI/model artifact identities, recorded license consistency, health contracts, hardware facts and compatibility version/revision bounds. The remaining production gates are signatures or trusted attestations, YARA-owned contract-test evidence, lifecycle tests and explicit promotion review.
+The v0.2 compiler validates declared immutable OCI/model identities, recorded license consistency, health contracts, memory kind, hardware facts and compatibility version/revision bounds. `contract runtime-smoke` independently resolves those OCI/model identities before isolated execution. The remaining production gates include signatures or trusted attestations, full model-load/inference/capacity/policy/lifecycle contracts and explicit promotion review.
 
 Health contracts are protocol-specific: HTTP probes use a path, TCP probes use a port and process-native checks use an argument-vector `exec` probe. Catalog authors must not invent HTTP endpoints for databases or caches.
 

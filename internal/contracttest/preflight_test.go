@@ -69,6 +69,47 @@ func TestEvaluateSelectsMatchingAcceleratorFromHeterogeneousHost(t *testing.T) {
 	}
 }
 
+func TestEvaluateRuntimeSmokeProducesValidBoundedEvidence(t *testing.T) {
+	target := testTarget()
+	environment := testEnvironment("NVIDIA GeForce RTX 4090", "amd64")
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	artifactChecks := []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}
+	runtimeChecks := []resources.ContractTestCheck{{ID: "runtime.cuda-tensor", Status: "passed", EvidenceDigest: evidence}}
+	result, err := EvaluateRuntimeSmoke("runtime-smoke", "sha256:"+strings.Repeat("a", 64), target, environment, artifactChecks, runtimeChecks)
+	if err != nil {
+		t.Fatalf("evaluate runtime smoke: %v", err)
+	}
+	if result.Spec.Mode != "runtime-smoke" || result.Spec.Outcome != "passed" || !result.Validate().Valid {
+		t.Fatalf("unexpected runtime result: %#v / %#v", result, result.Validate().Diagnostics)
+	}
+}
+
+func TestRuntimeImagePinsDigestAndRemovesMutableTag(t *testing.T) {
+	image, ok := runtimeImage([]catalog.ArtifactReference{{
+		Type: "oci-image", Ref: "registry.example:5000/team/image:v1", Digest: "sha256:" + strings.Repeat("a", 64),
+	}})
+	if !ok || image != "registry.example:5000/team/image@sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("unexpected pinned image %q", image)
+	}
+}
+
+func TestRuntimeSmokeScriptEnforcesIsolationAndOwnedCleanup(t *testing.T) {
+	script := runtimeSmokeScript("aW1hZ2U=", "bmFtZQ==")
+	for _, required := range []string{
+		"--network none", "--read-only", "--pids-limit 256", "--memory 4294967296",
+		`trap 'docker rm -f "$name"`, `grep -qx "$name"`, `docker image inspect "$image"`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("runtime smoke script lacks safety control %q", required)
+		}
+	}
+	for _, forbidden := range []string{"docker stop", "docker system prune", "-p ", "--volume", "-v "} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("runtime smoke script contains unsafe operation %q", forbidden)
+		}
+	}
+}
+
 func TestEvaluateFailsUnsupportedRuntimePlatform(t *testing.T) {
 	target := testTarget()
 	environment := testEnvironment("NVIDIA GeForce RTX 4090", "riscv64")

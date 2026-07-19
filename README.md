@@ -168,6 +168,13 @@ go run ./cmd/yara contract preflight \
   --name rtx4090-preflight \
   --output contract-result.yaml \
   --audit-output contract-preflight.audit.jsonl
+go run ./cmd/yara contract runtime-smoke \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example \
+  --name gb10-runtime-smoke \
+  --output gb10-runtime-smoke.yaml \
+  --audit-output gb10-runtime-smoke.audit.jsonl
 ```
 
 Currently implemented:
@@ -178,7 +185,7 @@ Currently implemented:
 - public draft-2020-12 schemas for request, inventory, catalog manifests, plan and audit events;
 - deterministic SHA-256 content digests;
 - append-only audit-event chaining, tamper verification and `audit verify` CLI support;
-- a frozen placeholder catalog for v0.1 acceptance plus a curated v0.2 snapshot with ten real components, two immutable model snapshots, three NVIDIA Ada profiles and six bounded serving candidates;
+- a frozen placeholder catalog for v0.1 acceptance plus a curated v0.2 snapshot with ten real components, two immutable model snapshots, three NVIDIA Ada profiles, one GB10 coherent-unified-memory profile, six selectable serving candidates and two knowledge-only GB10 hypotheses;
 - open-world compatibility governance where explicit negative evidence overrides positive claims and conflicts are quarantined;
 - a catalog-authored abstract topology template resolved into gateway and inference component instances;
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;
@@ -189,7 +196,7 @@ Currently implemented:
 - deterministic, content-addressed `DebugBundle` output containing only an inspectable redacted plan summary, section inventory and successful secret-scan assertion;
 - a content-addressed `GoldenScenario` contract and offline validator for exact inputs, plan identity, required decisions, forbidden outcomes, diagnostics and review requirements;
 - a bounded, deterministic ten-case acceptance-suite validator with duplicate-identity rejection, planned/infeasible coverage and fail-closed audit evidence;
-- a content-addressed `ContractTestResult` and read-only SSH preflight that checks Docker/Linux, OCI platform, NVIDIA runtime, driver and exact hardware identity without mutating the target;
+- a content-addressed `ContractTestResult`, read-only SSH preflight and isolated runtime smoke that verify cataloged artifact identities plus Docker/Linux, OCI platform, NVIDIA runtime, driver, exact hardware identity and bounded CUDA execution;
 - tamper-evident audit chains for validation plus successful, infeasible and input-rejected planning outcomes, containing available input identities and stable diagnostic codes, including material warnings;
 - optional fail-closed validation, plan-explanation and plan-diff audit receipts, plus mandatory fail-closed persistence for `plan create` and `debug bundle`, with path- and payload-minimized evidence for resources that cannot be decoded.
 

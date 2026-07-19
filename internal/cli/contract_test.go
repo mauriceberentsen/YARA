@@ -11,12 +11,35 @@ import (
 	"testing"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
+	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/resources"
 )
 
 type fixedContractProbe struct {
 	environment resources.ContractTestEnvironment
 	err         error
+}
+
+type fixedArtifactVerifier struct {
+	checks []resources.ContractTestCheck
+	err    error
+}
+
+func (v fixedArtifactVerifier) Verify(context.Context, catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
+	return v.checks, v.err
+}
+
+type fixedRuntimeSmokeRunner struct {
+	checks []resources.ContractTestCheck
+	err    error
+	called *bool
+}
+
+func (r fixedRuntimeSmokeRunner) Run(context.Context, string, catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
+	if r.called != nil {
+		*r.called = true
+	}
+	return r.checks, r.err
 }
 
 func (p fixedContractProbe) Observe(context.Context, string) (resources.ContractTestEnvironment, error) {
@@ -118,6 +141,111 @@ func TestContractPreflightRollsBackResultWhenAuditCannotBeWritten(t *testing.T) 
 	}
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
 		t.Fatalf("result must be rolled back after audit failure: %v", err)
+	}
+}
+
+func TestContractRuntimeSmokePersistsArtifactRuntimeAndAuditEvidence(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	previousVerifier, previousRunner := runtimeSmokeArtifactVerifier, runtimeSmokeRunner
+	runtimeSmokeArtifactVerifier = fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}}
+	runtimeSmokeRunner = fixedRuntimeSmokeRunner{checks: []resources.ContractTestCheck{{ID: "runtime.cuda-tensor", Status: "passed", EvidenceDigest: evidence}}}
+	t.Cleanup(func() {
+		runtimeSmokeArtifactVerifier, runtimeSmokeRunner = previousVerifier, previousRunner
+	})
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "runtime.yaml"), filepath.Join(temp, "audit.jsonl")
+	args := []string{
+		"contract", "runtime-smoke",
+		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
+		"--target", "tester@gpu-runner.example", "--name", "gb10-runtime-smoke",
+		"--output", outputPath, "--audit-output", auditPath,
+	}
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(args, &stdout, &stderr); exitCode != ExitSuccess {
+		t.Fatalf("runtime smoke failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	result, err := resources.LoadContractTestResult(outputPath)
+	if err != nil {
+		t.Fatalf("load result: %v", err)
+	}
+	if result.Spec.Mode != "runtime-smoke" || result.Spec.Outcome != "passed" {
+		t.Fatalf("unexpected runtime result: %#v", result.Spec)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "contract.runtime-smoke.completed" || terminal.Spec.Subjects[1].Digest != result.Metadata.ResultID {
+		t.Fatalf("unexpected runtime audit: %#v", terminal.Spec)
+	}
+}
+
+func TestContractRuntimeSmokeDoesNotStartWorkloadWhenArtifactGateFails(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	called := false
+	setRuntimeSmokeDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "failed", DiagnosticCode: "YARA-CTR-120", EvidenceDigest: evidence}}},
+		fixedRuntimeSmokeRunner{called: &called},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "runtime.yaml"), filepath.Join(temp, "audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(runtimeContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected failed gate, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if called {
+		t.Fatal("runtime workload started after artifact verification failed")
+	}
+	result, err := resources.LoadContractTestResult(outputPath)
+	if err != nil {
+		t.Fatalf("load negative result: %v", err)
+	}
+	if result.Spec.Outcome != "failed" || !slices.Contains(result.Spec.Limitations, "Runtime container was not started because an earlier gate failed.") {
+		t.Fatalf("unexpected failed-gate evidence: %#v", result.Spec)
+	}
+}
+
+func TestContractRuntimeSmokeRollsBackResultWhenAuditCannotBeWritten(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	setRuntimeSmokeDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedRuntimeSmokeRunner{checks: []resources.ContractTestCheck{{ID: "runtime.cuda-tensor", Status: "passed", EvidenceDigest: evidence}}},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "runtime.yaml"), filepath.Join(temp, "audit.jsonl")
+	if err := os.WriteFile(auditPath, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("prepare audit: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(runtimeContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInvalidInput {
+		t.Fatalf("expected invalid input, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("runtime result must be rolled back after audit failure: %v", err)
+	}
+}
+
+func setRuntimeSmokeDependencies(t *testing.T, verifier fixedArtifactVerifier, runner fixedRuntimeSmokeRunner) {
+	t.Helper()
+	previousVerifier, previousRunner := runtimeSmokeArtifactVerifier, runtimeSmokeRunner
+	runtimeSmokeArtifactVerifier, runtimeSmokeRunner = verifier, runner
+	t.Cleanup(func() {
+		runtimeSmokeArtifactVerifier, runtimeSmokeRunner = previousVerifier, previousRunner
+	})
+}
+
+func runtimeContractArgs(outputPath, auditPath string) []string {
+	return []string{
+		"contract", "runtime-smoke",
+		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
+		"--target", "tester@gpu-runner.example", "--name", "gb10-runtime-smoke",
+		"--output", outputPath, "--audit-output", auditPath,
 	}
 }
 

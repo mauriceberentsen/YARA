@@ -73,6 +73,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "contract" && args[1] == "preflight" {
 		return preflightContract(args[2:], stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "contract" && args[1] == "runtime-smoke" {
+		return runtimeSmokeContract(args[2:], stdout, stderr)
+	}
 	if len(args) < 2 || args[1] != "validate" {
 		writeUsage(stderr)
 		return ExitInvalidInput
@@ -211,6 +214,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara scenario validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate-all <directory> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara contract preflight --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara contract runtime-smoke --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara contract validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara audit verify <file>")
 }

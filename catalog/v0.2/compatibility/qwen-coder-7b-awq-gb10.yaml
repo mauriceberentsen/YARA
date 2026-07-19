@@ -1,0 +1,26 @@
+apiVersion: yara.dev/v1alpha1
+kind: CompatibilityAssertion
+metadata: {id: compat.vllm-qwen-coder-7b-awq-gb10, version: 1.0.0, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-runtime-arm64-guidance, ref: "https://docs.vllm.ai/en/v0.25.1/getting_started/installation/gpu/"}
+    - {type: upstream-model-card, ref: "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-AWQ"}
+    - {type: vendor-hardware-guidance, ref: "https://docs.nvidia.com/dgx/dgx-spark/known-issues.html"}
+  verifiedAt: 2026-07-19T11:00:00Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: low
+spec:
+  runtimeRef: core.vllm
+  modelRef: models.qwen2.5-coder-7b-instruct-awq
+  hardwareProfileRef: hardware.nvidia-gb10
+  compatibility: supported
+  artifactVerified: true
+  evidence:
+    - {id: vllm.arm64-grace-blackwell-build, confidence: medium, source: "https://docs.vllm.ai/en/v0.25.1/getting_started/installation/gpu/"}
+    - {id: yara.gb10-runtime-smoke-no-model-load, confidence: low, source: "docs/implementation/contract-testing.md"}
+  conditions:
+    runtimeVersion: 0.25.1
+    modelRevision: 8e8ed243bbe6f9a5aff549a0924562fc719b2b8a
+    minimumDriverVersion: "580"
+    computePlatform: cuda-13.0
+    maximumContextTokens: 32768

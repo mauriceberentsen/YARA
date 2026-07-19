@@ -20,7 +20,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["mode", "outcome", "catalogDigest", "assertionRef", "target", "environment", "checks", "limitations"],
       "properties": {
-        "mode": { "const": "preflight" },
+        "mode": { "enum": ["preflight", "runtime-smoke"] },
         "outcome": { "enum": ["passed", "failed", "blocked"] },
         "catalogDigest": { "$ref": "#/$defs/digest" },
         "assertionRef": { "type": "string", "minLength": 1 },
