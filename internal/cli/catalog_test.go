@@ -30,7 +30,7 @@ func TestCatalogValidateReportsCompiledSnapshot(t *testing.T) {
 
 func TestCatalogValidateWritesAuditWithGovernanceDiagnostics(t *testing.T) {
 	path := filepath.Join("..", "..", "catalog", "v0.1", "snapshot.yaml")
-	auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
+	auditPath := filepath.Join(t.TempDir(), ".yara", "audit", "catalog.jsonl")
 	var stdout, stderr bytes.Buffer
 	if exitCode := Run([]string{"catalog", "validate", path, "--audit-output", auditPath}, &stdout, &stderr); exitCode != ExitSuccess {
 		t.Fatalf("catalog validate failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
