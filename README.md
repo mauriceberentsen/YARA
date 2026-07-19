@@ -189,6 +189,13 @@ go run ./cmd/yara contract capacity-boundary \
   --name gb10-qwen-coder-capacity-boundary \
   --output gb10-qwen-coder-capacity-boundary.yaml \
   --audit-output gb10-qwen-coder-capacity-boundary.audit.jsonl
+go run ./cmd/yara contract policy \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example \
+  --name gb10-qwen-coder-policy \
+  --output gb10-qwen-coder-policy.yaml \
+  --audit-output gb10-qwen-coder-policy.audit.jsonl
 ```
 
 Currently implemented:
@@ -210,7 +217,7 @@ Currently implemented:
 - deterministic, content-addressed `DebugBundle` output containing only an inspectable redacted plan summary, section inventory and successful secret-scan assertion;
 - a content-addressed `GoldenScenario` contract and offline validator for exact inputs, plan identity, required decisions, forbidden outcomes, diagnostics and review requirements;
 - a bounded, deterministic ten-case acceptance-suite validator with duplicate-identity rejection, planned/infeasible coverage and fail-closed audit evidence;
-- a content-addressed `ContractTestResult` across read-only SSH preflight, isolated runtime smoke, bounded model inference and exact advertised-context boundary testing;
+- a content-addressed `ContractTestResult` across read-only SSH preflight, isolated runtime smoke, bounded model inference, exact advertised-context boundary and serving-container policy testing;
 - tamper-evident audit chains for validation plus successful, infeasible and input-rejected planning outcomes, containing available input identities and stable diagnostic codes, including material warnings;
 - optional fail-closed validation, plan-explanation and plan-diff audit receipts, plus mandatory fail-closed persistence for `plan create` and `debug bundle`, with path- and payload-minimized evidence for resources that cannot be decoded.
 

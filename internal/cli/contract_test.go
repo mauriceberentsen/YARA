@@ -47,6 +47,19 @@ type fixedCapacityBoundaryRunner struct {
 	called *bool
 }
 
+type fixedPolicyContractRunner struct {
+	checks []resources.ContractTestCheck
+	err    error
+	called *bool
+}
+
+func (r fixedPolicyContractRunner) Run(context.Context, string, catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
+	if r.called != nil {
+		*r.called = true
+	}
+	return r.checks, r.err
+}
+
 func (r fixedCapacityBoundaryRunner) Run(context.Context, string, catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
 	if r.called != nil {
 		*r.called = true
@@ -406,6 +419,57 @@ func TestContractCapacityBoundaryRollsBackResultWhenAuditCannotBeWritten(t *test
 	}
 }
 
+func TestContractPolicyPersistsScopedResultAndAuditEvidence(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	setPolicyContractDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedPolicyContractRunner{checks: []resources.ContractTestCheck{{ID: "policy.egress-blocked", Status: "passed", EvidenceDigest: evidence}}},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "policy.yaml"), filepath.Join(temp, "audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(policyContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitSuccess {
+		t.Fatalf("policy contract failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	result, err := resources.LoadContractTestResult(outputPath)
+	if err != nil {
+		t.Fatalf("load policy result: %v", err)
+	}
+	if result.Spec.Mode != "policy-contract" || result.Spec.Outcome != "passed" || result.Spec.Runner == nil {
+		t.Fatalf("unexpected policy result: %#v", result.Spec)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "contract.policy.completed" || terminal.Spec.Subjects[1].Digest != result.Metadata.ResultID {
+		t.Fatalf("unexpected policy audit: %#v", terminal.Spec)
+	}
+}
+
+func TestContractPolicyRollsBackResultWhenAuditCannotBeWritten(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	setPolicyContractDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedPolicyContractRunner{checks: []resources.ContractTestCheck{{ID: "policy.egress-blocked", Status: "passed", EvidenceDigest: evidence}}},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "policy.yaml"), filepath.Join(temp, "audit.jsonl")
+	if err := os.WriteFile(auditPath, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("prepare audit: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(policyContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInvalidInput {
+		t.Fatalf("expected invalid input, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("policy result must be rolled back after audit failure: %v", err)
+	}
+}
+
 func setRuntimeSmokeDependencies(t *testing.T, verifier fixedArtifactVerifier, runner fixedRuntimeSmokeRunner) {
 	t.Helper()
 	previousVerifier, previousRunner := runtimeSmokeArtifactVerifier, runtimeSmokeRunner
@@ -459,6 +523,25 @@ func capacityContractArgs(outputPath, auditPath string) []string {
 		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
 		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
 		"--target", "tester@gpu-runner.example", "--name", "gb10-capacity-boundary",
+		"--output", outputPath, "--audit-output", auditPath,
+	}
+}
+
+func setPolicyContractDependencies(t *testing.T, verifier fixedArtifactVerifier, runner fixedPolicyContractRunner) {
+	t.Helper()
+	previousVerifier, previousRunner := runtimeSmokeArtifactVerifier, policyContractRunner
+	runtimeSmokeArtifactVerifier, policyContractRunner = verifier, runner
+	t.Cleanup(func() {
+		runtimeSmokeArtifactVerifier, policyContractRunner = previousVerifier, previousRunner
+	})
+}
+
+func policyContractArgs(outputPath, auditPath string) []string {
+	return []string{
+		"contract", "policy",
+		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
+		"--target", "tester@gpu-runner.example", "--name", "gb10-policy-contract",
 		"--output", outputPath, "--audit-output", auditPath,
 	}
 }

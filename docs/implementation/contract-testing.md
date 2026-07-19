@@ -4,7 +4,7 @@
 
 Catalog documentation and immutable artifact identities are necessary evidence, but they do not prove that a runtime, model and hardware tuple works. YARA therefore treats every positive `CompatibilityAssertion` as a testable contract. Promotion from `experimental` to `supported` requires evidence for the exact catalog digest, assertion, runtime version, model revision and hardware profile.
 
-Four evidence layers are implemented: read-only remote preflight, bounded runtime smoke, bounded model inference and advertised-context capacity boundary. Preflight answers whether a named host is eligible. Runtime smoke additionally re-verifies cataloged OCI/model identities and proves that the exact runtime image can execute a CUDA tensor. Model inference acquires and locally re-hashes the exact model shards, starts the pinned serving image and executes one constrained API request. Capacity boundary reserves the complete cataloged context envelope for one request. Each layer retains explicit limitations and cannot imply broader support.
+Five evidence layers are implemented: read-only remote preflight, bounded runtime smoke, bounded model inference, advertised-context capacity boundary and serving-container policy. Preflight answers whether a named host is eligible. Runtime smoke additionally re-verifies cataloged OCI/model identities and proves that the exact runtime image can execute a CUDA tensor. Model inference acquires and locally re-hashes the exact model shards, starts the pinned serving image and executes one constrained API request. Capacity boundary reserves the complete cataloged context envelope for one request. Policy verifies a narrow set of observable container controls. Each layer retains explicit limitations and cannot imply broader support.
 
 ## Implemented preflight
 
@@ -121,6 +121,32 @@ go run ./cmd/yara contract capacity-boundary \
 
 A pass proves acceptance of one exact advertised-context request on the observed host. It makes no claim about multiple concurrent requests, sustained load, latency, throughput, output quality or production headroom. Those require separately declared catalog bounds and repeatable tests.
 
+## Implemented serving-container policy contract
+
+`contract policy` uses the same exact artifact, preflight, model-load, health and request gates, then inspects and actively probes the isolated serving container. The fixed policy profile requires:
+
+- Docker `network none` plus a failed active IPv4 connection attempt;
+- no published ports;
+- `VLLM_NO_USAGE_STATS=1`, `VLLM_DO_NOT_TRACK=1` and `DO_NOT_TRACK=1`, following the [upstream vLLM opt-out controls](https://docs.vllm.ai/en/v0.9.0/api/vllm/usage/usage_lib.html);
+- a read-only root filesystem;
+- only the four bounded tmpfs paths needed by Python/CUDA/Triton, with the executable-cache exception recorded explicitly;
+- exactly one read-only model volume, no bind mounts and no Docker socket;
+- no populated environment variable whose name indicates a secret, password, credential, API key or access token;
+- non-privileged Docker mode, no added Linux capabilities, `cap-drop ALL` and `no-new-privileges`;
+- successful removal of the uniquely owned containers and model volume before the final observation is emitted.
+
+```bash
+go run ./cmd/yara contract policy \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example \
+  --name gb10-qwen-coder-policy \
+  --output .yara/contracts/gb10-qwen-coder-policy.yaml \
+  --audit-output .yara/audit/gb10-qwen-coder-policy.jsonl
+```
+
+This test does not prove host or daemon hardening, non-root compatibility, universal absence of dependency telemetry, supply-chain security beyond pinned artifacts, or regulatory compliance. Model acquisition occurs before the no-network serving phase and is not air-gap evidence.
+
 ## Outcomes and exit codes
 
 | Result | Meaning | Exit code |
@@ -158,7 +184,7 @@ For each exact compatibility tuple, promotion still requires:
 1. **Artifact verification and runtime startup:** implemented by runtime smoke, using exact identities and an isolated container.
 2. **Health and bounded inference:** implemented for one Qwen Coder/GB10 request; advertised context bounds and broader API conformance remain open.
 3. **Advertised-context boundary:** implemented as one exact 32768-token-envelope request; sustained capacity and any concurrency above one remain open until the catalog declares explicit bounds.
-4. **Policy contract:** verify egress, telemetry, filesystem, secret and privilege behavior under a YARA-owned hardened profile.
+4. **Policy contract:** implemented for observable egress, telemetry configuration, filesystem, secret exposure, privilege and cleanup controls; broader host, dependency and compliance claims remain explicitly out of scope.
 5. **Lifecycle contract:** restart and recover the isolated workload and capture state/health evidence.
 6. **Independent review:** review the complete evidence set and record an explicit promotion decision.
 

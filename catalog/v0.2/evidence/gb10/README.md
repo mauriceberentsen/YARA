@@ -20,6 +20,12 @@ These resources archive bounded YARA contract runs for the two knowledge-only GB
 |---|---|---|---|
 | `compat.vllm-qwen-coder-7b-awq-gb10` | `sha256:56e08293c73b7b8cf2e6db4a2c824b38cb2bb8ff79fe5cb337cbe62dfb8f2441` | `passed` | Requested/observed prompt 32760; completion 8; total 32768; concurrency 1 |
 
+## Serving-container policy
+
+| Assertion | Result ID | Outcome | Scope |
+|---|---|---|---|
+| `compat.vllm-qwen-coder-7b-awq-gb10` | `sha256:725b54027506733ff9514e1b2805165389940714b500afa4cd8e44188916ac0d` | `passed` | Egress, ports, telemetry opt-outs, read-only filesystem, tmpfs, mounts/secrets, capabilities, no-new-privileges and owned cleanup |
+
 Verify from a source checkout:
 
 ```bash
@@ -32,4 +38,4 @@ for chain in catalog/v0.2/evidence/gb10/*.audit.jsonl; do
 done
 ```
 
-The target SSH reference is pseudonymized. The actor identity is self-asserted local operating-system identity, not cryptographic attestation. Runtime-smoke verified immutable OCI/model metadata, host eligibility, exact vLLM/CUDA/GB10 identities and one CUDA tensor. Model-inference additionally acquired and locally re-hashed the exact Qwen Coder shards, loaded them and completed one bounded request. Capacity-boundary verified one exact 32768-token envelope, with reviewable integer measurements bound into the result. These runs used networked acquisition and do not establish concurrency above one, sustained capacity, latency, throughput, broader policy, restart, lifecycle or air-gap compatibility. The assertions therefore remain `known` and planner-ineligible.
+The target SSH reference is pseudonymized. The actor identity is self-asserted local operating-system identity, not cryptographic attestation. Runtime-smoke verified immutable OCI/model metadata, host eligibility, exact vLLM/CUDA/GB10 identities and one CUDA tensor. Model-inference additionally acquired and locally re-hashed the exact Qwen Coder shards, loaded them and completed one bounded request. Capacity-boundary verified one exact 32768-token envelope, with reviewable integer measurements bound into the result. Policy verified the observable serving-container controls listed above. These runs used networked acquisition and do not establish concurrency above one, sustained capacity, latency, throughput, non-root compatibility, host/daemon hardening, restart, lifecycle or air-gap compatibility. The assertions therefore remain `known` and planner-ineligible.

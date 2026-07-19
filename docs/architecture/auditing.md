@@ -96,6 +96,7 @@ contract.preflight.*
 contract.runtime-smoke.*
 contract.model-inference.*
 contract.capacity-boundary.*
+contract.policy.*
 policy.resolve.*
 plan.create.*
 plan.validate.*

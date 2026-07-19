@@ -91,7 +91,7 @@ func (r ContractTestResult) Validate() diagnostics.Report {
 	if !sha256DigestPattern.MatchString(r.Metadata.ResultID) || !sha256DigestPattern.MatchString(r.Spec.CatalogDigest) || !sha256DigestPattern.MatchString(r.Spec.Environment.ReferenceDigest) {
 		items = append(items, diagnostics.Error("YARA-CTR-010", "Result, catalog and target identities must be SHA-256 digests.", "metadata.resultId"))
 	}
-	if !slices.Contains([]string{"preflight", "runtime-smoke", "model-inference", "capacity-boundary"}, r.Spec.Mode) || !slices.Contains([]string{"passed", "failed", "blocked"}, r.Spec.Outcome) {
+	if !slices.Contains([]string{"preflight", "runtime-smoke", "model-inference", "capacity-boundary", "policy-contract"}, r.Spec.Mode) || !slices.Contains([]string{"passed", "failed", "blocked"}, r.Spec.Outcome) {
 		items = append(items, diagnostics.Error("YARA-CTR-011", "Unsupported contract-test mode or outcome.", "spec"))
 	}
 	if r.Spec.AssertionRef == "" || r.Spec.Target.RuntimeRef == "" || r.Spec.Target.ModelRef == "" || r.Spec.Target.HardwareProfileRef == "" {
