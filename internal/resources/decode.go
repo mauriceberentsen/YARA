@@ -67,6 +67,18 @@ func LoadTargetPreflightResult(path string) (TargetPreflightResult, error) {
 	return loadResource[TargetPreflightResult](path)
 }
 
+func LoadKubernetesChangeSet(path string) (KubernetesChangeSet, error) {
+	return loadResource[KubernetesChangeSet](path)
+}
+
+func LoadDeploymentApproval(path string) (DeploymentApproval, error) {
+	return loadResource[DeploymentApproval](path)
+}
+
+func LoadDeploymentReceipt(path string) (DeploymentReceipt, error) {
+	return loadResource[DeploymentReceipt](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

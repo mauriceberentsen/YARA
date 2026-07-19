@@ -69,6 +69,8 @@ Threats include compromised UI/API, replayed approval or over-privileged executo
 
 Controls: plan/bundle/change-set-bound approvals, target binding, short-lived scoped credentials, separation of duties, operation locks, idempotency and append-only receipts.
 
+The current implementation makes the assurance boundary executable: v1alpha1 approval has `review-only` effect even when its decision is `approved`. An assurance string is not authentication evidence, so execution authorization is rejected until a future schema includes a verifiable signed/authenticated envelope. No current command can issue authorization or create a deployment receipt.
+
 ### Unsafe generated configuration
 
 Threats include dropped security intent, open network exposure and excessive privilege.
@@ -86,6 +88,8 @@ Controls: provenance, timestamps, source precedence, contradiction reporting, op
 Threats include using over-privileged Kubernetes credentials, accidentally issuing a mutating command, and persisting cluster endpoints, contexts or object names in results and audit records.
 
 Controls: a dedicated read-only observer with an allowlisted `config view`/`get` command surface, bounded output and timeout, generic external-command failures, pseudonymous target identity, aggregate facts only, secret-canary tests and mandatory fail-closed audit persistence. This reduces exposure but does not prove the supplied Kubernetes identity is least-privilege; operators remain responsible for its RBAC scope.
+
+The change-set observer follows the same command boundary, re-identifies the preflight target and persists only resource identities, classifications and normalized digests. Foreign or unreadable resources block the change set. Its normalization profile is versioned and narrow; it is not admission evidence and deliberately proposes no deletion.
 
 ## Secure defaults
 

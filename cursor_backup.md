@@ -7,7 +7,7 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `main`.
+- Active branch: `feature/v0-2-change-set-approval-contracts`.
 - Latest completed merge: `1863f7a` (`Merge audited read-only Kubernetes preflight`), pushed to `origin/main` with the final handoff commit below.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 - Working goal: complete the audited target/change-set/approval boundary in thin slices without granting mutation authority prematurely.
@@ -206,6 +206,22 @@ The result is observation evidence only. The initial observer cannot produce dep
 
 This slice was committed as `49e1541`, merged to `main` as `1863f7a` and pushed under Maurice's configured author identity.
 
+## Current slice: observed change set, approval and receipt contracts
+
+Continue Phase 2 without granting mutation authority. The current branch adds:
+
+- strict content-addressed `KubernetesChangeSet`, `DeploymentApproval` and `DeploymentReceipt` resources plus public schemas and validation commands;
+- a bounded read-only Kubernetes object observer over the exact 12 resources in the current renderer;
+- a versioned normalization profile that removes only known server-assigned metadata/defaults and retains other drift in current digests;
+- create/update/no-op/conflict/unresolved classifications, with conflict/unresolved deriving a blocked result and delete fixed at zero;
+- a 15-minute preflight freshness requirement and exact target re-identification before change-set evaluation;
+- mandatory fail-closed audit chains binding bundle, preflight, target and change-set/approval identities;
+- a local approval command that records approved/rejected decisions but always uses `review-only`; v1alpha1 rejects execution authorization because an assurance string is not verifiable proof;
+- a public validate-only deployment-receipt contract; there is intentionally no receipt-generation or apply command;
+- ADR-0010 recording that future mutation requires exact observed state and strongly assured approval.
+
+Full-suite/race validation and documentation consistency checks pass. Publication/merge remains. No live cluster, container or remote host has been contacted.
+
 ## Audit requirements
 
 Auditing is a core domain capability, not an optional log:
@@ -256,8 +272,9 @@ Latest validation status: `make check`, `go test -race ./...`, deterministic tes
 
 ## Immediate next actions
 
-1. Add target identity and read-only Kubernetes preflight resources without target mutation.
-2. Add exact observed change-set, approval and deployment-receipt resources before any apply-capable executor.
-3. Implement a generic integration executor that produces fail-closed execution audit chains; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
-4. Add acquisition/import receipts and internal location mapping before presenting an air-gap completeness claim.
-5. Keep Ada tuples unobserved until authorized hardware exists and never self-approve independent promotion review.
+1. Design authenticated/signed execution approval issuance and verification; never upgrade a local review record in place.
+2. Add acquisition/import receipts and exact internal artifact locations before an air-gap completeness or apply claim.
+3. Implement active, separately authorized checks for model PVC contents, CNI enforcement, executable temporary storage and verifier-label governance.
+4. Design the least-privilege executor permission manifest, target lock, stale-state revalidation and audit/receipt transaction before writing apply code.
+5. Implement a generic integration executor independently of deployment apply; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
+6. Keep Ada tuples unobserved until authorized hardware exists and never self-approve independent promotion review.

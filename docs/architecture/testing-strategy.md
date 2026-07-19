@@ -62,7 +62,7 @@ Passing once does not guarantee permanent support; evidence freshness policy app
 
 The implemented [contract-testing slices](../implementation/contract-testing.md) are read-only SSH preflight, bounded runtime smoke, bounded model inference, advertised-context capacity boundary, repeated-request sustained capacity, serving policy and same-version lifecycle. Runtime smoke resolves exact OCI/model identities and executes a CUDA tensor in an isolated container. Model inference adds capacity gates, temporary exact-revision acquisition, local shard hashes, no-network serving, health and one constrained request. Capacity boundary offers one request whose reserved prompt/output envelope equals the cataloged maximum context. Sustained capacity requires 32 consecutive context-1024 requests at concurrency one without claiming latency, throughput, soak duration or an SLO. No individual contract can promote an assertion by itself.
 
-### Renderer tests (future)
+### Renderer and read-only target-boundary tests
 
 - deterministic artifact snapshots;
 - every plan intent consumed exactly once or rejected;
@@ -70,6 +70,12 @@ The implemented [contract-testing slices](../implementation/contract-testing.md)
 - valid target-native syntax;
 - no plaintext secrets or mutable tags;
 - adapter conformance across supported version matrix.
+- only allowlisted read-only kubectl commands;
+- target-switch, stale-preflight, foreign-ownership and unreadable-object rejection;
+- normalization fixtures that ignore only known server-assigned fields and retain other drift;
+- change-set and approval rollback when mandatory audit persistence fails;
+- local approval can never have execution-authorized effect;
+- receipt validation cannot be mistaken for executor evidence.
 
 ### Executor tests (future)
 

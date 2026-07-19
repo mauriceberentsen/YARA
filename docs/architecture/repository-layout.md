@@ -25,6 +25,7 @@ YARA/
     application/
     audit/
     catalog/
+    changeset/             # bounded read-only target comparison
     domain/
     debugbundle/
     plandiff/

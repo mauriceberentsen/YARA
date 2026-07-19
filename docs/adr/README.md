@@ -15,6 +15,7 @@ ADRs preserve significant decisions and their rationale. Accepted ADRs describe 
 | [0007](0007-auditing-is-a-core-domain-capability.md) | Accepted | Treat append-only auditing as a core domain capability |
 | [0008](0008-use-go-for-the-v0-cli-and-core.md) | Accepted | Use Go for the v0 CLI and planning core |
 | [0009](0009-docker-compose-reference-renderer-prototype.md) | Accepted | Select Kubernetes/GitOps as the first reference deployment target after a bounded renderer comparison |
+| [0010](0010-bind-mutation-to-observed-change-set-and-strong-approval.md) | Accepted | Bind mutation to a fresh observed change set and strongly assured approval |
 
 Use [0000-template.md](0000-template.md) for new records.
 
