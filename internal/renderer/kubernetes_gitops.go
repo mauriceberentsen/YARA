@@ -186,6 +186,7 @@ type kubeContainer struct {
 	Image           string                       `yaml:"image"`
 	ImagePullPolicy string                       `yaml:"imagePullPolicy"`
 	Args            []string                     `yaml:"args"`
+	Env             []kubeEnvVar                 `yaml:"env,omitempty"`
 	Ports           []kubeContainerPort          `yaml:"ports"`
 	SecurityContext kubeContainerSecurityContext `yaml:"securityContext"`
 	Resources       kubeResourceRequirements     `yaml:"resources"`
@@ -193,6 +194,11 @@ type kubeContainer struct {
 	StartupProbe    kubeProbe                    `yaml:"startupProbe"`
 	ReadinessProbe  kubeProbe                    `yaml:"readinessProbe"`
 	LivenessProbe   kubeProbe                    `yaml:"livenessProbe"`
+}
+
+type kubeEnvVar struct {
+	Name  string `yaml:"name"`
+	Value string `yaml:"value"`
 }
 
 type kubeContainerPort struct {
@@ -331,10 +337,17 @@ func renderKubernetesFiles(name, planID string, gateway, inference resources.Pla
 func deploymentObject(metadata kubeMetadata, namespace string, instance resources.PlanInstance, image string, args []string, healthPath string, healthPort int, gpu bool) kubeObject {
 	labels := workloadLabels(namespace, instance.ID, instance.Role)
 	limits := map[string]string(nil)
+	environment := []kubeEnvVar(nil)
 	volumes := []kubeVolume{{Name: "tmp", EmptyDir: &map[string]any{}}}
 	mounts := []kubeVolumeMount{{Name: "tmp", MountPath: "/tmp"}}
 	if gpu {
 		limits = map[string]string{"nvidia.com/gpu": "1"}
+		environment = []kubeEnvVar{
+			{Name: "HOME", Value: "/tmp"},
+			{Name: "XDG_CACHE_HOME", Value: "/tmp/.cache"},
+			{Name: "XDG_CONFIG_HOME", Value: "/tmp/.config"},
+			{Name: "FLASHINFER_WORKSPACE_BASE", Value: "/tmp"},
+		}
 		volumes = append(volumes, kubeVolume{Name: "model", PersistentVolumeClaim: &kubePersistentVolumeClaim{ClaimName: "yara-model", ReadOnly: true}})
 		mounts = append(mounts, kubeVolumeMount{Name: "model", MountPath: "/models/model", ReadOnly: true})
 	}
@@ -344,7 +357,7 @@ func deploymentObject(metadata kubeMetadata, namespace string, instance resource
 		Template: kubePodTemplate{Metadata: kubeMetadata{Labels: labels}, Spec: kubePodSpec{
 			AutomountServiceAccountToken: false, SecurityContext: kubePodSecurityContext{SeccompProfile: map[string]string{"type": "RuntimeDefault"}},
 			Containers: []kubeContainer{{
-				Name: instance.ID, Image: image, ImagePullPolicy: "IfNotPresent", Args: args,
+				Name: instance.ID, Image: image, ImagePullPolicy: "IfNotPresent", Args: args, Env: environment,
 				Ports:           []kubeContainerPort{{Name: "http", ContainerPort: healthPort, Protocol: "TCP"}},
 				SecurityContext: kubeContainerSecurityContext{AllowPrivilegeEscalation: false, ReadOnlyRootFilesystem: true, Privileged: false, Capabilities: kubeCapabilities{Drop: []string{"ALL"}}},
 				Resources:       kubeResourceRequirements{Limits: limits}, VolumeMounts: mounts,

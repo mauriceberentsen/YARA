@@ -45,6 +45,7 @@ func TestKubernetesGitOpsRenderIsDeterministicPinnedAndNonMutating(t *testing.T)
 		"vllm/vllm-openai:v0.25.1@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
 		"automountServiceAccountToken: false", "allowPrivilegeEscalation: false", "readOnlyRootFilesystem: true",
 		"type: RuntimeDefault", "nvidia.com/gpu: \"1\"", "claimName: yara-model", "type: ClusterIP",
+		"name: FLASHINFER_WORKSPACE_BASE", "name: XDG_CACHE_HOME", "value: /tmp",
 		"containerPort: 8000", "port: 4000", "port: 8000",
 		"kind: NetworkPolicy", "kubernetes.io/metadata.name: kube-system", "k8s-app: kube-dns",
 	} {

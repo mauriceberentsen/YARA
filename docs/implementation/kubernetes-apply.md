@@ -57,6 +57,10 @@ Do not hand-author a passing preflight, patch node capacity, remove the rendered
 
 When the authorization explicitly accepts the passive preflight blockers, the executor creates a temporary hardened verifier Pod using the pinned vLLM image. It mounts `yara-model` read-only, verifies every declared model-file size and SHA-256 digest and proves executable `/tmp`. The Pod has no service-account token, a read-only root filesystem, no Linux capabilities, no privilege escalation and RuntimeDefault seccomp.
 
+The verifier invokes the image's stable `/usr/bin/python3` entrypoint explicitly; it does not depend on an optional `python` alias or image-default entrypoint. YARA observes Pod status directly and treats terminal startup states such as `ContainerCannotRun`, `CreateContainerConfigError` and `InvalidImageName` as immediate prerequisite failures. It still permits transient scheduling and image-pull states until the bounded verifier timeout.
+
+The inference workload retains a read-only root filesystem. Its writable runtime and compilation caches are redirected through `HOME`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME` and `FLASHINFER_WORKSPACE_BASE` into the existing `/tmp` `emptyDir`; model storage remains mounted separately and read-only.
+
 After apply, the executor:
 
 - waits for every bundle Deployment rollout;

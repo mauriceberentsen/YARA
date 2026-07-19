@@ -115,6 +115,57 @@ spec:
 	}
 }
 
+func TestDeploymentProjectionIgnoresKnownServerDefaults(t *testing.T) {
+	bundle := changeSetBundle(t)
+	desired, err := changeset.DesiredObjects(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gateway changeset.DesiredObject
+	for _, object := range desired {
+		if object.Reference.Kind == "Deployment" && object.Reference.Name == "gateway" {
+			gateway = object
+			break
+		}
+	}
+	if gateway.Digest == "" {
+		t.Fatal("gateway Deployment missing")
+	}
+	data, err := yaml.Marshal(gateway.Object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var current map[string]any
+	if err := yaml.Unmarshal(data, &current); err != nil {
+		t.Fatal(err)
+	}
+	spec := current["spec"].(map[string]any)
+	pod := spec["template"].(map[string]any)["spec"].(map[string]any)
+	container := pod["containers"].([]any)[0].(map[string]any)
+	for _, key := range []string{"startupProbe", "readinessProbe", "livenessProbe"} {
+		probe := container[key].(map[string]any)
+		probe["successThreshold"] = 1
+		probe["httpGet"].(map[string]any)["scheme"] = "HTTP"
+	}
+	for _, raw := range pod["volumes"].([]any) {
+		volume := raw.(map[string]any)
+		if configMap, ok := volume["configMap"].(map[string]any); ok {
+			configMap["defaultMode"] = 420
+		}
+	}
+	data, err = yaml.Marshal(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := changeset.DecodeCurrentObject(data, gateway.Reference, bundle.Spec.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Digest != gateway.Digest {
+		t.Fatalf("known Kubernetes defaults changed the desired digest: got %s want %s", observed.Digest, gateway.Digest)
+	}
+}
+
 func changeSetBundle(t *testing.T) resources.DeploymentBundle {
 	t.Helper()
 	root := filepath.Join("..", "..")
