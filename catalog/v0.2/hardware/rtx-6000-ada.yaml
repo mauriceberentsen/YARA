@@ -1,0 +1,16 @@
+apiVersion: yara.dev/v1alpha1
+kind: HardwareProfile
+metadata: {id: hardware.nvidia-rtx-6000-ada, version: 1.0.0, status: experimental, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: vendor-specification, ref: "https://www.nvidia.com/en-us/design-visualization/rtx-6000/"}
+    - {type: vendor-architecture, ref: "https://developer.nvidia.com/cuda-gpus"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2027-01-19T00:00:00Z
+  confidence: high
+spec:
+  vendor: nvidia
+  models: [NVIDIA RTX 6000 Ada Generation, NVIDIA RTX 6000 Ada, RTX 6000 Ada]
+  memoryGiB: 48
+  architecture: ada-lovelace
+  computeCapability: "8.9"

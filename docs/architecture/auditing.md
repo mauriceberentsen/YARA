@@ -34,6 +34,10 @@ The remaining taxonomy below is architectural scope, not a claim of current impl
 
 For a successful planning run, the event records the request, inventory, catalog and semantic-plan digests. For an unsuccessful run it records available canonical input digests, a bounded raw-input digest or an opaque input-reference digest, plus stable diagnostic codes. The distinct subject kinds prevent an attempted-input reference from being mistaken for a validated resource identity. Effective-policy and planner/rule-engine version subjects are planned but not yet emitted because those versioned resources do not yet exist.
 
+The v0.2 catalog path preserves the same boundary: `catalog validate` binds its terminal event to the exact `CatalogSnapshot` digest, and `plan create` binds both the catalog and resulting plan digests while retaining material maturity diagnostics such as `YARA-CAT-055`. Immutable artifact digests and evidence URLs live in the catalog referenced by that digest; they are not copied into every event.
+
+Catalog promotion is not yet a CLI operation. Until it is, the Git commit and review record are the approval evidence. Before any manifest can be promoted to `supported`, YARA must add auditable artifact-verification, contract-test and promotion actions that bind the exact manifest, artifact, test result, actor and resulting snapshot digest. A status edit alone is not sufficient evidence.
+
 The current local actor comes from the operating-system identity and is labelled `self-asserted-local` (or `unknown-local` when unavailable). A future authenticated service or explicit actor input may provide stronger provenance, but the current value must not be presented as cryptographically verified identity.
 
 ## Event envelope
@@ -84,6 +88,9 @@ inventory.validate.*
 inventory.inspect.*
 catalog.load.*
 catalog.validate.*
+catalog.artifact-verify.*
+catalog.contract-test.*
+catalog.promote.*
 policy.resolve.*
 plan.create.*
 plan.validate.*

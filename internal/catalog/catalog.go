@@ -5,6 +5,7 @@ package catalog
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -12,6 +13,11 @@ import (
 
 	"github.com/mauriceberentsen/YARA/internal/canonical"
 	"github.com/mauriceberentsen/YARA/internal/diagnostics"
+)
+
+var (
+	sha256ArtifactPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+	gitRevisionPattern    = regexp.MustCompile(`^[a-f0-9]{40}$`)
 )
 
 const (
@@ -79,12 +85,48 @@ type ComponentManifest struct {
 }
 
 type ComponentManifestSpec struct {
-	Roles              []string        `json:"roles" yaml:"roles"`
-	Provides           []string        `json:"provides" yaml:"provides"`
-	Consumes           []string        `json:"consumes" yaml:"consumes"`
-	APIContracts       []string        `json:"apiContracts" yaml:"apiContracts"`
-	RuntimeOverheadGiB float64         `json:"runtimeOverheadGiB" yaml:"runtimeOverheadGiB"`
-	Policy             ComponentPolicy `json:"policy" yaml:"policy"`
+	Category           string              `json:"category,omitempty" yaml:"category,omitempty"`
+	UpstreamVersion    string              `json:"upstreamVersion,omitempty" yaml:"upstreamVersion,omitempty"`
+	Homepage           string              `json:"homepage,omitempty" yaml:"homepage,omitempty"`
+	License            *LicenseFacts       `json:"license,omitempty" yaml:"license,omitempty"`
+	Artifacts          []ArtifactReference `json:"artifacts,omitempty" yaml:"artifacts,omitempty"`
+	Health             *HealthContract     `json:"health,omitempty" yaml:"health,omitempty"`
+	Roles              []string            `json:"roles" yaml:"roles"`
+	Provides           []string            `json:"provides" yaml:"provides"`
+	Consumes           []string            `json:"consumes" yaml:"consumes"`
+	APIContracts       []string            `json:"apiContracts" yaml:"apiContracts"`
+	RuntimeOverheadGiB float64             `json:"runtimeOverheadGiB" yaml:"runtimeOverheadGiB"`
+	Policy             ComponentPolicy     `json:"policy" yaml:"policy"`
+}
+
+type ArtifactReference struct {
+	Type      string         `json:"type" yaml:"type"`
+	Ref       string         `json:"ref" yaml:"ref"`
+	Digest    string         `json:"digest,omitempty" yaml:"digest,omitempty"`
+	Revision  string         `json:"revision,omitempty" yaml:"revision,omitempty"`
+	Platforms []string       `json:"platforms,omitempty" yaml:"platforms,omitempty"`
+	Files     []ArtifactFile `json:"files,omitempty" yaml:"files,omitempty"`
+}
+
+type ArtifactFile struct {
+	Path      string `json:"path" yaml:"path"`
+	Digest    string `json:"digest" yaml:"digest"`
+	SizeBytes int64  `json:"sizeBytes" yaml:"sizeBytes"`
+}
+
+type LicenseFacts struct {
+	ID             string   `json:"id" yaml:"id"`
+	Source         string   `json:"source" yaml:"source"`
+	OSIApproved    bool     `json:"osiApproved" yaml:"osiApproved"`
+	Redistribution string   `json:"redistribution" yaml:"redistribution"`
+	Restrictions   []string `json:"restrictions,omitempty" yaml:"restrictions,omitempty"`
+}
+
+type HealthContract struct {
+	Protocol string   `json:"protocol" yaml:"protocol"`
+	Path     string   `json:"path,omitempty" yaml:"path,omitempty"`
+	Port     int      `json:"port,omitempty" yaml:"port,omitempty"`
+	Command  []string `json:"command,omitempty" yaml:"command,omitempty"`
 }
 
 type ComponentPolicy struct {
@@ -103,12 +145,19 @@ type ModelManifest struct {
 }
 
 type ModelManifestSpec struct {
-	Capabilities                   []string `json:"capabilities" yaml:"capabilities"`
-	WeightsGiB                     float64  `json:"weightsGiB" yaml:"weightsGiB"`
-	KVCachePerConcurrentRequestGiB float64  `json:"kvCachePerConcurrentRequestGiB" yaml:"kvCachePerConcurrentRequestGiB"`
-	HeadroomPercent                float64  `json:"headroomPercent" yaml:"headroomPercent"`
-	OpenSource                     bool     `json:"openSource" yaml:"openSource"`
-	PreferenceScore                float64  `json:"preferenceScore" yaml:"preferenceScore"`
+	Family                         string             `json:"family,omitempty" yaml:"family,omitempty"`
+	Architecture                   string             `json:"architecture,omitempty" yaml:"architecture,omitempty"`
+	ParametersB                    float64            `json:"parametersB,omitempty" yaml:"parametersB,omitempty"`
+	ContextTokens                  int                `json:"contextTokens,omitempty" yaml:"contextTokens,omitempty"`
+	Quantization                   string             `json:"quantization,omitempty" yaml:"quantization,omitempty"`
+	Artifact                       *ArtifactReference `json:"artifact,omitempty" yaml:"artifact,omitempty"`
+	License                        *LicenseFacts      `json:"license,omitempty" yaml:"license,omitempty"`
+	Capabilities                   []string           `json:"capabilities" yaml:"capabilities"`
+	WeightsGiB                     float64            `json:"weightsGiB" yaml:"weightsGiB"`
+	KVCachePerConcurrentRequestGiB float64            `json:"kvCachePerConcurrentRequestGiB" yaml:"kvCachePerConcurrentRequestGiB"`
+	HeadroomPercent                float64            `json:"headroomPercent" yaml:"headroomPercent"`
+	OpenSource                     bool               `json:"openSource" yaml:"openSource"`
+	PreferenceScore                float64            `json:"preferenceScore" yaml:"preferenceScore"`
 }
 
 type HardwareProfileManifest struct {
@@ -120,8 +169,11 @@ type HardwareProfileManifest struct {
 }
 
 type HardwareProfileManifestSpec struct {
-	Vendor string   `json:"vendor" yaml:"vendor"`
-	Models []string `json:"models" yaml:"models"`
+	Vendor            string   `json:"vendor" yaml:"vendor"`
+	Models            []string `json:"models" yaml:"models"`
+	MemoryGiB         int      `json:"memoryGiB,omitempty" yaml:"memoryGiB,omitempty"`
+	Architecture      string   `json:"architecture,omitempty" yaml:"architecture,omitempty"`
+	ComputeCapability string   `json:"computeCapability,omitempty" yaml:"computeCapability,omitempty"`
 }
 
 type CompatibilityAssertion struct {
@@ -133,12 +185,21 @@ type CompatibilityAssertion struct {
 }
 
 type CompatibilityAssertionSpec struct {
-	RuntimeRef         string              `json:"runtimeRef" yaml:"runtimeRef"`
-	ModelRef           string              `json:"modelRef" yaml:"modelRef"`
-	HardwareProfileRef string              `json:"hardwareProfileRef" yaml:"hardwareProfileRef"`
-	Compatibility      string              `json:"compatibility" yaml:"compatibility"`
-	ArtifactVerified   bool                `json:"artifactVerified" yaml:"artifactVerified"`
-	Evidence           []EvidenceReference `json:"evidence" yaml:"evidence"`
+	RuntimeRef         string                   `json:"runtimeRef" yaml:"runtimeRef"`
+	ModelRef           string                   `json:"modelRef" yaml:"modelRef"`
+	HardwareProfileRef string                   `json:"hardwareProfileRef" yaml:"hardwareProfileRef"`
+	Compatibility      string                   `json:"compatibility" yaml:"compatibility"`
+	ArtifactVerified   bool                     `json:"artifactVerified" yaml:"artifactVerified"`
+	Evidence           []EvidenceReference      `json:"evidence" yaml:"evidence"`
+	Conditions         *CompatibilityConditions `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+}
+
+type CompatibilityConditions struct {
+	RuntimeVersion       string `json:"runtimeVersion,omitempty" yaml:"runtimeVersion,omitempty"`
+	ModelRevision        string `json:"modelRevision,omitempty" yaml:"modelRevision,omitempty"`
+	MinimumDriverVersion string `json:"minimumDriverVersion,omitempty" yaml:"minimumDriverVersion,omitempty"`
+	ComputePlatform      string `json:"computePlatform,omitempty" yaml:"computePlatform,omitempty"`
+	MaximumContextTokens int    `json:"maximumContextTokens,omitempty" yaml:"maximumContextTokens,omitempty"`
 }
 
 type TopologyTemplateManifest struct {
@@ -186,6 +247,7 @@ type ComponentCandidate struct {
 type EvidenceReference struct {
 	ID         string `json:"id" yaml:"id"`
 	Confidence string `json:"confidence" yaml:"confidence"`
+	Source     string `json:"source,omitempty" yaml:"source,omitempty"`
 }
 
 type manifestSet struct {
@@ -210,6 +272,7 @@ type ServingCandidate struct {
 	Policy             PolicyFacts
 	PreferenceScore    float64
 	Evidence           []EvidenceReference
+	Conditions         CompatibilityConditions
 }
 
 type MemoryModel struct {
@@ -351,6 +414,7 @@ func validateManifestSet(set manifestSet, publishedAt string) []diagnostics.Diag
 		if component.APIVersion != APIVersion || component.Kind != "Component" || component.Metadata.ID == "" || component.Metadata.Version == "" || len(component.Spec.Roles) == 0 || len(component.Spec.Provides) == 0 || len(component.Spec.APIContracts) == 0 || component.Spec.RuntimeOverheadGiB < 0 {
 			items = append(items, diagnostics.Error("YARA-CAT-023", "Component manifest is incomplete.", component.Metadata.ID))
 		}
+		items = append(items, validateComponentEvidence(component)...)
 	}
 	for _, model := range set.Models {
 		items = append(items, validateManifestGovernance(model.Metadata, model.Provenance, publishedAt)...)
@@ -360,6 +424,7 @@ func validateManifestSet(set manifestSet, publishedAt string) []diagnostics.Diag
 		if model.APIVersion != APIVersion || model.Kind != "Model" || model.Metadata.ID == "" || model.Metadata.Version == "" || len(model.Spec.Capabilities) == 0 || model.Spec.WeightsGiB <= 0 || model.Spec.KVCachePerConcurrentRequestGiB < 0 || model.Spec.HeadroomPercent < 0 || model.Spec.HeadroomPercent >= 100 || model.Spec.PreferenceScore < 0 || model.Spec.PreferenceScore > 1 {
 			items = append(items, diagnostics.Error("YARA-CAT-025", "Model manifest contains invalid resource or score data.", model.Metadata.ID))
 		}
+		items = append(items, validateModelEvidence(model)...)
 	}
 	for _, profile := range set.Hardware {
 		items = append(items, validateManifestGovernance(profile.Metadata, profile.Provenance, publishedAt)...)
@@ -369,8 +434,13 @@ func validateManifestSet(set manifestSet, publishedAt string) []diagnostics.Diag
 		if profile.APIVersion != APIVersion || profile.Kind != "HardwareProfile" || profile.Metadata.ID == "" || profile.Metadata.Version == "" || profile.Spec.Vendor == "" || len(profile.Spec.Models) == 0 {
 			items = append(items, diagnostics.Error("YARA-CAT-027", "Hardware profile is incomplete.", profile.Metadata.ID))
 		}
+		hasHardwareEvidence := profile.Spec.MemoryGiB > 0 || profile.Spec.Architecture != "" || profile.Spec.ComputeCapability != ""
+		if (profile.Metadata.Status == "supported" || hasHardwareEvidence) && (profile.Spec.MemoryGiB <= 0 || profile.Spec.Architecture == "" || profile.Spec.ComputeCapability == "") {
+			items = append(items, diagnostics.Error("YARA-CAT-059", "Hardware evidence requires memory, architecture and compute capability as one complete set.", profile.Metadata.ID))
+		}
 	}
 	for _, assertion := range set.Compatibility {
+		conditions := compatibilityConditions(assertion.Spec.Conditions)
 		items = append(items, validateManifestGovernance(assertion.Metadata, assertion.Provenance, publishedAt)...)
 		if addManifestID(assertions, assertion.Metadata.ID, assertion) {
 			items = append(items, diagnostics.Error("YARA-CAT-036", "Duplicate compatibility assertion ID.", assertion.Metadata.ID))
@@ -397,6 +467,28 @@ func validateManifestSet(set manifestSet, publishedAt string) []diagnostics.Diag
 			if evidence.ID == "" || !slices.Contains([]string{"high", "medium", "low"}, evidence.Confidence) {
 				items = append(items, diagnostics.Error("YARA-CAT-033", "Evidence requires an ID and valid confidence.", assertion.Metadata.ID))
 			}
+		}
+		hasCompatibilityBounds := conditions.RuntimeVersion != "" || conditions.ModelRevision != "" || conditions.MinimumDriverVersion != "" || conditions.ComputePlatform != "" || conditions.MaximumContextTokens > 0
+		if hasCompatibilityBounds {
+			for _, evidence := range assertion.Spec.Evidence {
+				if strings.TrimSpace(evidence.Source) == "" {
+					items = append(items, diagnostics.Error("YARA-CAT-067", "Bounded compatibility evidence requires a traceable source.", assertion.Metadata.ID))
+				}
+			}
+		}
+		if assertion.Metadata.Status == "supported" && (!assertion.Spec.ArtifactVerified || conditions.RuntimeVersion == "" || conditions.ModelRevision == "" || conditions.ComputePlatform == "" || conditions.MaximumContextTokens <= 0) {
+			items = append(items, diagnostics.Error("YARA-CAT-060", "Supported compatibility requires immutable artifact, version, compute-platform and context bounds.", assertion.Metadata.ID))
+		}
+		if component, ok := components[assertion.Spec.RuntimeRef]; ok && conditions.RuntimeVersion != "" && conditions.RuntimeVersion != component.Metadata.Version {
+			items = append(items, diagnostics.Error("YARA-CAT-061", "Compatibility runtimeVersion does not match the referenced component.", assertion.Metadata.ID))
+		}
+		if model, ok := models[assertion.Spec.ModelRef]; ok && conditions.ModelRevision != "" {
+			if model.Spec.Artifact == nil || conditions.ModelRevision != model.Spec.Artifact.Revision {
+				items = append(items, diagnostics.Error("YARA-CAT-062", "Compatibility modelRevision does not match the referenced model artifact.", assertion.Metadata.ID))
+			}
+		}
+		if model, ok := models[assertion.Spec.ModelRef]; ok && conditions.MaximumContextTokens > model.Spec.ContextTokens && model.Spec.ContextTokens > 0 {
+			items = append(items, diagnostics.Error("YARA-CAT-069", "Compatibility context bound exceeds the referenced model's recorded context window.", assertion.Metadata.ID))
 		}
 	}
 	for _, component := range set.Components {
@@ -466,6 +558,105 @@ func validateManifestSet(set manifestSet, publishedAt string) []diagnostics.Diag
 		}
 	}
 	return items
+}
+
+func validateComponentEvidence(component ComponentManifest) []diagnostics.Diagnostic {
+	var items []diagnostics.Diagnostic
+	hasRichEvidence := component.Spec.Category != "" || component.Spec.UpstreamVersion != "" || component.Spec.Homepage != "" || len(component.Spec.Artifacts) > 0 || component.Spec.License != nil || component.Spec.Health != nil
+	if hasRichEvidence {
+		healthValid := component.Spec.Health != nil && ((component.Spec.Health.Protocol == "http" && strings.HasPrefix(component.Spec.Health.Path, "/")) ||
+			(component.Spec.Health.Protocol == "tcp" && component.Spec.Health.Port > 0 && component.Spec.Health.Port <= 65535) ||
+			(component.Spec.Health.Protocol == "exec" && len(component.Spec.Health.Command) > 0))
+		if component.Spec.Category == "" || component.Spec.UpstreamVersion == "" || component.Spec.Homepage == "" || !healthValid {
+			items = append(items, diagnostics.Error("YARA-CAT-057", "Component evidence requires category, upstream version, homepage and a valid HTTP, TCP or exec health contract.", component.Metadata.ID))
+		}
+		if component.Spec.License == nil {
+			items = append(items, diagnostics.Error("YARA-CAT-064", "License facts require identity, source and redistribution status.", component.Metadata.ID))
+		} else {
+			items = append(items, validateLicense(*component.Spec.License, component.Metadata.ID)...)
+		}
+		for _, artifact := range component.Spec.Artifacts {
+			items = append(items, validateArtifact(artifact, component.Metadata.ID)...)
+		}
+		if len(component.Spec.Artifacts) == 0 {
+			items = append(items, diagnostics.Error("YARA-CAT-057", "Component evidence requires at least one immutable artifact.", component.Metadata.ID))
+		}
+		if component.Spec.License != nil && component.Spec.Policy.OpenSource != component.Spec.License.OSIApproved {
+			items = append(items, diagnostics.Error("YARA-CAT-063", "Component open-source policy must match the recorded OSI license fact.", component.Metadata.ID))
+		}
+		if component.Spec.UpstreamVersion != component.Metadata.Version {
+			items = append(items, diagnostics.Error("YARA-CAT-068", "Component metadata version must equal its recorded upstream version.", component.Metadata.ID))
+		}
+	}
+	if component.Metadata.Status == "supported" && !hasRichEvidence {
+		items = append(items, diagnostics.Error("YARA-CAT-057", "Supported components require complete release, license, artifact and health evidence.", component.Metadata.ID))
+	}
+	return items
+}
+
+func validateModelEvidence(model ModelManifest) []diagnostics.Diagnostic {
+	var items []diagnostics.Diagnostic
+	hasRichEvidence := model.Spec.Family != "" || model.Spec.Architecture != "" || model.Spec.ParametersB > 0 || model.Spec.ContextTokens > 0 || model.Spec.Quantization != "" || model.Spec.Artifact != nil || model.Spec.License != nil
+	if hasRichEvidence {
+		if model.Spec.Family == "" || model.Spec.Architecture == "" || model.Spec.ParametersB <= 0 || model.Spec.ContextTokens <= 0 || model.Spec.Quantization == "" {
+			items = append(items, diagnostics.Error("YARA-CAT-058", "Model evidence requires family, architecture, parameter count, context and quantization.", model.Metadata.ID))
+		}
+		if model.Spec.License == nil {
+			items = append(items, diagnostics.Error("YARA-CAT-064", "License facts require identity, source and redistribution status.", model.Metadata.ID))
+		} else {
+			items = append(items, validateLicense(*model.Spec.License, model.Metadata.ID)...)
+		}
+		if model.Spec.Artifact == nil {
+			items = append(items, diagnostics.Error("YARA-CAT-065", "Artifact requires a supported type and non-empty reference.", model.Metadata.ID))
+		} else {
+			items = append(items, validateArtifact(*model.Spec.Artifact, model.Metadata.ID)...)
+		}
+		if model.Spec.License != nil && model.Spec.OpenSource != model.Spec.License.OSIApproved {
+			items = append(items, diagnostics.Error("YARA-CAT-063", "Model open-source policy must match the recorded OSI license fact.", model.Metadata.ID))
+		}
+	}
+	if model.Metadata.Status == "supported" && !hasRichEvidence {
+		items = append(items, diagnostics.Error("YARA-CAT-058", "Supported models require complete artifact, license and resource evidence.", model.Metadata.ID))
+	}
+	return items
+}
+
+func validateLicense(license LicenseFacts, path string) []diagnostics.Diagnostic {
+	if license.ID == "" || license.Source == "" || !slices.Contains([]string{"allowed", "allowed-with-conditions", "unknown", "forbidden"}, license.Redistribution) {
+		return []diagnostics.Diagnostic{diagnostics.Error("YARA-CAT-064", "License facts require identity, source and redistribution status.", path)}
+	}
+	return nil
+}
+
+func validateArtifact(artifact ArtifactReference, path string) []diagnostics.Diagnostic {
+	var items []diagnostics.Diagnostic
+	if artifact.Ref == "" || !slices.Contains([]string{"oci-image", "huggingface-snapshot"}, artifact.Type) {
+		items = append(items, diagnostics.Error("YARA-CAT-065", "Artifact requires a supported type and non-empty reference.", path))
+		return items
+	}
+	switch artifact.Type {
+	case "oci-image":
+		if !sha256ArtifactPattern.MatchString(artifact.Digest) || len(artifact.Platforms) == 0 {
+			items = append(items, diagnostics.Error("YARA-CAT-065", "OCI artifacts require a SHA-256 digest and at least one platform.", path))
+		}
+	case "huggingface-snapshot":
+		if !gitRevisionPattern.MatchString(artifact.Revision) || len(artifact.Files) == 0 {
+			items = append(items, diagnostics.Error("YARA-CAT-065", "Model snapshots require an immutable Git revision and verified files.", path))
+		}
+	}
+	for _, file := range artifact.Files {
+		if file.Path == "" || !sha256ArtifactPattern.MatchString(file.Digest) || file.SizeBytes <= 0 {
+			items = append(items, diagnostics.Error("YARA-CAT-066", "Artifact files require path, SHA-256 digest and positive size.", path))
+		}
+	}
+	return items
+}
+
+func compatibilityConditions(conditions *CompatibilityConditions) CompatibilityConditions {
+	if conditions == nil {
+		return CompatibilityConditions{}
+	}
+	return *conditions
 }
 
 func validateManifestGovernance(metadata ManifestMetadata, provenance ManifestProvenance, publishedAt string) []diagnostics.Diagnostic {
@@ -717,6 +908,7 @@ func compileCandidates(set manifestSet) ([]ServingCandidate, []diagnostics.Diagn
 			},
 			PreferenceScore: model.Spec.PreferenceScore,
 			Evidence:        slices.Clone(assertion.Spec.Evidence),
+			Conditions:      compatibilityConditions(assertion.Spec.Conditions),
 		}
 		sort.Strings(candidate.Capabilities)
 		sort.Strings(candidate.APIContracts)

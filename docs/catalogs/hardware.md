@@ -46,6 +46,8 @@ YARA does not plan against total memory or disk capacity. Inventory identifies e
 
 A profile maps vendor identifiers and capabilities, including supported driver/compute ranges. Profiles provide identification and compatibility knowledge, not universal performance numbers. Actual performance lives in benchmark observations.
 
+The v0.2 profiles record NVIDIA inventory aliases, VRAM, architecture and compute capability for RTX 4090, RTX 6000 Ada and L40S. The separate compatibility assertions bind those profiles to a minimum driver branch and CUDA runtime. They remain experimental until discovery aliases and runtime startup are exercised on the physical devices.
+
 ## Multi-device considerations
 
 Total memory is not automatically additive. The planner considers serving runtime parallelism support, interconnect, topology, quantization, communication overhead and failure behavior. v0.1 supports only explicitly cataloged homogeneous combinations and never assumes two devices can serve a model requiring their summed memory.

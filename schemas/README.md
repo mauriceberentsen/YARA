@@ -20,5 +20,7 @@ Shared catalog metadata and provenance definitions live in `catalog-manifest-com
 - `PlatformPlanDiff`
 - `DebugBundle`
 - `GoldenScenario`
+- `ScenarioReview`
+- `AcceptanceGateReview`
 
-These schemas are alpha contracts and may change with an explicit migration before v0.1. Unknown fields are rejected. Catalog resources share mandatory lifecycle, ownership and provenance definitions. `PlatformPlan` requires explicit bounded-search counts and ordinal confidence factors so feasibility is not presented as global or high-confidence optimization. `DebugBundle` exposes only content-addressed support metadata under an explicit redaction and secret-scan contract. `GoldenScenario` pins exact inputs, expected outcomes, safety assertions and independent-review requirements. The Go tests parse every schema and validate the repository examples through the strict typed loader.
+These schemas are alpha contracts and may change only with an explicit migration. Unknown fields are rejected. Catalog resources share mandatory lifecycle, ownership and provenance definitions; the v0.2-compatible fields add license, artifact, health and bounded compatibility evidence without invalidating the frozen v0.1 resources. `PlatformPlan` requires explicit bounded-search counts and ordinal confidence factors so feasibility is not presented as global or high-confidence optimization. `DebugBundle` exposes only content-addressed support metadata under an explicit redaction and secret-scan contract. `GoldenScenario`, `ScenarioReview` and `AcceptanceGateReview` pin exact inputs, expected outcomes, safety assertions and independent-review evidence. The Go tests parse every schema and validate repository examples through the strict typed loader.

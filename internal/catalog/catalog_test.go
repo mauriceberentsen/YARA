@@ -43,6 +43,40 @@ func TestLoadFirstSnapshot(t *testing.T) {
 	}
 }
 
+func TestCuratedV02SnapshotCompilesOnlyBoundedEvidence(t *testing.T) {
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load curated catalog: %v", err)
+	}
+	if candidates := snapshot.Candidates(); len(candidates) != 6 {
+		t.Fatalf("expected six compatibility-bounded candidates, got %d", len(candidates))
+	} else {
+		for _, candidate := range candidates {
+			if candidate.Conditions.RuntimeVersion != "0.25.1" || candidate.Conditions.ModelRevision == "" || candidate.Conditions.MinimumDriverVersion == "" || candidate.Conditions.ComputePlatform != "cuda-13.0" || candidate.Conditions.MaximumContextTokens != 32768 {
+				t.Fatalf("candidate lost its compatibility envelope: %#v", candidate)
+			}
+			for _, evidence := range candidate.Evidence {
+				if evidence.Source == "" {
+					t.Fatalf("candidate evidence is not traceable: %#v", candidate)
+				}
+			}
+		}
+	}
+	components := make(map[string]ComponentManifest, len(snapshot.manifests.Components))
+	for _, component := range snapshot.manifests.Components {
+		components[component.Metadata.ID] = component
+	}
+	if components["core.open-webui"].Spec.Policy.OpenSource || components["core.open-webui"].Spec.License == nil || components["core.open-webui"].Spec.License.OSIApproved {
+		t.Fatal("Open WebUI branding license was incorrectly represented as OSI open source")
+	}
+	if components["core.langfuse"].Spec.Policy.OpenSource || components["core.langfuse"].Spec.License == nil || components["core.langfuse"].Spec.License.OSIApproved {
+		t.Fatal("Langfuse published image was incorrectly represented as wholly OSI open source")
+	}
+	if !components["core.qdrant"].Spec.Policy.Telemetry || !components["core.grafana"].Spec.Policy.Telemetry {
+		t.Fatal("conservative upstream telemetry facts must remain visible until hardened profiles are tested")
+	}
+}
+
 func TestCatalogRejectsStaleManifestAtSnapshotTime(t *testing.T) {
 	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.1", "snapshot.yaml"))
 	if err != nil {
@@ -62,6 +96,69 @@ func TestCatalogRejectsMissingManifestOwner(t *testing.T) {
 	snapshot.manifests.Models[0].Metadata.Owners = nil
 	if report := snapshot.Validate(); report.Valid || !containsDiagnostic(report.Diagnostics, "YARA-CAT-051") {
 		t.Fatalf("expected ownership error, got %#v", report.Diagnostics)
+	}
+}
+
+func TestCatalogRejectsIncompleteSupportedComponentEvidence(t *testing.T) {
+	snapshot := loadTestSnapshot(t)
+	component := &snapshot.manifests.Components[0]
+	component.Metadata.Status = "supported"
+	if report := snapshot.Validate(); report.Valid || !containsDiagnostic(report.Diagnostics, "YARA-CAT-057") {
+		t.Fatalf("expected incomplete component evidence error, got %#v", report.Diagnostics)
+	}
+}
+
+func TestCatalogRejectsMalformedImmutableArtifact(t *testing.T) {
+	snapshot := loadTestSnapshot(t)
+	component := &snapshot.manifests.Components[0]
+	component.Spec.Category = "gateway"
+	component.Spec.UpstreamVersion = component.Metadata.Version
+	component.Spec.Homepage = "https://example.invalid/gateway"
+	component.Spec.Health = &HealthContract{Protocol: "http", Path: "/health"}
+	component.Spec.License = &LicenseFacts{ID: "Apache-2.0", Source: "https://example.invalid/license", OSIApproved: true, Redistribution: "allowed"}
+	component.Spec.Artifacts = []ArtifactReference{{Type: "oci-image", Ref: "example.invalid/gateway:1.0.0", Digest: "latest", Platforms: []string{"linux/amd64"}}}
+	if report := snapshot.Validate(); report.Valid || !containsDiagnostic(report.Diagnostics, "YARA-CAT-065") {
+		t.Fatalf("expected malformed artifact error, got %#v", report.Diagnostics)
+	}
+}
+
+func TestCatalogRejectsLicensePolicyMismatch(t *testing.T) {
+	snapshot := loadTestSnapshot(t)
+	component := &snapshot.manifests.Components[0]
+	component.Spec.Category = "gateway"
+	component.Spec.UpstreamVersion = component.Metadata.Version
+	component.Spec.Homepage = "https://example.invalid/gateway"
+	component.Spec.Health = &HealthContract{Protocol: "http", Path: "/health"}
+	component.Spec.License = &LicenseFacts{ID: "LicenseRef-Proprietary", Source: "https://example.invalid/license", OSIApproved: false, Redistribution: "forbidden"}
+	component.Spec.Artifacts = []ArtifactReference{{Type: "oci-image", Ref: "example.invalid/gateway:1.0.0", Digest: "sha256:" + strings.Repeat("a", 64), Platforms: []string{"linux/amd64"}}}
+	if report := snapshot.Validate(); report.Valid || !containsDiagnostic(report.Diagnostics, "YARA-CAT-063") {
+		t.Fatalf("expected license policy mismatch error, got %#v", report.Diagnostics)
+	}
+}
+
+func TestCatalogRejectsCompatibilityVersionDrift(t *testing.T) {
+	snapshot := loadTestSnapshot(t)
+	assertion := &snapshot.manifests.Compatibility[0]
+	assertion.Spec.Conditions = &CompatibilityConditions{RuntimeVersion: "9.9.9", ModelRevision: strings.Repeat("b", 40)}
+	if report := snapshot.Validate(); report.Valid || !containsDiagnostic(report.Diagnostics, "YARA-CAT-061") || !containsDiagnostic(report.Diagnostics, "YARA-CAT-062") {
+		t.Fatalf("expected runtime and model revision mismatch errors, got %#v", report.Diagnostics)
+	}
+}
+
+func TestCatalogRejectsUntraceableOrOverbroadCompatibilityBounds(t *testing.T) {
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load curated catalog: %v", err)
+	}
+	assertion := &snapshot.manifests.Compatibility[0]
+	assertion.Spec.Evidence[0].Source = ""
+	for index := range snapshot.manifests.Models {
+		if snapshot.manifests.Models[index].Metadata.ID == assertion.Spec.ModelRef {
+			assertion.Spec.Conditions.MaximumContextTokens = snapshot.manifests.Models[index].Spec.ContextTokens + 1
+		}
+	}
+	if report := snapshot.Validate(); report.Valid || !containsDiagnostic(report.Diagnostics, "YARA-CAT-067") || !containsDiagnostic(report.Diagnostics, "YARA-CAT-069") {
+		t.Fatalf("expected traceability and model context errors, got %#v", report.Diagnostics)
 	}
 }
 
@@ -107,6 +204,15 @@ func containsDiagnostic(items []diagnostics.Diagnostic, code string) bool {
 		}
 	}
 	return false
+}
+
+func loadTestSnapshot(t *testing.T) *Snapshot {
+	t.Helper()
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.1", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	return &snapshot
 }
 
 func TestCatalogRejectsManifestPathTraversal(t *testing.T) {

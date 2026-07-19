@@ -1,0 +1,9 @@
+apiVersion: yara.dev/v1alpha1
+kind: Capability
+metadata: {id: experience.web-chat/v1, version: 1.0.0, status: supported, owners: [yara-core]}
+provenance:
+  sources: [{type: design, ref: docs/product/scope.md}]
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2027-01-19T00:00:00Z
+  confidence: high
+spec: {description: Browser-based conversational user experience.}

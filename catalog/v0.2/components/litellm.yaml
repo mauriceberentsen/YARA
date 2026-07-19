@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.litellm, version: 1.93.0, status: experimental, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/BerriAI/litellm/releases/tag/v1.93.0"}
+    - {type: upstream-documentation, ref: "https://docs.litellm.ai/docs/proxy/health"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: ai-gateway
+  upstreamVersion: 1.93.0
+  homepage: https://www.litellm.ai/
+  license:
+    id: MIT
+    source: https://github.com/BerriAI/litellm/blob/v1.93.0/LICENSE
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: ghcr.io/berriai/litellm:v1.93.0
+      digest: sha256:a1745e629abfb17d434426ff48b115f54f4f4c4a0f5af241de569e93c63c411e
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: http, path: /health/liveliness}
+  roles: [gateway.openai-compatible]
+  provides: [chat]
+  consumes: [integration.api.openai-chat/v1]
+  apiContracts: [integration.api.openai-chat/v1]
+  runtimeOverheadGiB: 0.5
+  policy: {openSource: true, externalEgress: false, telemetry: false, artifactVerified: true}

@@ -23,7 +23,17 @@
           "type": "array", "minItems": 1,
           "items": {
             "type": "object", "additionalProperties": false, "required": ["id", "confidence"],
-            "properties": { "id": { "type": "string", "minLength": 1 }, "confidence": { "enum": ["high", "medium", "low"] } }
+            "properties": { "id": { "type": "string", "minLength": 1 }, "confidence": { "enum": ["high", "medium", "low"] }, "source": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "conditions": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "runtimeVersion": { "type": "string", "minLength": 1 },
+            "modelRevision": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+            "minimumDriverVersion": { "type": "string", "minLength": 1 },
+            "computePlatform": { "type": "string", "minLength": 1 },
+            "maximumContextTokens": { "type": "integer", "minimum": 1 }
           }
         }
       }

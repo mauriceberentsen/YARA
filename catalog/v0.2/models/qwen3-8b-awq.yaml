@@ -1,0 +1,34 @@
+apiVersion: yara.dev/v1alpha1
+kind: Model
+metadata: {id: models.qwen3-8b-awq, version: "4da05a8", status: experimental, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-model-card, ref: "https://huggingface.co/Qwen/Qwen3-8B-AWQ"}
+    - {type: immutable-revision, ref: "https://huggingface.co/Qwen/Qwen3-8B-AWQ/tree/4da05a8edb55c6046cce958586c33b61da07bb79"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  family: Qwen3
+  architecture: Qwen3ForCausalLM
+  parametersB: 8.2
+  contextTokens: 32768
+  quantization: awq-4bit
+  artifact:
+    type: huggingface-snapshot
+    ref: Qwen/Qwen3-8B-AWQ
+    revision: 4da05a8edb55c6046cce958586c33b61da07bb79
+    files:
+      - {path: model-00001-of-00002.safetensors, digest: "sha256:6e112429856bc65e3837a9f38d6f6b71ffdda832cb46299a12f4fa8f6352516e", sizeBytes: 4853922024}
+      - {path: model-00002-of-00002.safetensors, digest: "sha256:20c2d6366ab85c90786ccdd829cd2b9e7d30ef3b2ebbb998280e7e4014b542ff", sizeBytes: 1244659840}
+  license:
+    id: Apache-2.0
+    source: https://huggingface.co/Qwen/Qwen3-8B-AWQ/blob/4da05a8edb55c6046cce958586c33b61da07bb79/LICENSE
+    osiApproved: true
+    redistribution: allowed
+  capabilities: [chat]
+  weightsGiB: 5.68
+  kvCachePerConcurrentRequestGiB: 0.75
+  headroomPercent: 20
+  openSource: true
+  preferenceScore: 0.9

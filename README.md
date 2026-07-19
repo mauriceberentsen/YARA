@@ -4,7 +4,7 @@
 
 YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
 
-YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate the first deterministic placeholder plan, explain and semantically compare plans, produce a redacted local debug bundle, validate individual or complete golden-scenario suites, and verify tamper-evident local audit chains. It does not deploy a platform yet.
+YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate deterministic plans from both the frozen v0.1 fixtures and the first real v0.2 catalog, explain and semantically compare plans, produce a redacted local debug bundle, validate individual or complete golden-scenario suites, and verify tamper-evident local audit chains. It does not deploy a platform yet.
 
 ## The problem
 
@@ -142,12 +142,12 @@ go run ./cmd/yara version
 go run ./cmd/yara request validate docs/examples/platform-request.yaml \
   --audit-output request-validation.audit.jsonl
 go run ./cmd/yara inventory validate docs/examples/inventory.yaml
-go run ./cmd/yara catalog validate catalog/v0.1/snapshot.yaml \
+go run ./cmd/yara catalog validate catalog/v0.2/snapshot.yaml \
   --audit-output catalog-validation.audit.jsonl
 go run ./cmd/yara plan create \
-  --request docs/examples/platform-request.yaml \
-  --inventory docs/examples/inventory.yaml \
-  --catalog catalog/v0.1/snapshot.yaml \
+  --request docs/examples/v0.2-platform-request.yaml \
+  --inventory docs/examples/v0.2-inventory.yaml \
+  --catalog catalog/v0.2/snapshot.yaml \
   --output plan.yaml \
   --audit-output audit.jsonl
 go run ./cmd/yara plan diff docs/examples/platform-plan.yaml plan.yaml \
@@ -171,7 +171,7 @@ Currently implemented:
 - public draft-2020-12 schemas for request, inventory, catalog manifests, plan and audit events;
 - deterministic SHA-256 content digests;
 - append-only audit-event chaining, tamper verification and `audit verify` CLI support;
-- a manifest-compiled placeholder catalog with capability, component, model, hardware and evidence-backed compatibility resources;
+- a frozen placeholder catalog for v0.1 acceptance plus a curated v0.2 snapshot with ten real components, two immutable model snapshots, three NVIDIA Ada profiles and six bounded serving candidates;
 - open-world compatibility governance where explicit negative evidence overrides positive claims and conflicts are quarantined;
 - a catalog-authored abstract topology template resolved into gateway and inference component instances;
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;
@@ -185,7 +185,7 @@ Currently implemented:
 - tamper-evident audit chains for validation plus successful, infeasible and input-rejected planning outcomes, containing available input identities and stable diagnostic codes, including material warnings;
 - optional fail-closed validation, plan-explanation and plan-diff audit receipts, plus mandatory fail-closed persistence for `plan create` and `debug bundle`, with path- and payload-minimized evidence for resources that cannot be decoded.
 
-All bundled manifests remain explicitly `experimental`; their warning caps recommendation confidence and is preserved in generated plans, explanations, diffs, debug bundles, scenarios and audit evidence. Ten technically conformant golden scenarios exist—seven planned and three infeasible—with approved `ScenarioReview` and `AcceptanceGateReview` resources counted by the CLI. Run `yara scenario validate-all scenarios/v0.1` to confirm `releaseEligible: true`. See the [v0.1 acceptance ledger](docs/implementation/v0.1-acceptance-status.md).
+Selectable software, model, hardware and compatibility manifests in v0.2 remain explicitly `experimental`; their warning caps recommendation confidence and is preserved in generated plans and audit evidence. Researched suite components that lack YARA contract tests remain `known` and cannot be selected. Ten technically conformant v0.1 golden scenarios exist—seven planned and three infeasible—with approved `ScenarioReview` and `AcceptanceGateReview` resources counted by the CLI. Run `yara scenario validate-all scenarios/v0.1` to confirm `releaseEligible: true`. See the [v0.1 acceptance ledger](docs/implementation/v0.1-acceptance-status.md) and the [v0.2 catalog notes](catalog/v0.2/README.md).
 
 ## Project status
 

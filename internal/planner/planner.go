@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mauriceberentsen/YARA/internal/canonical"
@@ -307,6 +308,14 @@ func evaluate(request resources.PlatformRequest, accelerator resources.Accelerat
 		item.Rejection = rejection("YARA-HW-002", "Candidate is not asserted compatible with the inventoried accelerator.")
 		return item
 	}
+	if candidate.Conditions.MaximumContextTokens > 0 && request.Spec.Workload.MaximumContextTokens > candidate.Conditions.MaximumContextTokens {
+		item.Rejection = rejection("YARA-CAP-002", fmt.Sprintf("Requested context window %d exceeds the asserted maximum of %d tokens.", request.Spec.Workload.MaximumContextTokens, candidate.Conditions.MaximumContextTokens))
+		return item
+	}
+	if candidate.Conditions.MinimumDriverVersion != "" && !driverMeetsMinimum(accelerator.DriverVersion, candidate.Conditions.MinimumDriverVersion) {
+		item.Rejection = rejection("YARA-HW-003", "Accelerator driver version does not satisfy the compatibility assertion's minimum driver branch.")
+		return item
+	}
 
 	for _, useCase := range request.Spec.UseCases {
 		if useCase.Required && !slices.Contains(candidate.Capabilities, useCase.ID) {
@@ -337,6 +346,12 @@ func evaluate(request resources.PlatformRequest, accelerator resources.Accelerat
 		)
 	}
 	return item
+}
+
+func driverMeetsMinimum(actual, minimum string) bool {
+	actualMajor, actualErr := strconv.Atoi(strings.SplitN(actual, ".", 2)[0])
+	minimumMajor, minimumErr := strconv.Atoi(strings.SplitN(minimum, ".", 2)[0])
+	return actualErr == nil && minimumErr == nil && actualMajor >= minimumMajor
 }
 
 func estimateMemory(concurrency int, memory catalog.MemoryModel) float64 {
