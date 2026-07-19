@@ -7,10 +7,10 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-catalog-coverage`.
-- Branch base: `main` at `ae92b33` (`Merge audited GB10 lifecycle contract`).
+- Active branch: `feature/v0-2-gb10-qwen3-evidence`.
+- Branch base: `main` at `4d7898a` (`Merge audited catalog completion ledger`).
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: make catalog v0.2 completion and every remaining evidence blocker machine-readable and audit-bound without declaring untested tuples supported.
+- Working goal: close the four currently executable Qwen3/GB10 contract gaps, then regenerate the completion ledger without declaring the tuple supported.
 
 ## Current product boundary
 
@@ -78,13 +78,25 @@ Implementation status: `contract lifecycle`, the `lifecycle-contract` result mod
 
 The lifecycle slice was committed as `339ce98`, merged to `main` as `ae92b33`, pushed, and passed a post-merge `make check`. Local `main` matched `origin/main` before this coverage branch was created.
 
-## Active slice: catalog coverage
+## Completed slice: catalog coverage
 
 Build a deterministic machine-readable completion report for catalog v0.2. It must validate the snapshot, discover only valid `ContractTestResult` files bound to the exact catalog digest, verify every adjacent audit chain and bind accepted evidence by assertion and mode. The report must distinguish structural catalog validity from operational evidence completeness.
 
 At minimum the report must enumerate all components, models, hardware profiles and compatibility assertions; expose passed, failed, blocked and missing gates; state why no tuple is yet promotion-eligible; and record unavailable Ada targets and missing component integrations as blockers rather than inferred passes. Generation requires fail-closed audit persistence and a content-addressed report identity.
 
 Implementation status: `catalog coverage create` and `catalog coverage validate`, the strict `CatalogCoverageReport` resource/schema, manifest inventory projection, exact evidence/audit binding, report identity, fail-closed generation audit and rollback tests are implemented. The archived report is `catalog/v0.2/coverage.yaml`, report ID `sha256:2f0e078cc921f9522aabe565150e95adefc7c1b59ec18bb2c7fd2dc60720d559`; its audit head is `sha256:5f072b8a7a85470d99af01ad354d197d3b510883be369527a523aeea96d40eb6`. It explicitly enumerates all 38 manifests (13 capabilities, 10 components, 2 models, 4 hardware profiles, 8 assertions and 1 topology), accepts 7 results with 7 individually bound and verified evidence audit chains, and records 0 promotion-eligible assertions.
+
+The coverage slice was committed as `09e676c`, merged to `main` as `4d7898a`, pushed, and passed a post-merge `make check`. Local `main` matched `origin/main` before this Qwen3 evidence branch was created.
+
+## Active slice: Qwen3 GB10 evidence
+
+Use the already implemented audited contract modes against `compat.vllm-qwen3-8b-awq-gb10` on the authorized GB10 target. Execute model inference, advertised-context capacity boundary, serving policy and same-version lifecycle as separate runs. Build one exact runner binary and bind its digest in every result. Archive each valid result beside its two-event audit chain, verify ownership-scoped cleanup after every run, and keep the pre-existing vLLM containers stopped.
+
+After all four modes pass or produce trustworthy negative evidence, regenerate `catalog/v0.2/coverage.yaml` and its audit. The Qwen3 tuple must remain `known`: sustained capacity and independent promotion review are still open even if every current mode passes.
+
+Execution status: all four modes ran with exact runner digest `sha256:313de6ce350ddb2fce884b7ec7dafb58e77d58f6fc426bf1605a9598782a64b1`. Model inference passed (`sha256:fd5948b05f26d1b2f397c65917d5801bd622c97597b98fb2e7cda431dc1579f2`, audit head `sha256:f6a3c781678ba6d568887e6bff57d4cab8495722f9c3a40a011be02865321656`). Policy passed (`sha256:9dfe0f01949a45348752671de4cf4d04c00f978fbe8da7c26b30482aef6e7321`, audit head `sha256:f8630e10e424bb9158e4c87e357f1f9769fbe85efd5d1ec9649a4c20782a8de9`). Lifecycle passed (`sha256:75ed1488071d9569e83a34c0b1bdf98367d4e919362f42ef1982e018bd95a156`, audit head `sha256:2e9ae2377a7bd6a094b60d8809a7be9cc7bf396badd8c712c51e17e427492eab`). The advertised-context boundary reproducibly failed because the server did not become healthy before inference; the neutrally named archived result is `sha256:30f5536136f375aba164c93fbae05a72c3912bdc61f774a945ae138f37f44005`, audit head `sha256:721d9a930b89da8ba413d58b2cd1c414c67992d4e13a4c300faed19515482b5c`.
+
+The regenerated coverage report is `sha256:597f1cb7f404b749664cf556c595984c09bada47c94ecbdf4fb8771356bda81b` with audit head `sha256:80c45ab860a73954dea5c07f20f2d820eded071ae1a0536712dbf31d0e0e9a10`. It accepts and individually binds 11 results/audit chains. Qwen3's capacity gate is `failed`; every other currently executable Qwen3 mode is `passed`. Remote cleanup completed after every run, and the pre-existing vLLM containers remain stopped.
 
 Before executing the remote contract, review host capacity and confirm unrelated GPU workloads may be stopped. Temporary resources must use unique `yara-contract-*` names and cleanup must remove only owned resources. Never store the raw SSH target in results, audit files or this handoff.
 
@@ -124,7 +136,7 @@ GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...
 
 Validate every new result and audit chain independently with the exact built runner. Confirm its SHA-256 matches `spec.runner.binaryDigest`. Confirm the GB10 has no temporary `yara-contract-*` containers or volumes after execution.
 
-Latest validation status: `make check`, `go test -race ./...`, every archived GB10 result, every adjacent audit chain and catalog v0.2 all pass. The final lifecycle runner rebuild digest is exactly `sha256:f2ea12e312e58c7cf51d4119c4e03ddb9c097af23475210553176bcc752af980`, matching the archived result. Remote cleanup is complete, approximately 127.3 GB host memory is available, and the pre-existing `vllm_qwen` and `vllm_nomic` containers remain stopped.
+Latest validation status: `make check`, `go test -race ./...`, all 11 archived GB10 results, all 11 adjacent evidence audit chains, the regenerated coverage report/audit and catalog v0.2 pass. The final Qwen3 runner rebuild digest is exactly `sha256:313de6ce350ddb2fce884b7ec7dafb58e77d58f6fc426bf1605a9598782a64b1`, matching all four newly archived results. Remote cleanup is complete, approximately 127.3 GB host memory is available, and the pre-existing `vllm_qwen` and `vllm_nomic` containers remain stopped.
 
 ## Publishing checklist
 
@@ -137,8 +149,8 @@ Latest validation status: `make check`, `go test -race ./...`, every archived GB
 
 ## Immediate next actions
 
-1. Validate the archived coverage report and its audit with the final binary, plus all earlier evidence and audit chains.
-2. Run race tests and inspect the coverage diff for accidental claims or target leakage.
-3. Commit, push and merge the catalog-coverage slice.
-4. Start a sustained-capacity branch for the Qwen Coder/GB10 tuple; define explicit concurrency/duration/latency bounds before executing it.
-5. Keep unavailable Ada hardware and unexercised component integrations as explicit blockers, never as inferred passes.
+1. Rebuild and revalidate all 11 archived results/audit chains plus the regenerated coverage report and its audit.
+2. Run full race/regression checks and check for target leakage or accidental support claims.
+3. Commit, push and merge this Qwen3 evidence slice.
+4. Diagnose the Qwen3 32768 startup failure in a separate branch without weakening or overwriting the negative evidence.
+5. Keep sustained capacity, independent review, Ada targets and component/topology integrations as explicit blockers.

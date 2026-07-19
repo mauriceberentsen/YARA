@@ -1,0 +1,164 @@
+apiVersion: yara.dev/v1alpha1
+kind: ContractTestResult
+metadata:
+    name: qwen3-policy-passed
+    resultId: sha256:9dfe0f01949a45348752671de4cf4d04c00f978fbe8da7c26b30482aef6e7321
+spec:
+    mode: policy-contract
+    outcome: passed
+    catalogDigest: sha256:0f7062b289e322a1c676cc52282cb9b0c816894bb3452535b790290e94ca0241
+    assertionRef: compat.vllm-qwen3-8b-awq-gb10
+    runner:
+        version: 0.1.0-dev
+        binaryDigest: sha256:313de6ce350ddb2fce884b7ec7dafb58e77d58f6fc426bf1605a9598782a64b1
+    target:
+        runtimeRef: core.vllm@0.25.1
+        modelRef: models.qwen3-8b-awq@4da05a8
+        hardwareProfileRef: hardware.nvidia-gb10
+    environment:
+        transport: ssh
+        referenceDigest: sha256:61f51478ec1f838156418c17bf16f1d183e5899de8f4bf98c30fd6659fc4a34b
+        operatingSystem: linux
+        architecture: arm64
+        docker:
+            available: true
+            version: 29.2.1
+            operatingSystem: linux
+            architecture: arm64
+            nvidiaRuntime: true
+        accelerators:
+            - vendor: nvidia
+              model: NVIDIA GB10
+              driverVersion: "580.142"
+              computeCapability: "12.1"
+    checks:
+        - id: accelerator.compute-capability
+          status: passed
+          evidenceDigest: sha256:14f741dc9e33a6e2eb0947d0aaa06a2584500120d575069f6c1d17807ac90516
+        - id: accelerator.detected
+          status: passed
+          evidenceDigest: sha256:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b
+        - id: accelerator.driver
+          status: passed
+          evidenceDigest: sha256:7b482149b3e883579af1059b3685171d34205b70d5cc361125c71e406d07a62c
+        - id: accelerator.identity
+          status: passed
+          evidenceDigest: sha256:8fae18540a4c6af44b1bb9be1d83b3468f2d3c61bc4acb7d59ce6d52cbad208e
+        - id: artifact.model.file.0.digest
+          status: passed
+          evidenceDigest: sha256:3a5909391ff74685aaf19bdc1bb9a53fb9671af50ae710a256338af19e4bdb3c
+        - id: artifact.model.file.0.size
+          status: passed
+          evidenceDigest: sha256:f7cb8e6f4e823438abd1c2a091aa33db9667507abb8df59d464339ad53aa713c
+        - id: artifact.model.file.1.digest
+          status: passed
+          evidenceDigest: sha256:d13af75a0c66317a4665698134853b5da2d4d8d08c886ed6f405d484f84f12f1
+        - id: artifact.model.file.1.size
+          status: passed
+          evidenceDigest: sha256:ce7691c5914e99cc42161ea450f8b622bba416d0c267e13014f82efaafba42d0
+        - id: artifact.model.revision
+          status: passed
+          evidenceDigest: sha256:bb23b1b590194ed462a651d508e5140cb31a6306162ad6a4e0188b93684f0f86
+        - id: artifact.runtime.0.digest
+          status: passed
+          evidenceDigest: sha256:4af95452296420c9ba6e5a86559e45561d8c329acceeef23e948076c8dbe1f5a
+        - id: capacity.disk-available
+          status: passed
+          evidenceDigest: sha256:3236eea3e94afe83ac1f4ecd8b3700e18fec3714055e9e1d0926ba110e6f7481
+        - id: capacity.memory-available
+          status: passed
+          evidenceDigest: sha256:ceef2f50f9a1a936cbf835457659d078e3fd8bbcecd02b0515c827b43923634f
+        - id: catalog.assertion
+          status: passed
+          evidenceDigest: sha256:6f5cc05782db69f40984e0d7751336a2c9a8ce94b03a51ed70e3d0f60c7aa073
+        - id: docker.available
+          status: passed
+          evidenceDigest: sha256:37f8230cd3daf2488e39bc61ad844cb54fded0f9e5e4cd8068fab8c8dbfe0e1b
+        - id: docker.linux
+          status: passed
+          evidenceDigest: sha256:f32af962aa06e4f20ceda568d6493687257ce3aff79853b582d13ee6fbf5171b
+        - id: docker.nvidia-runtime
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: host.linux
+          status: passed
+          evidenceDigest: sha256:f32af962aa06e4f20ceda568d6493687257ce3aff79853b582d13ee6fbf5171b
+        - id: model.acquisition
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: model.artifact-local
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: model.async-scheduling-disabled
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: model.concurrency-limit
+          status: passed
+          evidenceDigest: sha256:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b
+        - id: model.context-limit
+          status: passed
+          evidenceDigest: sha256:e39eef82f61b21e2e7f762fcc4307358f165757f2e77ec855d6992f7e0191932
+        - id: model.ephemeral-runtime-cache
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: model.health
+          status: passed
+          evidenceDigest: sha256:bab5f6d8f4ee6244cdd8279fc4330e770c08719a18eee09bf44a7bcb46f9d563
+        - id: model.inference-bounded
+          status: passed
+          evidenceDigest: sha256:ebc99634984fc233e912e0f54fa559f8b5ec4fd56ad443a6215033084f60e127
+        - id: model.inference-http
+          status: passed
+          evidenceDigest: sha256:27badc983df1780b60c2b3fa9d3a19a00e46aac798451f0febdca52920faaddf
+        - id: model.inference-schema
+          status: passed
+          evidenceDigest: sha256:813409fbde7a89e301f43829508bfae935207c9fa8e47369d320760a84408c4b
+        - id: model.network-isolation
+          status: passed
+          evidenceDigest: sha256:30a0924a3360be687d1df9fcbbfdff62c01bc0fd14036ab9076cf7f451568666
+        - id: model.prefix-caching-disabled
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: model.server-started
+          status: passed
+          evidenceDigest: sha256:6bbd6ab835fab482b0b5170ab372198608ee7edd450766e0d19bb625c7466e99
+        - id: policy.cleanup-completed
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: policy.egress-blocked
+          status: passed
+          evidenceDigest: sha256:7066b7ddc05a44da4cdfd539367784d692ce7559aff51dc15b79039bf5828d0e
+        - id: policy.inspect-state
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: policy.mounts-restricted
+          status: passed
+          evidenceDigest: sha256:d33714ad08ede3e58169790486019bfe0a84decb58ace1818b52efcf1e2eee19
+        - id: policy.ports-unpublished
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: policy.privileges-restricted
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: policy.root-filesystem-readonly
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: policy.sensitive-env-absent
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: policy.telemetry-disabled
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: policy.tmpfs-restricted
+          status: passed
+          evidenceDigest: sha256:b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b
+        - id: runtime.platform
+          status: passed
+          evidenceDigest: sha256:0dcf8a02f898cef0de04622e76a00b4a29490fd096d864702ee690ba1d807f3b
+    limitations:
+        - Executable private tmpfs paths are required for generated CUDA/Triton objects and remain an explicit exception.
+        - Model acquisition used external network access before the isolated serving phase; this is not air-gap evidence.
+        - Telemetry opt-out environment controls do not prove the absence of every upstream or dependency behavior.
+        - The active egress probe and Docker network-none state cover only this serving container and test duration.
+        - The container runs as image-default root with all Linux capabilities dropped and no-new-privileges; non-root execution remains unproven.
+        - The contract does not establish host hardening, Docker daemon security, supply-chain integrity beyond pinned artifacts or regulatory compliance.
