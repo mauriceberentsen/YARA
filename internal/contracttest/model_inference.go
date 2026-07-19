@@ -20,6 +20,7 @@ const (
 	modelInferenceContext     = 1024
 	modelInferenceConcurrency = 1
 	modelInferenceMaxTokens   = 8
+	modelInferenceGPUPercent  = 8
 )
 
 type ModelInferenceRunner interface {
@@ -70,15 +71,17 @@ type modelInferenceObservation struct {
 	ContainerIdentityStable bool   `json:"containerIdentityStable"`
 	ConfigurationStable     bool   `json:"configurationStable"`
 	PostRestartHealthStatus int    `json:"postRestartHealthStatus"`
+	GPUUtilizationPercent   int    `json:"gpuMemoryUtilizationPercent"`
 }
 
 type modelServingProfile struct {
-	ContextTokens  int
-	Concurrency    int
-	MaxTokens      int
-	RequestProgram string
-	InspectPolicy  bool
-	TestLifecycle  bool
+	ContextTokens         int
+	Concurrency           int
+	MaxTokens             int
+	RequestProgram        string
+	InspectPolicy         bool
+	TestLifecycle         bool
+	GPUUtilizationPercent int
 }
 
 func (r SSHModelInferenceRunner) Run(parent context.Context, sshTarget string, target catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
@@ -105,7 +108,10 @@ func runModelServingContract(parent context.Context, sshTarget string, target ca
 	if target.ModelArtifact.Type != "huggingface-snapshot" || target.ModelArtifact.Ref == "" || target.ModelArtifact.Revision == "" || len(target.ModelArtifact.Files) == 0 {
 		return modelInferenceObservation{}, errors.New("contract target has no verifiable Hugging Face model snapshot")
 	}
-	if profile.ContextTokens <= 0 || profile.Concurrency != 1 || profile.MaxTokens <= 0 || profile.ContextTokens <= profile.MaxTokens || strings.TrimSpace(profile.RequestProgram) == "" {
+	if profile.GPUUtilizationPercent == 0 {
+		profile.GPUUtilizationPercent = modelInferenceGPUPercent
+	}
+	if profile.ContextTokens <= 0 || profile.Concurrency != 1 || profile.MaxTokens <= 0 || profile.ContextTokens <= profile.MaxTokens || strings.TrimSpace(profile.RequestProgram) == "" || profile.GPUUtilizationPercent < 1 || profile.GPUUtilizationPercent > 100 {
 		return modelInferenceObservation{}, errors.New("model serving profile is invalid or exceeds the supported single-sequence safety boundary")
 	}
 	files, err := json.Marshal(target.ModelArtifact.Files)
@@ -156,10 +162,10 @@ func modelArtifactBytes(artifact catalog.ArtifactReference) int64 {
 }
 
 func modelInferenceChecks(observation modelInferenceObservation, modelBytes int64) ([]resources.ContractTestCheck, error) {
-	return modelServingChecks(observation, modelBytes, modelInferenceContext, modelInferenceConcurrency, modelInferenceMaxTokens)
+	return modelServingChecks(observation, modelBytes, modelInferenceContext, modelInferenceConcurrency, modelInferenceMaxTokens, modelInferenceGPUPercent)
 }
 
-func modelServingChecks(observation modelInferenceObservation, modelBytes int64, contextTokens, concurrency, maxTokens int) ([]resources.ContractTestCheck, error) {
+func modelServingChecks(observation modelInferenceObservation, modelBytes int64, contextTokens, concurrency, maxTokens, gpuUtilizationPercent int) ([]resources.ContractTestCheck, error) {
 	minimumDisk := modelBytes*2 + (2 << 30)
 	checks := make([]resources.ContractTestCheck, 0, 12)
 	appendCheck := func(id, status, code string, evidence any) error {
@@ -247,6 +253,15 @@ func modelServingChecks(observation modelInferenceObservation, modelBytes int64,
 	if err := appendCheck("model.context-limit", configStatus, configCode, contextTokens); err != nil {
 		return nil, err
 	}
+	gpuStatus, gpuCode := configStatus, configCode
+	if serverPassed && observation.GPUUtilizationPercent != gpuUtilizationPercent {
+		gpuStatus, gpuCode = "failed", "YARA-CTR-180"
+	}
+	gpuMeasurements := map[string]int{"configuredPercent": observation.GPUUtilizationPercent, "expectedPercent": gpuUtilizationPercent}
+	if err := appendCheck("model.gpu-memory-utilization", gpuStatus, gpuCode, gpuMeasurements); err != nil {
+		return nil, err
+	}
+	checks[len(checks)-1].Measurements = gpuMeasurements
 	if err := appendCheck("model.concurrency-limit", configStatus, configCode, concurrency); err != nil {
 		return nil, err
 	}
@@ -287,6 +302,8 @@ func modelHealthDiagnostic(reason string) string {
 		return "YARA-CTR-155"
 	case "filesystem-policy":
 		return "YARA-CTR-156"
+	case "kv-cache-capacity":
+		return "YARA-CTR-179"
 	default:
 		return "YARA-CTR-145"
 	}
@@ -302,6 +319,9 @@ func modelInferenceScript(imageB64, repoB64, revisionB64, filesB64, runIDB64 str
 }
 
 func modelServingScript(imageB64, repoB64, revisionB64, filesB64, runIDB64 string, modelBytes int64, profile modelServingProfile) string {
+	if profile.GPUUtilizationPercent == 0 {
+		profile.GPUUtilizationPercent = modelInferenceGPUPercent
+	}
 	minimumDisk := modelBytes*2 + (2 << 30)
 	requestB64 := base64.StdEncoding.EncodeToString([]byte(profile.RequestProgram))
 	inspectPolicy := "false"
@@ -321,6 +341,7 @@ run_id="$(printf '%%s' '%s' | base64 -d)"
 request_b64='%s'
 inspect_policy='%s'
 test_lifecycle='%s'
+gpu_memory_utilization_percent='%d'
 download="yara-contract-download-$run_id"
 server="yara-contract-model-$run_id"
 volume="yara-contract-model-$run_id"
@@ -331,7 +352,7 @@ emit_failure() {
   stage="$1"
   log_digest="${2:-}"
   reason="${3:-}"
-  printf '{"failureStage":"%%s","failureReason":"%%s","memoryAvailableBytes":%%s,"diskAvailableBytes":%%s,"networkMode":"%%s","serverLogDigest":"%%s"}\n' "$stage" "$reason" "$memory_available" "$disk_available" "$network_mode" "$log_digest"
+  printf '{"failureStage":"%%s","failureReason":"%%s","memoryAvailableBytes":%%s,"diskAvailableBytes":%%s,"networkMode":"%%s","serverLogDigest":"%%s","gpuMemoryUtilizationPercent":%%s}\n' "$stage" "$reason" "$memory_available" "$disk_available" "$network_mode" "$log_digest" "$gpu_memory_utilization_percent"
 }
 if [ "$memory_available" -lt %d ] || [ "$disk_available" -lt %d ]; then
   emit_failure capacity
@@ -382,7 +403,7 @@ if ! docker run -d --name "$server" --network none --read-only --pids-limit 1024
   --tmpfs /root/.config:rw,noexec,nosuid,nodev,size=67108864 --tmpfs /root/.triton:rw,exec,nosuid,nodev,size=1073741824 \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 -e VLLM_NO_USAGE_STATS=1 -e VLLM_DO_NOT_TRACK=1 -e DO_NOT_TRACK=1 "$image" \
   /model --served-model-name yara-contract --host 127.0.0.1 --max-model-len %d --max-num-seqs %d \
-  --gpu-memory-utilization 0.08 --enforce-eager --no-async-scheduling --no-enable-prefix-caching >/dev/null; then
+  --gpu-memory-utilization %.2f --enforce-eager --no-async-scheduling --no-enable-prefix-caching >/dev/null; then
   emit_failure server
   exit 0
 fi
@@ -404,7 +425,9 @@ if [ "$health_status" -ne 200 ]; then
   logs="$(docker logs "$server" 2>&1 | tail -80 || true)"
   log_digest="sha256:$(printf '%%s' "$logs" | sha256sum | awk '{print $1}')"
   reason="server-unhealthy"
-  if [ "$(docker inspect "$server" --format '{{.State.OOMKilled}}' 2>/dev/null || true)" = "true" ] || printf '%%s' "$logs" | grep -Eqi 'out of memory|oom|killed process'; then
+  if printf '%%s' "$logs" | grep -Eqi 'maximum number of tokens that can be stored in (the )?KV cache|max seq len.*KV cache|KV cache.*max(imum)? model len'; then
+    reason="kv-cache-capacity"
+  elif [ "$(docker inspect "$server" --format '{{.State.OOMKilled}}' 2>/dev/null || true)" = "true" ] || printf '%%s' "$logs" | grep -Eqi 'out of memory|oom|killed process'; then
     reason="memory-limit"
   elif printf '%%s' "$logs" | grep -Eqi 'read-only file system|permission denied'; then
     reason="filesystem-policy"
@@ -491,8 +514,8 @@ cleanup_completed=true
 if docker ps -a --format '{{.Names}}' | grep -Eq "^($download|$server)$" || docker volume inspect "$volume" >/dev/null 2>&1; then
   cleanup_completed=false
 fi
-printf '%%s' "$inference" | /usr/bin/python3 -c 'import json,sys; data=json.load(sys.stdin); data.update(json.loads(sys.argv[4])); data.update(json.loads(sys.argv[6])); data.update({"memoryAvailableBytes":int(sys.argv[1]),"diskAvailableBytes":int(sys.argv[2]),"acquisitionCompleted":True,"artifactVerified":True,"serverStarted":True,"networkMode":sys.argv[3],"healthStatus":200,"cleanupCompleted":sys.argv[5]=="true"}); print(json.dumps(data,separators=(",",":")))' "$memory_available" "$disk_available" "$network_mode" "$policy_json" "$cleanup_completed" "$lifecycle_json"
-`, imageB64, repoB64, revisionB64, filesB64, runIDB64, requestB64, inspectPolicy, testLifecycle, modelInferenceMemoryBytes, minimumDisk, modelInferenceMemoryBytes, modelInferenceMemoryBytes, profile.ContextTokens, profile.Concurrency)
+printf '%%s' "$inference" | /usr/bin/python3 -c 'import json,sys; data=json.load(sys.stdin); data.update(json.loads(sys.argv[4])); data.update(json.loads(sys.argv[6])); data.update({"memoryAvailableBytes":int(sys.argv[1]),"diskAvailableBytes":int(sys.argv[2]),"acquisitionCompleted":True,"artifactVerified":True,"serverStarted":True,"networkMode":sys.argv[3],"healthStatus":200,"cleanupCompleted":sys.argv[5]=="true","gpuMemoryUtilizationPercent":int(sys.argv[7])}); print(json.dumps(data,separators=(",",":")))' "$memory_available" "$disk_available" "$network_mode" "$policy_json" "$cleanup_completed" "$lifecycle_json" "$gpu_memory_utilization_percent"
+`, imageB64, repoB64, revisionB64, filesB64, runIDB64, requestB64, inspectPolicy, testLifecycle, profile.GPUUtilizationPercent, modelInferenceMemoryBytes, minimumDisk, modelInferenceMemoryBytes, modelInferenceMemoryBytes, profile.ContextTokens, profile.Concurrency, float64(profile.GPUUtilizationPercent)/100)
 }
 
 func boundedInferenceProgram(maxTokens int) string {

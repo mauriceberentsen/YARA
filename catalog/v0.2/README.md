@@ -19,7 +19,7 @@ Selectable means the manifest status is `experimental` or `supported`. Every gen
 
 Each real component records its exact upstream version, license facts, health contract, source links and an immutable OCI index digest. Each model records an immutable Git revision plus the size and SHA-256 digest of every weight shard. Compatibility assertions bind a runtime version and model revision to a hardware profile and execution envelope.
 
-Artifact verification proves identity; it does not prove operational compatibility. Six positive Ada assertions remain experimental and selectable. Both GB10 assertions remain knowledge-only and have passed artifact verification, runtime/CUDA smoke, exact local shard verification, bounded inference, serving policy and same-version restart recovery. Qwen Coder also passed one exact 32768-token context-envelope request at concurrency 1. Qwen3 failed to become healthy under that boundary profile on two consecutive attempts; the archived negative result keeps its context gate failed. Sustained capacity, component-integration coverage and independent promotion remain open.
+Artifact verification proves identity; it does not prove operational compatibility. Six positive Ada assertions remain experimental and selectable. Both GB10 assertions remain knowledge-only and have passed artifact verification, runtime/CUDA smoke, exact local shard verification, bounded inference, one exact 32768-token context-envelope request at concurrency 1, serving policy and same-version restart recovery. Qwen3's boundary pass uses an explicit 10% GPU-memory-utilization allocation; its earlier 8% failure remains archived. Sustained capacity, component-integration coverage and independent promotion remain open.
 
 Read-only contract preflight, isolated runtime smoke, bounded model inference and an exact advertised-context boundary contract are implemented. All write content-addressed evidence plus mandatory audit chains. No individual pass satisfies the promotion gate by itself; see the [contract-testing guide](../../docs/implementation/contract-testing.md).
 
@@ -27,7 +27,7 @@ The first two GB10 smoke results and their verified audit chains are archived un
 
 ## Completion status
 
-[`coverage.yaml`](coverage.yaml) is the deterministic completion ledger for this exact snapshot. It currently binds all 11 archived contract results and their 11 verified audit chains. The report enumerates all 13 capabilities, ten components, two models, four hardware profiles, eight compatibility assertions and the topology template. It remains `complete: false`: no assertion is promotion-eligible, the six Ada tuples have no observed target evidence, Qwen3/GB10 has a failed context-boundary gate, most suite components have no integration-evidence model, and the topology lacks end-to-end integration evidence. Qwen Coder/GB10 has passed every currently executable contract mode but still lacks sustained-capacity evidence and independent promotion review.
+[`coverage.yaml`](coverage.yaml) is the deterministic completion ledger for this exact snapshot. It currently binds all 12 archived contract results and their 12 verified audit chains. The report enumerates all 13 capabilities, ten components, two models, four hardware profiles, eight compatibility assertions and the topology template. It remains `complete: false`: no assertion is promotion-eligible, the six Ada tuples have no observed target evidence, most suite components have no integration-evidence model, and the topology lacks end-to-end integration evidence. Both GB10 assertions have passed every currently executable contract mode but still lack sustained-capacity evidence and independent promotion review.
 
 Regenerate the report after evidence changes, using a new output filename because YARA never overwrites evidence:
 
@@ -148,7 +148,7 @@ go run ./cmd/yara contract capacity-boundary \
   --audit-output .yara/audit/gb10-qwen-coder-capacity-boundary.jsonl
 ```
 
-This single-sequence contract reserves eight output tokens and requires the API to report exactly 32760 prompt tokens without exceeding the asserted 32768-token context. It deliberately makes no concurrency, latency, throughput or sustained-load claim.
+This single-sequence contract reserves eight output tokens and requires the API to report exactly 32760 prompt tokens without exceeding the asserted 32768-token context. The profile uses an explicit 10% GPU-memory-utilization allocation and records configured and expected percentages as reviewable measurements. It deliberately makes no concurrency, latency, throughput or sustained-load claim.
 
 ## Test same-version restart recovery on GB10
 

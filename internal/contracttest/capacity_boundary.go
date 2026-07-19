@@ -16,6 +16,7 @@ const (
 	capacityBoundaryMaxContext  = 32768
 	capacityBoundaryConcurrency = 1
 	capacityBoundaryMaxTokens   = 8
+	capacityBoundaryGPUPercent  = 10
 )
 
 type CapacityBoundaryRunner interface {
@@ -36,10 +37,11 @@ func (r SSHCapacityBoundaryRunner) Run(parent context.Context, sshTarget string,
 		timeout = 40 * time.Minute
 	}
 	observation, err := runModelServingContract(parent, sshTarget, target, timeout, modelServingProfile{
-		ContextTokens:  contextTokens,
-		Concurrency:    capacityBoundaryConcurrency,
-		MaxTokens:      capacityBoundaryMaxTokens,
-		RequestProgram: capacityBoundaryProgram(contextTokens, capacityBoundaryMaxTokens),
+		ContextTokens:         contextTokens,
+		Concurrency:           capacityBoundaryConcurrency,
+		MaxTokens:             capacityBoundaryMaxTokens,
+		RequestProgram:        capacityBoundaryProgram(contextTokens, capacityBoundaryMaxTokens),
+		GPUUtilizationPercent: capacityBoundaryGPUPercent,
 	})
 	if err != nil {
 		return nil, err
@@ -48,7 +50,7 @@ func (r SSHCapacityBoundaryRunner) Run(parent context.Context, sshTarget string,
 }
 
 func capacityBoundaryChecks(observation modelInferenceObservation, modelBytes int64, contextTokens int) ([]resources.ContractTestCheck, error) {
-	checks, err := modelServingChecks(observation, modelBytes, contextTokens, capacityBoundaryConcurrency, capacityBoundaryMaxTokens)
+	checks, err := modelServingChecks(observation, modelBytes, contextTokens, capacityBoundaryConcurrency, capacityBoundaryMaxTokens, capacityBoundaryGPUPercent)
 	if err != nil {
 		return nil, err
 	}

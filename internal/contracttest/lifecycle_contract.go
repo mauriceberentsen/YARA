@@ -37,7 +37,7 @@ func (r SSHLifecycleContractRunner) Run(parent context.Context, sshTarget string
 }
 
 func lifecycleContractChecks(observation modelInferenceObservation, modelBytes int64) ([]resources.ContractTestCheck, error) {
-	checks, err := modelServingChecks(observation, modelBytes, modelInferenceContext, modelInferenceConcurrency, modelInferenceMaxTokens)
+	checks, err := modelServingChecks(observation, modelBytes, modelInferenceContext, modelInferenceConcurrency, modelInferenceMaxTokens, modelInferenceGPUPercent)
 	if err != nil {
 		return nil, err
 	}

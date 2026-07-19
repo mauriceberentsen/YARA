@@ -4,7 +4,7 @@
 
 Catalog documentation and immutable artifact identities are necessary evidence, but they do not prove that a runtime, model and hardware tuple works. YARA therefore treats every positive `CompatibilityAssertion` as a testable contract. Promotion from `experimental` to `supported` requires evidence for the exact catalog digest, assertion, runtime version, model revision and hardware profile.
 
-Five evidence layers are implemented: read-only remote preflight, bounded runtime smoke, bounded model inference, advertised-context capacity boundary and serving-container policy. Preflight answers whether a named host is eligible. Runtime smoke additionally re-verifies cataloged OCI/model identities and proves that the exact runtime image can execute a CUDA tensor. Model inference acquires and locally re-hashes the exact model shards, starts the pinned serving image and executes one constrained API request. Capacity boundary reserves the complete cataloged context envelope for one request. Policy verifies a narrow set of observable container controls. Each layer retains explicit limitations and cannot imply broader support.
+Six evidence layers are implemented: read-only remote preflight, bounded runtime smoke, bounded model inference, advertised-context capacity boundary, serving-container policy and same-version lifecycle. Preflight answers whether a named host is eligible. Runtime smoke additionally re-verifies cataloged OCI/model identities and proves that the exact runtime image can execute a CUDA tensor. Model inference acquires and locally re-hashes the exact model shards, starts the pinned serving image and executes one constrained API request. Capacity boundary reserves the complete cataloged context envelope for one request. Policy verifies a narrow set of observable container controls. Lifecycle verifies one bounded request before and after an operator-requested restart. Each layer retains explicit limitations and cannot imply broader support.
 
 ## Implemented preflight
 
@@ -107,7 +107,8 @@ The first GB10 Qwen Coder run exposed that Triton-generated shared objects canno
 2. submits an oversized local chat payload with `truncate_prompt_tokens: 32760`, using the [pinned vLLM ChatCompletion request contract](https://docs.vllm.ai/en/v0.25.1/api/vllm/entrypoints/openai/chat_completion/protocol/);
 3. reserves at most eight completion tokens, making the offered envelope exactly 32768 tokens;
 4. requires response usage to report exactly 32760 prompt tokens, 1–8 completion tokens, a consistent total and no total above 32768;
-5. records only counts, statuses and content digests—not the prompt, completion, raw response or server log. The non-sensitive integer counts remain directly reviewable in `check.measurements` and are also included in the evidence digest and result identity.
+5. uses an explicit 10% GPU-memory-utilization allocation, recording configured and expected percentages as reviewable measurements;
+6. records only counts, statuses and content digests—not the prompt, completion, raw response or server log. The non-sensitive integer counts remain directly reviewable in `check.measurements` and are also included in the evidence digest and result identity.
 
 ```bash
 go run ./cmd/yara contract capacity-boundary \
@@ -119,7 +120,7 @@ go run ./cmd/yara contract capacity-boundary \
   --audit-output .yara/audit/gb10-qwen-coder-capacity-boundary.jsonl
 ```
 
-A pass proves acceptance of one exact advertised-context request on the observed host. It makes no claim about multiple concurrent requests, sustained load, latency, throughput, output quality or production headroom. Those require separately declared catalog bounds and repeatable tests.
+A pass proves acceptance of one exact advertised-context request on the observed host under the recorded allocation. It makes no claim about multiple concurrent requests, sustained load, latency, throughput, output quality or production headroom. Those require separately declared catalog bounds and repeatable tests. An earlier failed allocation remains valid evidence beside a later pass; the coverage ledger preserves both and selects the newest audited observation for the gate.
 
 ## Implemented serving-container policy contract
 

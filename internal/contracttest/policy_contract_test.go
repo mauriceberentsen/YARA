@@ -77,7 +77,8 @@ func passingPolicyObservation() modelInferenceObservation {
 		AcquisitionCompleted: true, ArtifactVerified: true, ServerStarted: true,
 		NetworkMode: "none", HealthStatus: 200, InferenceStatus: 200, Model: "yara-contract",
 		CompletionTokens: 3, ContentDigest: "sha256:" + strings.Repeat("a", 64),
-		PolicyInspected: true, EgressBlocked: true, PortsUnpublished: true, TelemetryDisabled: true,
+		GPUUtilizationPercent: modelInferenceGPUPercent,
+		PolicyInspected:       true, EgressBlocked: true, PortsUnpublished: true, TelemetryDisabled: true,
 		RootFilesystemReadOnly: true, TmpfsRestricted: true, MountsRestricted: true,
 		DockerSocketAbsent: true, SensitiveEnvAbsent: true, PrivilegesRestricted: true, CleanupCompleted: true,
 	}
