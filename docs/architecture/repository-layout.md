@@ -29,6 +29,7 @@ YARA/
     debugbundle/
     plandiff/
     planner/
+    renderer/              # pure renderer prototypes before adapter extraction
     scenario/
     policy/
     validation/
@@ -65,7 +66,7 @@ executor adapters consume bundles, never planner internals
 - Add `schemas/` with the first executable schema and validation test.
 - Add `catalog/` with the snapshot compiler and initial golden-scenario slice.
 - Add implementation directories only after a language/toolchain ADR.
-- Add `adapters/renderers` only after the first target ADR.
+- Keep early pure renderer prototypes internal; add `adapters/renderers` only after a target ADR is accepted.
 - Do not create empty marketplace, UI, SaaS or multi-cluster packages.
 
 ## Generated files

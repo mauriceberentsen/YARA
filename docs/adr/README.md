@@ -14,6 +14,7 @@ ADRs preserve significant decisions and their rationale. Accepted ADRs describe 
 | [0006](0006-offline-pure-planner.md) | Accepted | Prohibit network access and mutation in the planner |
 | [0007](0007-auditing-is-a-core-domain-capability.md) | Accepted | Treat append-only auditing as a core domain capability |
 | [0008](0008-use-go-for-the-v0-cli-and-core.md) | Accepted | Use Go for the v0 CLI and planning core |
+| [0009](0009-docker-compose-reference-renderer-prototype.md) | Proposed | Prototype a pure Docker Compose reference renderer before executor selection |
 
 Use [0000-template.md](0000-template.md) for new records.
 

@@ -110,6 +110,31 @@ func TestContractTargetResolvesBoundedArtifactsAndReturnsCopies(t *testing.T) {
 	}
 }
 
+func TestDeploymentProjectionsRequireExactVersionsAndReturnCopies(t *testing.T) {
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	component, ok := snapshot.DeploymentComponent("core.litellm@1.93.0")
+	if !ok || component.Health.Path != "/health/liveliness" || len(component.Artifacts) != 1 || component.License.ID != "MIT" {
+		t.Fatalf("unexpected component projection: %#v", component)
+	}
+	model, ok := snapshot.DeploymentModel("models.qwen2.5-coder-7b-instruct-awq@8e8ed24")
+	if !ok || model.Artifact.Revision == "" || len(model.Artifact.Files) != 2 || model.License.ID != "Apache-2.0" {
+		t.Fatalf("unexpected model projection: %#v", model)
+	}
+	component.Artifacts[0].Platforms[0] = "mutated"
+	model.Artifact.Files[0].Path = "mutated"
+	againComponent, _ := snapshot.DeploymentComponent("core.litellm@1.93.0")
+	againModel, _ := snapshot.DeploymentModel("models.qwen2.5-coder-7b-instruct-awq@8e8ed24")
+	if againComponent.Artifacts[0].Platforms[0] == "mutated" || againModel.Artifact.Files[0].Path == "mutated" {
+		t.Fatal("deployment projection leaked mutable catalog storage")
+	}
+	if _, ok := snapshot.DeploymentComponent("core.litellm@latest"); ok {
+		t.Fatal("non-exact component reference resolved")
+	}
+}
+
 func TestManifestInventoryReturnsSortedCoverageProjection(t *testing.T) {
 	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"))
 	if err != nil {

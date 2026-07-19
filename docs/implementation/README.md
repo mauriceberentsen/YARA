@@ -10,6 +10,8 @@ The bootstrap now includes strict resource decoding, public schemas, stable diag
 
 After v0.1 acceptance, `catalog/v0.2/` introduces the first curated real stack. It contains ten versioned suite components, two immutable Qwen AWQ model snapshots, three NVIDIA Ada hardware profiles, one GB10 coherent-unified-memory profile, six compatibility-bounded selectable serving candidates and two knowledge-only GB10 test hypotheses. LiteLLM and vLLM are selectable only as experimental components; Open WebUI, Qdrant, PostgreSQL, Redis, ClickHouse, Prometheus, Grafana and Langfuse remain knowledge-only until their YARA integration contracts are tested. The planner rejects requests outside a candidate's asserted context window or minimum driver branch. [Contract testing](contract-testing.md) includes read-only SSH preflight, isolated runtime smoke, bounded model inference, exact advertised-context capacity, repeated-request capacity, serving-container policy and same-version lifecycle recovery. [Integration testing](integration-testing.md) defines separately audited component-smoke and topology-end-to-end evidence bound to exact manifest versions. The audited `CatalogCoverageReport` compiles exact-catalog evidence into explicit passed, failed, blocked, missing and not-implemented gates. Both GB10 tuples passed every implemented technical compatibility gate, but remain knowledge-only because component/topology integration coverage and independent promotion are incomplete.
 
+The first [offline reference renderer](rendering.md) translates the exact LiteLLM/vLLM plan into a content-addressed `DeploymentBundle`. It pins OCI digests and model files, carries license and pre/postflight metadata and writes an audit chain bound to plan, catalog and bundle. It does not deploy anything.
+
 ## Fixed decisions
 
 - Go CLI and planning core ([ADR-0008](../adr/0008-use-go-for-the-v0-cli-and-core.md)).
@@ -23,7 +25,7 @@ After v0.1 acceptance, `catalog/v0.2/` introduces the first curated real stack. 
 
 ## Decisions intentionally deferred
 
-- First deployment renderer/executor target.
+- First supported executor target; Docker Compose is only a renderer prototype under Proposed ADR-0009.
 - Persistent service/API database.
 - Web UI framework.
 - General plugin transport implementation.
@@ -79,6 +81,7 @@ internal/plandiff        pure semantic plan comparison and impact classification
 internal/debugbundle     allowlisted support summaries and secret-pattern gate
 internal/scenario        offline golden-scenario conformance evaluation
 internal/contracttest    read-only environment observation and pure contract evaluation
+internal/renderer        pure versioned plan-to-bundle prototype; no target access
 internal/diagnostics     stable codes and structured reports
 internal/audit           event construction, redaction and local sink
 internal/canonical       canonical JSON and content digests
