@@ -25,6 +25,7 @@ Likelihood and impact are qualitative: low, medium or high. The register should 
 | R17 | Project becomes dependent on one vendor despite neutral intent | Medium | Medium | Vendor-neutral domain schemas, namespaced extensions and later second-vendor portability test |
 | R18 | Maintainer sustainability fails at 10 hours/week | High | High | Limit support promises, automate checks, publish maintenance status and stop low-value breadth |
 | R19 | Audit records are incomplete, tampered with or leak sensitive data | Medium | High | Typed mandatory events, digest chaining/checkpoints, fail-closed mutation, redaction tests and separate access/retention policy |
+| R20 | Kubernetes defaulting or normalization hides drift or produces false updates | Medium | High | Narrow versioned projection, remove only known server fields, negative drift fixtures, blocked unknown kinds and revalidation before apply |
 
 ## Top risks before implementation
 

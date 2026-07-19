@@ -4,7 +4,7 @@
 
 YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
 
-YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate deterministic plans, explain and compare them, compile exact evidence coverage, run bounded compatibility contracts, and render the narrow v0.2 LiteLLM/vLLM plan into audited content-addressed Docker Compose and Kubernetes/GitOps bundles. A strictly read-only Kubernetes preflight can bind a bundle to a pseudonymous observed target and report proven, failed and blocked prerequisites. Rendering and preflight do not deploy a platform.
+YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate deterministic plans, explain and compare them, compile exact evidence coverage, run bounded compatibility contracts, and render the narrow v0.2 LiteLLM/vLLM plan into audited content-addressed Docker Compose and Kubernetes/GitOps bundles. Strictly read-only Kubernetes preflight and change-set commands bind a bundle to a pseudonymous observed target. Local approvals are review-only, deployment receipts are validate-only, and YARA still cannot apply a platform.
 
 ## The problem
 
@@ -177,6 +177,21 @@ go run ./cmd/yara target preflight kubernetes \
   --audit-output reference-stack.preflight.audit.jsonl
 go run ./cmd/yara target-preflight validate reference-stack.preflight.yaml
 go run ./cmd/yara audit verify reference-stack.preflight.audit.jsonl
+go run ./cmd/yara target changeset kubernetes \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --preflight reference-stack.preflight.yaml \
+  --name reference-stack-change-set \
+  --output reference-stack.change-set.yaml \
+  --audit-output reference-stack.change-set.audit.jsonl
+go run ./cmd/yara approval record \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --preflight reference-stack.preflight.yaml \
+  --change-set reference-stack.change-set.yaml \
+  --name reference-stack-review \
+  --decision approve \
+  --reason-reference ticket-123 \
+  --output reference-stack.approval.yaml \
+  --audit-output reference-stack.approval.audit.jsonl
 go run ./cmd/yara plan diff docs/examples/platform-plan.yaml plan.yaml \
   --audit-output plan-diff.audit.jsonl
 go run ./cmd/yara debug bundle \
@@ -245,6 +260,8 @@ Currently implemented:
 - a deterministic, content-addressed catalog coverage report that accepts only exact-catalog contract results with verified adjacent audit chains and exposes every missing promotion gate;
 - a strict component/topology integration result contract whose validation audit cannot be mistaken for execution evidence;
 - a pure versioned Docker Compose renderer for the exact LiteLLM/vLLM topology, producing pinned files, artifact/license inventory, checks, limitations and a fail-closed render audit;
+- a pure Kubernetes/GitOps renderer for the same exact topology plus content-addressed read-only target preflight and object-level change-set observation;
+- explicit deployment approvals whose local assurance is constrained to review-only, plus a validate-only deployment-receipt contract and no apply command;
 - a catalog-authored abstract topology template resolved into gateway and inference component instances;
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;
 - a deterministic planner that applies asserted hardware compatibility and memory/policy constraints before scoring;

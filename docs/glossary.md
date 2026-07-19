@@ -12,6 +12,8 @@
 | Confidence factor | Ordinal, evidence-linked assessment of one recommendation input or method; overall plan confidence equals the weakest current factor. |
 | Decision | A selected option plus alternatives, facts, rules, scores, assumptions and explanation. |
 | DebugBundle | Content-addressed, locally generated support metadata derived through an allowlisted redaction profile and secret-pattern gate; never an automatic upload or a copy of source resources. |
+| DeploymentApproval | Content-addressed decision bound to an exact plan, bundle, preflight, change set and target; its effect depends on actor assurance and local records are review-only. |
+| DeploymentReceipt | Content-addressed executor outcome binding approved inputs, exact executor identity, per-operation results and postflight evidence. |
 | Desired state | What the user wants to achieve, independent of products or deployment syntax. |
 | Discovery | Collection of facts about an environment. Discovery reports evidence; it does not make recommendations. |
 | Evidence | A sourced fact with provenance, collection time, scope and confidence. |
@@ -20,6 +22,7 @@
 | GoldenScenario | Content-addressed executable case that pins planner inputs, expected and forbidden outcomes, diagnostics and independent-review requirements without representing review approval. |
 | Inventory | A point-in-time description of hardware, software and platform resources available to YARA. |
 | Knowledge base | The set of catalogs, relationships, rules, provenance and validation needed by the planner. |
+| KubernetesChangeSet | Content-addressed read-only comparison between a Kubernetes bundle and one pseudonymous observed target; it grants no mutation authority. |
 | Objective | A dimension to optimize, such as quality, latency, throughput, cost, simplicity or energy use. |
 | Override | An explicit user instruction replacing a planner choice; it remains subject to non-overridable safety policy unless policy permits an exception. |
 | PlatformPlan | Immutable intermediate representation of selected architecture, configuration intent, dependencies, decisions and provenance. |

@@ -87,7 +87,7 @@ On failure the executor stops at a safe checkpoint, preserves diagnostics and re
 
 After bounded Docker Compose and Kubernetes/GitOps prototypes over the same plan and catalog, [ADR-0009](../adr/0009-docker-compose-reference-renderer-prototype.md) selects Kubernetes/GitOps as the first reference deployment target. Docker Compose remains the lower-friction single-host renderer and CI fixture.
 
-The selection is not apply authority. The Kubernetes renderer is pure and offline. YARA now implements only the first target-aware boundary: a content-addressed, strictly read-only Kubernetes preflight. Change-set calculation, approval, operation locking, mutation, health verification, ownership-safe removal and receipts remain executor responsibilities.
+The selection is not apply authority. The Kubernetes renderer is pure and offline. YARA implements content-addressed, strictly read-only Kubernetes preflight and change-set observation plus a local review-only approval record. The public deployment-receipt contract is validate-only. Strong execution authorization, operation locking, mutation, health verification, ownership-safe removal and receipt production remain executor responsibilities.
 
 ## Read-only target preflight
 
@@ -98,6 +98,14 @@ The resulting `TargetPreflightResult` binds the exact bundle and plan IDs, obser
 A read-only observation cannot prove model-file digests inside a PVC, CNI enforcement, executable temporary storage or admission/RBAC governance of verifier labels. Those checks remain `blocked` even when all observable prerequisites pass. Consequently this initial preflight cannot produce deployment approval. Its audit output is mandatory and binds bundle, target and result identities; result output is removed if terminal audit persistence fails.
 
 See the [implementation contract](../implementation/target-preflight.md).
+
+## Observed change set and approval
+
+The current change-set observer re-identifies the preflight target, requires a preflight no older than fifteen minutes and compares the exact supported bundle resources through a versioned normalization profile. It emits create, update, no-op, conflict or unresolved operations. It neither discovers nor proposes deletes. Foreign ownership, missing read permission and target switches block the result.
+
+Local approval is intentionally review-only: the operating-system identity is `self-asserted-local`. v1alpha1 rejects execution authorization entirely because an assurance label without a verifiable signature/authentication envelope is not proof. Review records have a maximum 24-hour validity window. See [ADR-0010](../adr/0010-bind-mutation-to-observed-change-set-and-strong-approval.md) and the [implementation guide](../implementation/change-sets-and-approvals.md).
+
+`DeploymentReceipt` is defined and validateable before privileged implementation. No current command can create a receipt. This prevents tests or hand-authored files from being mistaken for YARA execution evidence merely because they satisfy a schema.
 
 ## Kubernetes and GitOps
 

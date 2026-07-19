@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/deployment-approval.schema.json",
+  "title": "YARA DeploymentApproval v1alpha1",
+  "type": "object", "additionalProperties": false, "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" }, "kind": { "const": "DeploymentApproval" },
+    "metadata": { "type": "object", "additionalProperties": false, "required": ["name", "approvalId"], "properties": { "name": { "$ref": "#/$defs/name" }, "approvalId": { "$ref": "#/$defs/digest" } } },
+    "spec": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decision", "effect", "recordedAt", "expiresAt", "planId", "bundleId", "preflightResultId", "changeSetId", "target", "actor", "reason", "limitations"],
+      "properties": {
+        "decision": { "enum": ["approved", "rejected"] }, "effect": { "const": "review-only" },
+        "recordedAt": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" },
+        "planId": { "$ref": "#/$defs/digest" }, "bundleId": { "$ref": "#/$defs/digest" }, "preflightResultId": { "$ref": "#/$defs/digest" }, "changeSetId": { "$ref": "#/$defs/digest" },
+        "target": { "$ref": "#/$defs/target" },
+        "actor": { "type": "object", "additionalProperties": false, "required": ["id", "type", "assurance"], "properties": { "id": { "type": "string", "minLength": 1 }, "type": { "enum": ["user", "service"] }, "assurance": { "type": "string", "minLength": 1 } } },
+        "reason": { "type": "object", "additionalProperties": false, "required": ["type", "reference"], "properties": { "type": { "type": "string", "minLength": 1 }, "reference": { "type": "string", "minLength": 1 } } },
+        "limitations": { "$ref": "#/$defs/limitations" }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "name": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$" },
+    "target": { "type": "object", "additionalProperties": false, "required": ["type", "referenceDigest", "serverVersion"], "properties": { "type": { "const": "kubernetes" }, "referenceDigest": { "$ref": "#/$defs/digest" }, "serverVersion": { "type": "string", "minLength": 1 } } },
+    "limitations": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+  }
+}
