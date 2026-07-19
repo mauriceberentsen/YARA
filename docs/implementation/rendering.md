@@ -76,10 +76,10 @@ The Kubernetes prototype embeds native YAML for one namespace, a content-named i
 - startup, readiness and liveness probes from cataloged HTTP health contracts;
 - no Ingress, Gateway, LoadBalancer, NodePort or host network.
 
-These remain desired-state assertions. Kubernetes documents that NetworkPolicy enforcement depends on the network plugin and that GPU scheduling depends on a vendor device plugin. The future preflight/executor must observe those facts, validate DNS selectors and the model PVC, restrict who can assign the verifier label, and record results. Rendering performs none of those operations.
+These remain desired-state assertions. Kubernetes documents that NetworkPolicy enforcement depends on the network plugin and that GPU scheduling depends on a vendor device plugin. Preflight observes the available target facts, while the separately authorized executor performs bounded active model/runtime/network checks and records their limitations. Rendering performs none of those operations.
 
 Renderer `0.1.0` bounds its tested server-minor range to Kubernetes 1.34 through 1.36. Strict schema validation covers both endpoints; support outside that range must fail preflight until separately reviewed rather than being inferred from stable API names.
 
 ## Deliberate omissions
 
-There is no executor or acquisition implementation yet. YARA does not currently materialize bundle files, pull or mirror the declared artifacts, prove completeness beyond catalog metadata, scan contents, verify signatures, add an access boundary, calculate an observed change set, request approval, call `docker compose up` or `kubectl`, commit to a GitOps repository, issue an import/deployment receipt or safely remove owned resources. Those operations require separate target identity, approval and receipt schemas and must not be added to the renderer.
+Rendering still does not materialize files, pull/mirror artifacts, scan contents, inject secrets, contact a target or commit to Git. Separate commands now provide Kubernetes preflight, change-set review, signed authorization and bounded direct apply with a deployment receipt. Acquisition/import receipts, GitOps publication, Docker Compose apply and safe retirement remain unimplemented and must not be folded into the renderer.

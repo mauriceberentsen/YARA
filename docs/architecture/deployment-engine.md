@@ -2,7 +2,7 @@
 
 ## Status
 
-Deployment is a post-v0.1 capability. This document defines its boundary early so planning does not become coupled to Helm, Compose or another target.
+The first bounded apply-capable Kubernetes executor is implemented. Planning and rendering remain pure and independent of this privileged boundary.
 
 ## Separation of responsibilities
 
@@ -87,7 +87,7 @@ On failure the executor stops at a safe checkpoint, preserves diagnostics and re
 
 After bounded Docker Compose and Kubernetes/GitOps prototypes over the same plan and catalog, [ADR-0009](../adr/0009-docker-compose-reference-renderer-prototype.md) selects Kubernetes/GitOps as the first reference deployment target. Docker Compose remains the lower-friction single-host renderer and CI fixture.
 
-The selection is not apply authority. The Kubernetes renderer is pure and offline. YARA implements content-addressed, strictly read-only Kubernetes preflight and change-set observation plus a local review-only approval record. The public deployment-receipt contract is validate-only. Strong execution authorization, operation locking, mutation, health verification, ownership-safe removal and receipt production remain executor responsibilities.
+The renderer selection is not apply authority. The Kubernetes renderer remains pure and offline. Direct apply separately requires the exact preflight, change set, review approval and verified short-lived signed authorization. ADR-0011 implements a deliberately narrow executor for an existing namespace and model PVC; it does not add mutation to the renderer.
 
 ## Read-only target preflight
 
@@ -95,7 +95,7 @@ The selection is not apply authority. The Kubernetes renderer is pure and offlin
 
 The resulting `TargetPreflightResult` binds the exact bundle and plan IDs, observer version, observation time and a pseudonymous target digest. Every check has a stable status, diagnostic code where non-passing, allowlisted facts and an evidence digest. The overall outcome is derived from the checks and cannot overstate them. Raw API addresses, kubeconfig paths, context names, node names and pod names are not durable evidence.
 
-A read-only observation cannot prove model-file digests inside a PVC, CNI enforcement, executable temporary storage or admission/RBAC governance of verifier labels. Those checks remain `blocked` even when all observable prerequisites pass. Consequently this initial preflight cannot produce deployment approval. Its audit output is mandatory and binds bundle, target and result identities; result output is removed if terminal audit persistence fails.
+A read-only observation cannot prove model-file digests inside a PVC, CNI enforcement, executable temporary storage or admission/RBAC governance of verifier labels. Those checks remain `blocked` even when all observable prerequisites pass. A later signed authorization may accept only the explicitly enumerated active-verification blockers; the executor must then test them or retain an honest limitation. Preflight audit output is mandatory and binds bundle, target and result identities.
 
 See the [implementation contract](../implementation/target-preflight.md).
 
@@ -103,9 +103,26 @@ See the [implementation contract](../implementation/target-preflight.md).
 
 The current change-set observer re-identifies the preflight target, requires a preflight no older than fifteen minutes and compares the exact supported bundle resources through a versioned normalization profile. It emits create, update, no-op, conflict or unresolved operations. It neither discovers nor proposes deletes. Foreign ownership, missing read permission and target switches block the result.
 
-Local approval is intentionally review-only: the operating-system identity is `self-asserted-local`. v1alpha1 rejects execution authorization entirely because an assurance label without a verifiable signature/authentication envelope is not proof. Review records have a maximum 24-hour validity window. See [ADR-0010](../adr/0010-bind-mutation-to-observed-change-set-and-strong-approval.md) and the [implementation guide](../implementation/change-sets-and-approvals.md).
+Local approval is intentionally review-only: the operating-system identity is `self-asserted-local`. It becomes one bound input to a separate Ed25519-signed `ExecutionAuthorization`; the approval alone is never authority. Review records have a maximum 24-hour validity window. See [ADR-0010](../adr/0010-bind-mutation-to-observed-change-set-and-strong-approval.md) and the [implementation guide](../implementation/change-sets-and-approvals.md).
 
-`DeploymentReceipt` is defined and validateable before privileged implementation. No current command can create a receipt. This prevents tests or hand-authored files from being mistaken for YARA execution evidence merely because they satisfy a schema.
+`DeploymentReceipt` was defined and validateable before privileged implementation. `deployment apply kubernetes` is now the only command that creates one. The receipt binds the full plan-to-authorization chain, exact running binary, target, per-object outcomes and postflight evidence.
+
+## Initial direct executor
+
+The initial executor:
+
+- writes and syncs a mandatory start audit event before its first mutation;
+- acquires a YARA-owned namespaced Lease;
+- re-identifies the target and rechecks all approved current object digests under that Lease;
+- requires the Namespace operation to be no-op;
+- actively verifies pinned model-file sizes/digests and executable `/tmp` when authorized;
+- server-side applies only approved create/update objects with field manager `yara-executor`;
+- verifies the observed normalized result of each write;
+- waits for Deployments and probes LiteLLM inference plus NetworkPolicy isolation;
+- records failed and skipped operations instead of continuing after a write failure;
+- emits a durable receipt before the terminal audit event.
+
+Delete, prune, adoption, namespace/PVC creation, model import and rollback are absent. Only the owned Lease and temporary verifier Pods have cleanup delete paths. See the [operator contract](../implementation/kubernetes-apply.md) and [ADR-0011](../adr/0011-use-a-fail-closed-direct-kubernetes-executor.md).
 
 Execution authorization is now represented separately as a maximum-15-minute Ed25519-signed capability. It binds the exact plan, bundle, preflight, change set, review record, target and permitted non-delete operation set. Verification requires an explicitly trusted public key; schema validity or a self-declared assurance string is insufficient. The executor must re-observe target state after verification because signature validity does not make an earlier change set current.
 

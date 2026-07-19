@@ -136,7 +136,7 @@ A structured explanation for a material planner outcome:
 
 ### DeploymentReceipt
 
-Future immutable record binding a plan, rendered artifact bundle, approval, executor version, target identity and result. It is operational evidence, not the active desired state.
+Immutable record binding a plan, rendered artifact bundle, preflight, change set, approval, signed authorization, executor identity, target and result. It is operational evidence, not the active desired state.
 
 ### DebugBundle
 

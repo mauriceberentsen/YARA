@@ -12,13 +12,13 @@ A rendered bundle does not describe current target state. Approving only a plan 
 
 ## Decision
 
-Any future apply-capable executor must consume four exact, content-addressed prerequisites: deployment bundle, fresh target preflight, observed change set and deployment approval. They must bind the same plan and pseudonymous target identities.
+Any apply-capable executor must consume four exact, content-addressed prerequisites: deployment bundle, fresh target preflight, observed change set and deployment approval. They must bind the same plan and pseudonymous target identities. ADR-0011 additionally requires a short-lived signed authorization over that complete chain.
 
 The initial Kubernetes change-set observer is strictly read-only. It compares only the supported renderer's twelve declared resources, proposes no deletion and uses a versioned normalization profile instead of admission or server-side dry-run. Unreadable and foreign-owned objects block the change set.
 
 Approval records separate `decision` from `effect`. A local self-asserted actor may record `approved` or `rejected`, but v1alpha1 permits only `review-only`. A typed assurance string is not authentication evidence. A future execution-authorized contract therefore requires a real signed/authenticated envelope and verifier rather than a stronger-looking string. Approval records expire within 24 hours.
 
-A public `DeploymentReceipt` contract is defined before executor implementation. The current CLI can validate receipts but cannot create them.
+A public `DeploymentReceipt` contract was defined before executor implementation. The executor selected by ADR-0011 now creates receipts that also bind the signed `ExecutionAuthorization`.
 
 ## Consequences
 

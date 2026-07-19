@@ -7,10 +7,10 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `main`.
-- Latest completed merge: `3ace2b2` (`Merge signed execution authorization`), pushed to `origin/main` with the final handoff commit below.
+- Active branch: `feature/v0-2-kubernetes-apply-executor`.
+- Latest completed merge on main: `3ace2b2` (`Merge signed execution authorization`), followed by handoff commit `d3d9739`.
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: complete the audited target/change-set/approval boundary in thin slices without granting mutation authority prematurely.
+- Working goal: finish, validate and publish the first fail-closed direct Kubernetes apply slice.
 
 ## Current product boundary
 
@@ -291,10 +291,22 @@ Latest validation status: `make check`, `go test -race ./...`, deterministic tes
 
 ## Immediate next actions
 
-1. Add acquisition/import receipts and exact internal artifact locations before an air-gap completeness claim.
-2. Implement active, signed-authorization-gated checks for model PVC contents, executable temporary storage and observable NetworkPolicy behavior; retain governance limitations honestly.
-3. Implement the least-privilege Kubernetes executor with durable started audit, target Lease, stale-state revalidation, create/update/no-op only and no adoption/delete.
-4. Add postflight health/network verification and produce a receipt for success, partial or failed mutation.
-5. Prove second-apply idempotency and owned cleanup in fake and controlled-cluster tests before a support claim.
-6. Implement a generic integration executor independently of deployment apply; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
-7. Keep Ada tuples unobserved until authorized hardware exists and never self-approve independent promotion review.
+1. Finish full-suite, race, schema/link and static validation for the apply branch; review the final diff for secret/path leakage.
+2. Commit under `Maurice Berentsen <mauriceberentsen@live.nl>`, push the feature branch, merge with `--no-ff`, push main and rerun post-merge checks.
+3. Run the documented command chain on a deliberately disposable Kubernetes environment with an existing owned namespace and verified `yara-model` PVC; do not use production first.
+4. Add acquisition/import receipts and exact internal artifact locations before an air-gap completeness claim.
+5. Prove an independently reviewed second apply is all no-op against a controlled cluster and archive its receipt/audit chain.
+6. Add safe owned-resource retirement and rollback as separately authorized operations; do not extend ordinary apply with implicit prune.
+7. Implement a generic integration executor independently of deployment apply; first adapter: bounded LiteLLM-to-vLLM topology with explicit dependency health.
+
+## Current branch slice: fail-closed Kubernetes apply
+
+The working tree implements `yara deployment apply kubernetes` plus ADR-0011 and an operator guide. The command validates and cross-binds bundle, preflight, change set, review approval and a maximum-15-minute Ed25519 authorization; verifies an explicitly trusted public key; and requires the operator to repeat the full authorization ID.
+
+Before calling the executor it reserves the receipt destination, computes the running binary digest and writes/fsyncs `deployment.apply.started`. The executor re-identifies the target, acquires a namespaced Lease, re-observes the exact approved object projection under lock and refuses stale or foreign state. The Namespace must already exist as an exact no-op. Delete, prune and adoption are impossible for bundle resources.
+
+When authorized, a hardened temporary Pod verifies every model shard size/digest and executable `/tmp`. Authorized create/update objects use server-side apply with field manager `yara-executor`; no-op objects are not written. Each result is re-read and compared by normalized digest/ownership/plan annotation. Postflight waits for Deployments, sends a bounded inference request through LiteLLM and verifies direct verifier-to-vLLM traffic is denied. Only owned verifier Pods and the held Lease are deleted.
+
+After Lease acquisition, success and partial/failure paths produce a content-addressed `DeploymentReceipt` that now also binds `authorizationId`. The receipt is durable before the terminal audit event. The audit chain and receipt exclude kubeconfig, context, raw API address and object bodies. Model artifact paths now reject absolute, unclean and parent-traversal forms.
+
+Tests use an injected fake executor to prove the start audit is durable before mutation and wrong confirmation never reaches the executor while still producing a failed audit chain. A fake kubectl target proves Lease ordering, exact approved apply count, namespace no-op, second-apply idempotency, cleanup identity checks and stale/foreign-state rejection before object apply. `make check`, `go test -race ./...` and `git diff --check` pass on the feature branch. No live cluster, container or remote host has been contacted by this slice.
