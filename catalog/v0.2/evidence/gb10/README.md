@@ -26,6 +26,12 @@ These resources archive bounded YARA contract runs for the two knowledge-only GB
 |---|---|---|---|
 | `compat.vllm-qwen-coder-7b-awq-gb10` | `sha256:725b54027506733ff9514e1b2805165389940714b500afa4cd8e44188916ac0d` | `passed` | Egress, ports, telemetry opt-outs, read-only filesystem, tmpfs, mounts/secrets, capabilities, no-new-privileges and owned cleanup |
 
+## Same-version lifecycle
+
+| Assertion | Result ID | Outcome | Scope |
+|---|---|---|---|
+| `compat.vllm-qwen-coder-7b-awq-gb10` | `sha256:d2ea66d99b1552f3b12bfd7d4c10c6ac3fda305ce4b60fb784df8c3cfef60e85` | `passed` | Health and bounded inference before/after one restart; stable container/configuration identity; advanced start timestamp; owned cleanup |
+
 Verify from a source checkout:
 
 ```bash
@@ -38,4 +44,4 @@ for chain in catalog/v0.2/evidence/gb10/*.audit.jsonl; do
 done
 ```
 
-The target SSH reference is pseudonymized. The actor identity is self-asserted local operating-system identity, not cryptographic attestation. Runtime-smoke verified immutable OCI/model metadata, host eligibility, exact vLLM/CUDA/GB10 identities and one CUDA tensor. Model-inference additionally acquired and locally re-hashed the exact Qwen Coder shards, loaded them and completed one bounded request. Capacity-boundary verified one exact 32768-token envelope, with reviewable integer measurements bound into the result. Policy verified the observable serving-container controls listed above. These runs used networked acquisition and do not establish concurrency above one, sustained capacity, latency, throughput, non-root compatibility, host/daemon hardening, restart, lifecycle or air-gap compatibility. The assertions therefore remain `known` and planner-ineligible.
+The target SSH reference is pseudonymized. The actor identity is self-asserted local operating-system identity, not cryptographic attestation. Runtime-smoke verified immutable OCI/model metadata, host eligibility, exact vLLM/CUDA/GB10 identities and one CUDA tensor. Model-inference additionally acquired and locally re-hashed the exact Qwen Coder shards, loaded them and completed one bounded request. Capacity-boundary verified one exact 32768-token envelope, with reviewable integer measurements bound into the result. Policy verified the observable serving-container controls listed above. Lifecycle verified one operator-requested restart of the same isolated container and bounded requests before and after it. These runs used networked acquisition and do not establish concurrency above one, sustained capacity, latency, throughput, non-root compatibility, host/daemon hardening, upgrade/rollback, HA, stateful recovery or air-gap compatibility. The assertions therefore remain `known` and planner-ineligible.

@@ -31,34 +31,45 @@ type SSHModelInferenceRunner struct {
 }
 
 type modelInferenceObservation struct {
-	FailureStage           string `json:"failureStage"`
-	FailureReason          string `json:"failureReason"`
-	MemoryAvailableBytes   int64  `json:"memoryAvailableBytes"`
-	DiskAvailableBytes     int64  `json:"diskAvailableBytes"`
-	AcquisitionCompleted   bool   `json:"acquisitionCompleted"`
-	ArtifactVerified       bool   `json:"artifactVerified"`
-	ServerStarted          bool   `json:"serverStarted"`
-	NetworkMode            string `json:"networkMode"`
-	HealthStatus           int    `json:"healthStatus"`
-	InferenceStatus        int    `json:"inferenceStatus"`
-	Model                  string `json:"model"`
-	FinishReason           string `json:"finishReason"`
-	PromptTokens           int    `json:"promptTokens"`
-	CompletionTokens       int    `json:"completionTokens"`
-	TotalTokens            int    `json:"totalTokens"`
-	ContentDigest          string `json:"contentDigest"`
-	ServerLogDigest        string `json:"serverLogDigest"`
-	PolicyInspected        bool   `json:"policyInspected"`
-	EgressBlocked          bool   `json:"egressBlocked"`
-	PortsUnpublished       bool   `json:"portsUnpublished"`
-	TelemetryDisabled      bool   `json:"telemetryDisabled"`
-	RootFilesystemReadOnly bool   `json:"rootFilesystemReadOnly"`
-	TmpfsRestricted        bool   `json:"tmpfsRestricted"`
-	MountsRestricted       bool   `json:"mountsRestricted"`
-	DockerSocketAbsent     bool   `json:"dockerSocketAbsent"`
-	SensitiveEnvAbsent     bool   `json:"sensitiveEnvAbsent"`
-	PrivilegesRestricted   bool   `json:"privilegesRestricted"`
-	CleanupCompleted       bool   `json:"cleanupCompleted"`
+	FailureStage            string `json:"failureStage"`
+	FailureReason           string `json:"failureReason"`
+	MemoryAvailableBytes    int64  `json:"memoryAvailableBytes"`
+	DiskAvailableBytes      int64  `json:"diskAvailableBytes"`
+	AcquisitionCompleted    bool   `json:"acquisitionCompleted"`
+	ArtifactVerified        bool   `json:"artifactVerified"`
+	ServerStarted           bool   `json:"serverStarted"`
+	NetworkMode             string `json:"networkMode"`
+	HealthStatus            int    `json:"healthStatus"`
+	InferenceStatus         int    `json:"inferenceStatus"`
+	Model                   string `json:"model"`
+	FinishReason            string `json:"finishReason"`
+	PromptTokens            int    `json:"promptTokens"`
+	CompletionTokens        int    `json:"completionTokens"`
+	TotalTokens             int    `json:"totalTokens"`
+	ContentDigest           string `json:"contentDigest"`
+	ServerLogDigest         string `json:"serverLogDigest"`
+	PolicyInspected         bool   `json:"policyInspected"`
+	EgressBlocked           bool   `json:"egressBlocked"`
+	PortsUnpublished        bool   `json:"portsUnpublished"`
+	TelemetryDisabled       bool   `json:"telemetryDisabled"`
+	RootFilesystemReadOnly  bool   `json:"rootFilesystemReadOnly"`
+	TmpfsRestricted         bool   `json:"tmpfsRestricted"`
+	MountsRestricted        bool   `json:"mountsRestricted"`
+	DockerSocketAbsent      bool   `json:"dockerSocketAbsent"`
+	SensitiveEnvAbsent      bool   `json:"sensitiveEnvAbsent"`
+	PrivilegesRestricted    bool   `json:"privilegesRestricted"`
+	CleanupCompleted        bool   `json:"cleanupCompleted"`
+	LifecycleInspected      bool   `json:"lifecycleInspected"`
+	PreRestartHealthStatus  int    `json:"preRestartHealthStatus"`
+	PreRestartInference     int    `json:"preRestartInferenceStatus"`
+	PreRestartModel         string `json:"preRestartModel"`
+	PreRestartContent       string `json:"preRestartContentDigest"`
+	PreRestartCompletion    int    `json:"preRestartCompletionTokens"`
+	RestartCompleted        bool   `json:"restartCompleted"`
+	StartedAtAdvanced       bool   `json:"startedAtAdvanced"`
+	ContainerIdentityStable bool   `json:"containerIdentityStable"`
+	ConfigurationStable     bool   `json:"configurationStable"`
+	PostRestartHealthStatus int    `json:"postRestartHealthStatus"`
 }
 
 type modelServingProfile struct {
@@ -67,6 +78,7 @@ type modelServingProfile struct {
 	MaxTokens      int
 	RequestProgram string
 	InspectPolicy  bool
+	TestLifecycle  bool
 }
 
 func (r SSHModelInferenceRunner) Run(parent context.Context, sshTarget string, target catalog.ContractTarget) ([]resources.ContractTestCheck, error) {
@@ -296,6 +308,10 @@ func modelServingScript(imageB64, repoB64, revisionB64, filesB64, runIDB64 strin
 	if profile.InspectPolicy {
 		inspectPolicy = "true"
 	}
+	testLifecycle := "false"
+	if profile.TestLifecycle {
+		testLifecycle = "true"
+	}
 	return fmt.Sprintf(`set -u
 image="$(printf '%%s' '%s' | base64 -d)"
 repo="$(printf '%%s' '%s' | base64 -d)"
@@ -304,6 +320,7 @@ files_b64='%s'
 run_id="$(printf '%%s' '%s' | base64 -d)"
 request_b64='%s'
 inspect_policy='%s'
+test_lifecycle='%s'
 download="yara-contract-download-$run_id"
 server="yara-contract-model-$run_id"
 volume="yara-contract-model-$run_id"
@@ -420,10 +437,53 @@ except OSError: raise SystemExit(0)' >/dev/null 2>&1; then
   fi
   policy_json="$(printf '%%s' "$policy_json" | /usr/bin/python3 -c 'import json,sys; data=json.load(sys.stdin); data["egressBlocked"]=sys.argv[1]=="true"; print(json.dumps(data,separators=(",",":")))' "$egress_blocked")"
 fi
+lifecycle_json='{}'
 inference="$(docker exec -e "YARA_REQUEST_B64=$request_b64" "$server" /usr/bin/python3 -c 'import base64,os; exec(compile(base64.b64decode(os.environ["YARA_REQUEST_B64"]),"<yara-contract>","exec"))' 2>/dev/null)"
 if [ -z "$inference" ]; then
   emit_failure inference
   exit 0
+fi
+if [ "$test_lifecycle" = "true" ]; then
+  pre_inference="$inference"
+  before_json="$(docker inspect "$server" | /usr/bin/python3 -c 'import hashlib,json,sys
+d=json.load(sys.stdin)[0]; h=d.get("HostConfig") or {}; c=d.get("Config") or {}; mounts=d.get("Mounts") or []
+configuration={"imageID":d.get("Image"),"configuredImage":c.get("Image"),"path":d.get("Path"),"args":d.get("Args"),"mounts":[{"type":m.get("Type"),"name":m.get("Name"),"destination":m.get("Destination"),"rw":m.get("RW")} for m in mounts],"networkMode":h.get("NetworkMode"),"readonlyRootfs":h.get("ReadonlyRootfs"),"memory":h.get("Memory"),"memorySwap":h.get("MemorySwap"),"tmpfs":h.get("Tmpfs"),"securityOpt":h.get("SecurityOpt"),"capAdd":h.get("CapAdd"),"capDrop":h.get("CapDrop")}
+encoded=json.dumps(configuration,sort_keys=True,separators=(",",":")).encode(); print(json.dumps({"containerID":d.get("Id"),"startedAt":(d.get("State") or {}).get("StartedAt"),"configurationDigest":"sha256:"+hashlib.sha256(encoded).hexdigest()},separators=(",",":")))')"
+  if ! docker restart "$server" >/dev/null; then
+    emit_failure restart
+    exit 0
+  fi
+  post_health_status=0
+  attempt=0
+  while [ "$attempt" -lt 180 ]; do
+    if docker exec "$server" /usr/bin/python3 -c 'import urllib.request; r=urllib.request.urlopen("http://127.0.0.1:8000/health",timeout=2); raise SystemExit(0 if r.status==200 else 1)' >/dev/null 2>&1; then
+      post_health_status=200
+      break
+    fi
+    if [ "$(docker inspect "$server" --format '{{.State.Running}}' 2>/dev/null || true)" != "true" ]; then
+      break
+    fi
+    attempt=$((attempt+1))
+    sleep 2
+  done
+  if [ "$post_health_status" -ne 200 ]; then
+    logs="$(docker logs "$server" 2>&1 | tail -80 || true)"
+    log_digest="sha256:$(printf '%%s' "$logs" | sha256sum | awk '{print $1}')"
+    emit_failure health "$log_digest" restart-unhealthy
+    exit 0
+  fi
+  after_json="$(docker inspect "$server" | /usr/bin/python3 -c 'import hashlib,json,sys
+d=json.load(sys.stdin)[0]; h=d.get("HostConfig") or {}; c=d.get("Config") or {}; mounts=d.get("Mounts") or []
+configuration={"imageID":d.get("Image"),"configuredImage":c.get("Image"),"path":d.get("Path"),"args":d.get("Args"),"mounts":[{"type":m.get("Type"),"name":m.get("Name"),"destination":m.get("Destination"),"rw":m.get("RW")} for m in mounts],"networkMode":h.get("NetworkMode"),"readonlyRootfs":h.get("ReadonlyRootfs"),"memory":h.get("Memory"),"memorySwap":h.get("MemorySwap"),"tmpfs":h.get("Tmpfs"),"securityOpt":h.get("SecurityOpt"),"capAdd":h.get("CapAdd"),"capDrop":h.get("CapDrop")}
+encoded=json.dumps(configuration,sort_keys=True,separators=(",",":")).encode(); print(json.dumps({"containerID":d.get("Id"),"startedAt":(d.get("State") or {}).get("StartedAt"),"configurationDigest":"sha256:"+hashlib.sha256(encoded).hexdigest()},separators=(",",":")))')"
+  inference="$(docker exec -e "YARA_REQUEST_B64=$request_b64" "$server" /usr/bin/python3 -c 'import base64,os; exec(compile(base64.b64decode(os.environ["YARA_REQUEST_B64"]),"<yara-contract>","exec"))' 2>/dev/null)"
+  if [ -z "$inference" ]; then
+    emit_failure inference
+    exit 0
+  fi
+  lifecycle_json="$(/usr/bin/python3 -c 'import json,sys
+before=json.loads(sys.argv[1]); after=json.loads(sys.argv[2]); pre=json.loads(sys.argv[3])
+print(json.dumps({"lifecycleInspected":True,"preRestartHealthStatus":200,"preRestartInferenceStatus":pre.get("inferenceStatus",0),"preRestartModel":pre.get("model",""),"preRestartContentDigest":pre.get("contentDigest",""),"preRestartCompletionTokens":pre.get("completionTokens",0),"restartCompleted":True,"startedAtAdvanced":bool(before.get("startedAt")) and before.get("startedAt")!=after.get("startedAt"),"containerIdentityStable":bool(before.get("containerID")) and before.get("containerID")==after.get("containerID"),"configurationStable":bool(before.get("configurationDigest")) and before.get("configurationDigest")==after.get("configurationDigest"),"postRestartHealthStatus":200},separators=(",",":")))' "$before_json" "$after_json" "$pre_inference")"
 fi
 cleanup
 trap - EXIT
@@ -431,8 +491,8 @@ cleanup_completed=true
 if docker ps -a --format '{{.Names}}' | grep -Eq "^($download|$server)$" || docker volume inspect "$volume" >/dev/null 2>&1; then
   cleanup_completed=false
 fi
-printf '%%s' "$inference" | /usr/bin/python3 -c 'import json,sys; data=json.load(sys.stdin); data.update(json.loads(sys.argv[4])); data.update({"memoryAvailableBytes":int(sys.argv[1]),"diskAvailableBytes":int(sys.argv[2]),"acquisitionCompleted":True,"artifactVerified":True,"serverStarted":True,"networkMode":sys.argv[3],"healthStatus":200,"cleanupCompleted":sys.argv[5]=="true"}); print(json.dumps(data,separators=(",",":")))' "$memory_available" "$disk_available" "$network_mode" "$policy_json" "$cleanup_completed"
-`, imageB64, repoB64, revisionB64, filesB64, runIDB64, requestB64, inspectPolicy, modelInferenceMemoryBytes, minimumDisk, modelInferenceMemoryBytes, modelInferenceMemoryBytes, profile.ContextTokens, profile.Concurrency)
+printf '%%s' "$inference" | /usr/bin/python3 -c 'import json,sys; data=json.load(sys.stdin); data.update(json.loads(sys.argv[4])); data.update(json.loads(sys.argv[6])); data.update({"memoryAvailableBytes":int(sys.argv[1]),"diskAvailableBytes":int(sys.argv[2]),"acquisitionCompleted":True,"artifactVerified":True,"serverStarted":True,"networkMode":sys.argv[3],"healthStatus":200,"cleanupCompleted":sys.argv[5]=="true"}); print(json.dumps(data,separators=(",",":")))' "$memory_available" "$disk_available" "$network_mode" "$policy_json" "$cleanup_completed" "$lifecycle_json"
+`, imageB64, repoB64, revisionB64, filesB64, runIDB64, requestB64, inspectPolicy, testLifecycle, modelInferenceMemoryBytes, minimumDisk, modelInferenceMemoryBytes, modelInferenceMemoryBytes, profile.ContextTokens, profile.Concurrency)
 }
 
 func boundedInferenceProgram(maxTokens int) string {

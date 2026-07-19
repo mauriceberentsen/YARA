@@ -7,10 +7,10 @@ This file is the durable handoff for continuing YARA in Cursor when the current 
 ## Repository state
 
 - Repository: YARA — an explainable, audit-first AI platform planner and orchestrator.
-- Active branch: `feature/v0-2-gb10-policy-contract`.
-- Branch base: `main` at `037a8f9` (`Merge audited GB10 context capacity contract`).
+- Active branch: `feature/v0-2-gb10-lifecycle-contract`.
+- Branch base: `main` at `5166c01` (`Merge audited GB10 serving policy contract`).
 - Git identity for every commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Working goal: implement and execute the GB10 policy-contract gate without declaring the tuple supported prematurely.
+- Working goal: implement and execute a bounded GB10 lifecycle-contract gate, then make the remaining catalog-completion gaps machine-readable without declaring untested tuples supported.
 
 ## Current product boundary
 
@@ -44,7 +44,7 @@ The final GB10 run passed with result ID `sha256:56e08293c73b7b8cf2e6db4a2c824b3
 
 The slice was committed as `6fcc4a1` and merged to `main` as `037a8f9`. Post-merge `make check` passed and local `main` matched `origin/main` before the next branch was created.
 
-## Active slice: policy contract
+## Completed slice: policy contract
 
 Implement a separate audited policy contract for the same exact Qwen Coder/vLLM/GB10 tuple. The gate must test observable controls, not claim general security or compliance. At minimum, design explicit checks for:
 
@@ -58,6 +58,23 @@ Implement a separate audited policy contract for the same exact Qwen Coder/vLLM/
 First determine which controls can be proved from Docker inspect state and which require an active negative probe. Prefer a fresh `policy-contract` result mode and `contract.policy.*` audit actions. Do not silently weaken the tmpfs controls required for Triton-generated executable objects; record that exception explicitly.
 
 Implementation status: `contract policy`, the `policy-contract` result mode, Docker inspect and active egress probes, hardening flags, cleanup verification, stable diagnostics and unit/CLI/fail-closed tests are implemented. `make check` and `go test -race ./...` pass. The GB10 run passed with result `sha256:725b54027506733ff9514e1b2805165389940714b500afa4cd8e44188916ac0d`, audit head `sha256:23870ef3177e1e4df95caeb41270e7f011b0cacd201f6061d020bbb366400714` and runner digest `sha256:c63f64b2215ba817f61115a54f1c2f2e4cf9f5e7dbf4deb8191dd862e7f8238e`. The profile deliberately retains image-default root while applying `cap-drop ALL`, `no-new-privileges`, non-privileged mode, read-only root and restricted mounts; non-root compatibility remains a documented open claim.
+
+The policy slice was committed as `cdfcfd1`, merged to `main` as `5166c01`, pushed, and passed a post-merge `make check`. Local `main` matched `origin/main` before this lifecycle branch was created.
+
+## Active slice: lifecycle contract
+
+Implement a separate audited lifecycle contract for the exact Qwen Coder/vLLM/GB10 tuple. Keep the claim deliberately narrow:
+
+- establish health and one bounded inference before a restart;
+- restart the same serving container without reacquiring or replacing artifacts;
+- establish health and one bounded inference after restart;
+- prove the pinned image, model mount, model identity and serving limits did not drift;
+- prove ownership-scoped cleanup removed only the temporary contract resources;
+- preserve mandatory, fail-closed audit persistence and pseudonymized target references.
+
+This gate proves bounded same-version restart recovery only. It must not imply stateful backup/restore, version upgrades, rollback, high availability, sustained availability, crash-loop recovery or disaster recovery. Prefer a fresh `lifecycle-contract` result mode and `contract.lifecycle.*` audit actions. Reuse the hardened serving profile and exact acquisition checks rather than creating a second independent shell implementation.
+
+Implementation status: `contract lifecycle`, the `lifecycle-contract` result mode, pre/post health and bounded inference, restart, container/configuration identity comparisons, start-timestamp advancement, owned cleanup, stable diagnostics and unit/CLI/fail-closed tests are implemented. The GB10 run passed with result `sha256:d2ea66d99b1552f3b12bfd7d4c10c6ac3fda305ce4b60fb784df8c3cfef60e85`, audit head `sha256:70eb8a0545bee5c8744b0903b2639d7b3586d9a133ac3acf190fbb68fc162354` and runner digest `sha256:f2ea12e312e58c7cf51d4119c4e03ddb9c097af23475210553176bcc752af980`. The archived result and adjacent audit chain are present in the working tree. Remote cleanup is complete and the pre-existing vLLM containers remain stopped.
 
 Before executing the remote contract, review host capacity and confirm unrelated GPU workloads may be stopped. Temporary resources must use unique `yara-contract-*` names and cleanup must remove only owned resources. Never store the raw SSH target in results, audit files or this handoff.
 
@@ -76,7 +93,7 @@ See `docs/architecture/auditing.md`, ADR 0007 and `docs/implementation/contract-
 
 ## Likely implementation touchpoints
 
-- `internal/contracttest/`: capacity runner, bounded remote script, evaluator and tests.
+- `internal/contracttest/`: shared bounded serving runner, lifecycle runner, evaluator and tests.
 - `internal/cli/contract.go`: command orchestration, audit actions and fail-closed output.
 - `internal/cli/run.go`: dispatch and usage.
 - `internal/resources/contract_test_result.go`: add the mode only if a distinct mode is selected.
@@ -97,7 +114,7 @@ GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...
 
 Validate every new result and audit chain independently with the exact built runner. Confirm its SHA-256 matches `spec.runner.binaryDigest`. Confirm the GB10 has no temporary `yara-contract-*` containers or volumes after execution.
 
-Latest validation status: `make check`, `go test -race ./...`, every archived GB10 result, every adjacent audit chain and catalog v0.2 all pass. The final rebuild digest is exactly `sha256:021d3f399b89400bbb83b3d345f121583b8c222144ead40885971d83fac28148`, matching the archived result. Remote cleanup is complete, approximately 127.3 GB host memory is available, and the pre-existing `vllm_qwen` and `vllm_nomic` containers remain stopped.
+Latest validation status: `make check`, `go test -race ./...`, every archived GB10 result, every adjacent audit chain and catalog v0.2 all pass. The final lifecycle runner rebuild digest is exactly `sha256:f2ea12e312e58c7cf51d4119c4e03ddb9c097af23475210553176bcc752af980`, matching the archived result. Remote cleanup is complete, approximately 127.3 GB host memory is available, and the pre-existing `vllm_qwen` and `vllm_nomic` containers remain stopped.
 
 ## Publishing checklist
 
@@ -110,8 +127,8 @@ Latest validation status: `make check`, `go test -race ./...`, every archived GB
 
 ## Immediate next actions
 
-1. Rebuild and revalidate the exact policy runner, all GB10 evidence and audit chains.
-2. Commit, push and merge the policy slice.
-3. Start the lifecycle contract on a new branch.
-4. Add a machine-readable catalog coverage ledger before any final completion claim.
-5. Record unavailable Ada hardware as an explicit external evidence blocker, never as an inferred pass.
+1. Rebuild the exact lifecycle runner and validate all tests, archived results, audit chains and remote cleanup.
+2. Commit, push and merge the lifecycle slice.
+3. Start a catalog-coverage branch and add a machine-readable completion ledger.
+4. Record unavailable Ada hardware and unexercised component integrations as explicit evidence blockers, never as inferred passes.
+5. Use the ledger to choose the next executable GB10 evidence slice without weakening promotion gates.
