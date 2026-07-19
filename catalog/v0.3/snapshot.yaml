@@ -1,0 +1,55 @@
+apiVersion: yara.dev/v1alpha1
+kind: CatalogSnapshot
+metadata:
+  name: curated-local-ai-suite
+  version: 0.3.0
+  publishedAt: 2026-07-19T19:49:58Z
+spec:
+  manifests:
+    - capabilities/chat.yaml
+    - capabilities/coding.yaml
+    - capabilities/text-generation.yaml
+    - capabilities/openai-chat.yaml
+    - capabilities/web-chat.yaml
+    - capabilities/vector-search.yaml
+    - capabilities/postgresql.yaml
+    - capabilities/redis.yaml
+    - capabilities/prometheus-metrics.yaml
+    - capabilities/grafana-dashboard.yaml
+    - capabilities/llm-tracing.yaml
+    - capabilities/clickhouse.yaml
+    - capabilities/s3-object-storage.yaml
+    - capabilities/oidc.yaml
+    - capabilities/reverse-proxy.yaml
+    - capabilities/telemetry-otlp.yaml
+    - components/vllm.yaml
+    - components/litellm.yaml
+    - components/open-webui.yaml
+    - components/qdrant.yaml
+    - components/postgresql.yaml
+    - components/redis.yaml
+    - components/prometheus.yaml
+    - components/grafana.yaml
+    - components/langfuse.yaml
+    - components/clickhouse.yaml
+    - components/ollama.yaml
+    - components/sglang.yaml
+    - components/milvus.yaml
+    - components/keycloak.yaml
+    - components/traefik.yaml
+    - components/opentelemetry-collector.yaml
+    - models/qwen3-8b-awq.yaml
+    - models/qwen2.5-coder-7b-instruct-awq.yaml
+    - hardware/rtx-4090.yaml
+    - hardware/rtx-6000-ada.yaml
+    - hardware/l40s.yaml
+    - hardware/gb10.yaml
+    - compatibility/qwen3-8b-awq-rtx4090.yaml
+    - compatibility/qwen-coder-7b-awq-rtx4090.yaml
+    - compatibility/qwen3-8b-awq-rtx6000ada.yaml
+    - compatibility/qwen-coder-7b-awq-rtx6000ada.yaml
+    - compatibility/qwen3-8b-awq-l40s.yaml
+    - compatibility/qwen-coder-7b-awq-l40s.yaml
+    - compatibility/qwen3-8b-awq-gb10.yaml
+    - compatibility/qwen-coder-7b-awq-gb10.yaml
+    - topologies/local-chat-coding.yaml

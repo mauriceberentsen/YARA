@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.ollama, version: 0.32.0, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/ollama/ollama/releases/tag/v0.32.0"}
+    - {type: upstream-documentation, ref: "https://docs.ollama.com/api/version"}
+  verifiedAt: 2026-07-19T19:49:58Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: inference-runtime
+  upstreamVersion: 0.32.0
+  homepage: https://ollama.com/
+  license:
+    id: MIT
+    source: https://github.com/ollama/ollama/blob/v0.32.0/LICENSE
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: ollama/ollama:0.32.0
+      digest: sha256:57f573b47f1f71ebb445789f279fe3e596a8beab182f7cf486db9205bad87c5a
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: http, path: /api/version}
+  roles: [inference.text-generation]
+  provides: [inference.text-generation]
+  consumes: []
+  apiContracts: [integration.api.openai-chat/v1]
+  runtimeOverheadGiB: 1
+  policy: {openSource: true, externalEgress: true, telemetry: false, artifactVerified: true}

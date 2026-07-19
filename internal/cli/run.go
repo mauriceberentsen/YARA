@@ -173,6 +173,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "ContractTestResult", Digest: result.Metadata.ResultID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "contract.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "integration":
+		result, err := resources.LoadIntegrationTestResult(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "integration.validate", "IntegrationTestResult", options.inputPath, "YARA-INT-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("IntegrationTestResult", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "IntegrationTestResult", Digest: result.Metadata.ResultID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "integration.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -244,5 +258,6 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara contract policy --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara contract lifecycle --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara contract validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara integration validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara audit verify <file>")
 }

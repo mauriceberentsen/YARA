@@ -51,6 +51,10 @@ func LoadContractTestResult(path string) (ContractTestResult, error) {
 	return loadResource[ContractTestResult](path)
 }
 
+func LoadIntegrationTestResult(path string) (IntegrationTestResult, error) {
+	return loadResource[IntegrationTestResult](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

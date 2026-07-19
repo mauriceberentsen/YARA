@@ -118,6 +118,20 @@ type acceptedEvidence struct {
 	OccurredAt string
 }
 
+type acceptedIntegrationEvidence struct {
+	Result     resources.IntegrationTestResult
+	AuditHead  string
+	OccurredAt string
+}
+
+type evidenceIndex struct {
+	Contracts          map[string][]acceptedEvidence
+	ComponentEvidence  map[string][]acceptedIntegrationEvidence
+	TopologyEvidence   map[string][]acceptedIntegrationEvidence
+	AcceptedCount      int
+	VerifiedAuditCount int
+}
+
 func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Report, error) {
 	catalogDigest, err := snapshot.Digest()
 	if err != nil {
@@ -138,23 +152,24 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 				"A missing gate means no accepted evidence was found in the supplied directory; it does not prove incompatibility.",
 				"Audit verification proves local chain integrity, not target or actor attestation.",
 				"Component, model and hardware coverage is derived from exact compatibility assertions and does not replace dedicated integration review.",
-				"Sustained-capacity and independent-promotion gates are represented but are not yet executable YARA contract modes.",
+				"Independent promotion review is represented but remains an external review step.",
+				"Integration validation alone is not execution evidence; component and topology coverage requires a matching execution audit chain.",
 			},
 		},
 	}
 	slices.Sort(report.Spec.Limitations)
 	for _, assertion := range inventory.Compatibility {
-		coverage := assertionCoverage(assertion, evidence[assertion.ID])
+		coverage := assertionCoverage(assertion, evidence.Contracts[assertion.ID])
 		report.Spec.Assertions = append(report.Spec.Assertions, coverage)
 		if coverage.PromotionEligible {
 			report.Spec.Summary.PromotionEligibleAssertions++
 		}
 	}
-	report.Spec.Components = manifestCoverage(inventory.Components, report.Spec.Assertions, evidence, func(assertion AssertionCoverage, id string) bool { return assertion.RuntimeRef == id })
-	report.Spec.Models = manifestCoverage(inventory.Models, report.Spec.Assertions, evidence, func(assertion AssertionCoverage, id string) bool { return assertion.ModelRef == id })
-	report.Spec.Hardware = manifestCoverage(inventory.Hardware, report.Spec.Assertions, evidence, func(assertion AssertionCoverage, id string) bool { return assertion.HardwareProfileRef == id })
+	report.Spec.Components = componentCoverage(inventory.Components, report.Spec.Assertions, evidence, func(assertion AssertionCoverage, id string) bool { return assertion.RuntimeRef == id })
+	report.Spec.Models = manifestCoverage(inventory.Models, report.Spec.Assertions, evidence.Contracts, func(assertion AssertionCoverage, id string) bool { return assertion.ModelRef == id })
+	report.Spec.Hardware = manifestCoverage(inventory.Hardware, report.Spec.Assertions, evidence.Contracts, func(assertion AssertionCoverage, id string) bool { return assertion.HardwareProfileRef == id })
 	report.Spec.Capabilities = structuralCoverage(inventory.Capabilities)
-	report.Spec.Topologies = untestedTopologyCoverage(inventory.Topologies)
+	report.Spec.Topologies = topologyCoverage(inventory.Topologies, evidence.TopologyEvidence)
 	report.Spec.Summary.ManifestCount = len(inventory.Capabilities) + len(inventory.Components) + len(inventory.Models) + len(inventory.Hardware) + len(inventory.Compatibility) + len(inventory.Topologies)
 	report.Spec.Summary.CapabilityCount = len(inventory.Capabilities)
 	report.Spec.Summary.ComponentCount = len(inventory.Components)
@@ -162,10 +177,8 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 	report.Spec.Summary.HardwareProfileCount = len(inventory.Hardware)
 	report.Spec.Summary.AssertionCount = len(inventory.Compatibility)
 	report.Spec.Summary.TopologyCount = len(inventory.Topologies)
-	for _, byAssertion := range evidence {
-		report.Spec.Summary.AcceptedEvidenceCount += len(byAssertion)
-		report.Spec.Summary.VerifiedAuditChainCount += len(byAssertion)
-	}
+	report.Spec.Summary.AcceptedEvidenceCount = evidence.AcceptedCount
+	report.Spec.Summary.VerifiedAuditChainCount = evidence.VerifiedAuditCount
 	report.Spec.Complete = report.Spec.Summary.AssertionCount > 0 && report.Spec.Summary.PromotionEligibleAssertions == report.Spec.Summary.AssertionCount && allManifestCoverageComplete(report)
 	return report.AssignReportID()
 }
@@ -281,6 +294,110 @@ func manifestCoverage(manifests []catalog.ManifestDescriptor, assertions []Asser
 	return result
 }
 
+func componentCoverage(manifests []catalog.ManifestDescriptor, assertions []AssertionCoverage, evidence evidenceIndex, related func(AssertionCoverage, string) bool) []ManifestCoverage {
+	result := manifestCoverage(manifests, assertions, evidence.Contracts, related)
+	for index := range result {
+		item := &result[index]
+		integration := evidence.ComponentEvidence[item.ID+"@"+item.Version]
+		latest := latestIntegrationByMode(integration)
+		for _, mode := range []string{"component-smoke", "topology-end-to-end"} {
+			selected, exists := latest[mode]
+			if exists && selected.Result.Spec.Outcome == "passed" && !slices.Contains(item.PassedModes, mode) {
+				item.PassedModes = append(item.PassedModes, mode)
+			}
+		}
+		slices.Sort(item.PassedModes)
+
+		componentPassed := integrationModePassed(latest, "component-smoke")
+		topologyPassed := integrationModePassed(latest, "topology-end-to-end")
+		if len(integration) > 0 && item.Coverage == "none" {
+			item.Coverage = "partial"
+		}
+		if componentPassed && topologyPassed && relatedAssertionsComplete(*item, assertions) {
+			item.Coverage = "complete"
+		}
+		item.Blockers = removeBlockers(item.Blockers, "no-component-integration-evidence-model")
+		item.Blockers = appendIntegrationBlocker(item.Blockers, latest, "component-smoke", "no-component-smoke-evidence")
+		item.Blockers = appendIntegrationBlocker(item.Blockers, latest, "topology-end-to-end", "no-topology-integration-evidence")
+		slices.Sort(item.Blockers)
+	}
+	return result
+}
+
+func topologyCoverage(manifests []catalog.ManifestDescriptor, evidence map[string][]acceptedIntegrationEvidence) []ManifestCoverage {
+	result := make([]ManifestCoverage, 0, len(manifests))
+	for _, manifest := range manifests {
+		item := ManifestCoverage{
+			ID: manifest.ID, Version: manifest.Version, Status: manifest.Status, Coverage: "none",
+			RelatedAssertions: []string{}, PassedModes: []string{}, Blockers: []string{},
+		}
+		latest := latestIntegrationByMode(evidence[manifest.ID+"@"+manifest.Version])
+		selected, exists := latest["topology-end-to-end"]
+		if exists {
+			item.Coverage = "partial"
+			if selected.Result.Spec.Outcome == "passed" {
+				item.Coverage = "complete"
+				item.PassedModes = append(item.PassedModes, "topology-end-to-end")
+			}
+		}
+		item.Blockers = appendIntegrationBlocker(item.Blockers, latest, "topology-end-to-end", "no-topology-integration-evidence")
+		result = append(result, item)
+	}
+	return result
+}
+
+func latestIntegrationByMode(evidence []acceptedIntegrationEvidence) map[string]acceptedIntegrationEvidence {
+	sorted := slices.Clone(evidence)
+	slices.SortFunc(sorted, func(left, right acceptedIntegrationEvidence) int {
+		if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Result.Metadata.ResultID, right.Result.Metadata.ResultID)
+	})
+	result := make(map[string]acceptedIntegrationEvidence)
+	for _, item := range sorted {
+		result[item.Result.Spec.Mode] = item
+	}
+	return result
+}
+
+func integrationModePassed(latest map[string]acceptedIntegrationEvidence, mode string) bool {
+	item, exists := latest[mode]
+	return exists && item.Result.Spec.Outcome == "passed"
+}
+
+func appendIntegrationBlocker(blockers []string, latest map[string]acceptedIntegrationEvidence, mode, missing string) []string {
+	item, exists := latest[mode]
+	if !exists {
+		return append(blockers, missing)
+	}
+	if item.Result.Spec.Outcome != "passed" {
+		return append(blockers, mode+":selected-evidence-outcome-"+item.Result.Spec.Outcome)
+	}
+	return blockers
+}
+
+func relatedAssertionsComplete(item ManifestCoverage, assertions []AssertionCoverage) bool {
+	for _, assertionID := range item.RelatedAssertions {
+		for _, assertion := range assertions {
+			if assertion.ID == assertionID && !assertion.PromotionEligible {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func removeBlockers(blockers []string, blocker string) []string {
+	result := make([]string, 0, len(blockers))
+	for _, item := range blockers {
+		if item != blocker {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 func allManifestCoverageComplete(report Report) bool {
 	for _, collection := range [][]ManifestCoverage{report.Spec.Capabilities, report.Spec.Components, report.Spec.Models, report.Spec.Hardware, report.Spec.Topologies} {
 		for _, item := range collection {
@@ -303,22 +420,24 @@ func structuralCoverage(manifests []catalog.ManifestDescriptor) []ManifestCovera
 	return result
 }
 
-func untestedTopologyCoverage(manifests []catalog.ManifestDescriptor) []ManifestCoverage {
-	result := make([]ManifestCoverage, 0, len(manifests))
-	for _, manifest := range manifests {
-		result = append(result, ManifestCoverage{
-			ID: manifest.ID, Version: manifest.Version, Status: manifest.Status, Coverage: "none",
-			RelatedAssertions: []string{}, PassedModes: []string{}, Blockers: []string{"no-topology-integration-evidence"},
-		})
+func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest string) (evidenceIndex, error) {
+	result := evidenceIndex{
+		Contracts:         make(map[string][]acceptedEvidence),
+		ComponentEvidence: make(map[string][]acceptedIntegrationEvidence),
+		TopologyEvidence:  make(map[string][]acceptedIntegrationEvidence),
 	}
-	return result
-}
-
-func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest string) (map[string][]acceptedEvidence, error) {
-	result := make(map[string][]acceptedEvidence)
 	assertions := make(map[string]catalog.AssertionDescriptor)
-	for _, assertion := range snapshot.ManifestInventory().Compatibility {
+	inventory := snapshot.ManifestInventory()
+	for _, assertion := range inventory.Compatibility {
 		assertions[assertion.ID] = assertion
+	}
+	components := make(map[string]struct{}, len(inventory.Components))
+	for _, component := range inventory.Components {
+		components[component.ID+"@"+component.Version] = struct{}{}
+	}
+	topologies := make(map[string]struct{}, len(inventory.Topologies))
+	for _, topology := range inventory.Topologies {
+		topologies[topology.ID+"@"+topology.Version] = struct{}{}
 	}
 	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -327,9 +446,57 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			return nil
 		}
+		kind, err := evidenceKind(path)
+		if err != nil {
+			return fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if kind == "IntegrationTestResult" {
+			integrationResult, err := resources.LoadIntegrationTestResult(path)
+			if err != nil {
+				return fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+			}
+			if report := integrationResult.Validate(); !report.Valid || integrationResult.Spec.CatalogDigest != catalogDigest {
+				return fmt.Errorf("evidence %s is invalid or not bound to this catalog", filepath.Base(path))
+			}
+			for _, reference := range integrationResult.Spec.ComponentRefs {
+				if _, ok := components[reference]; !ok {
+					return fmt.Errorf("evidence %s references an unknown component version", filepath.Base(path))
+				}
+			}
+			if integrationResult.Spec.TopologyRef != "" {
+				if _, ok := topologies[integrationResult.Spec.TopologyRef]; !ok {
+					return fmt.Errorf("evidence %s references an unknown topology version", filepath.Base(path))
+				}
+			}
+			auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
+			events, head, err := loadVerifiedAudit(auditPath)
+			if err != nil {
+				return err
+			}
+			if err := verifyIntegrationEvidenceAudit(events, integrationResult, catalogDigest); err != nil {
+				return fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
+			}
+			terminal := events[len(events)-1]
+			accepted := acceptedIntegrationEvidence{Result: integrationResult, AuditHead: head, OccurredAt: terminal.Metadata.OccurredAt}
+			for _, reference := range integrationResult.Spec.ComponentRefs {
+				result.ComponentEvidence[reference] = append(result.ComponentEvidence[reference], accepted)
+			}
+			if integrationResult.Spec.TopologyRef != "" {
+				result.TopologyEvidence[integrationResult.Spec.TopologyRef] = append(result.TopologyEvidence[integrationResult.Spec.TopologyRef], accepted)
+			}
+			result.AcceptedCount++
+			result.VerifiedAuditCount++
+			return nil
+		}
+		if kind != "ContractTestResult" {
+			return fmt.Errorf("evidence %s has unsupported kind %q", filepath.Base(path), kind)
+		}
 		contractResult, err := resources.LoadContractTestResult(path)
 		if err != nil {
 			return fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if report := contractResult.Validate(); !report.Valid {
+			return fmt.Errorf("evidence %s is invalid", filepath.Base(path))
 		}
 		assertion, ok := assertions[contractResult.Spec.AssertionRef]
 		if !ok || contractResult.Spec.CatalogDigest != catalogDigest {
@@ -340,25 +507,57 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 			return fmt.Errorf("evidence %s target does not match the catalog assertion", filepath.Base(path))
 		}
 		auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
-		events, err := audit.LoadJSONL(auditPath)
+		events, head, err := loadVerifiedAudit(auditPath)
 		if err != nil {
-			return fmt.Errorf("load evidence audit %s: %w", filepath.Base(auditPath), err)
-		}
-		head, err := audit.Verify(events)
-		if err != nil {
-			return fmt.Errorf("verify evidence audit %s: %w", filepath.Base(auditPath), err)
+			return err
 		}
 		if err := verifyEvidenceAudit(events, contractResult, catalogDigest); err != nil {
 			return fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
 		}
 		terminal := events[len(events)-1]
-		result[assertion.ID] = append(result[assertion.ID], acceptedEvidence{Result: contractResult, AuditHead: head, OccurredAt: terminal.Metadata.OccurredAt})
+		result.Contracts[assertion.ID] = append(result.Contracts[assertion.ID], acceptedEvidence{Result: contractResult, AuditHead: head, OccurredAt: terminal.Metadata.OccurredAt})
+		result.AcceptedCount++
+		result.VerifiedAuditCount++
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("discover catalog evidence: %w", err)
+		return evidenceIndex{}, fmt.Errorf("discover catalog evidence: %w", err)
 	}
 	return result, nil
+}
+
+func evidenceKind(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, (4<<20)+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > 4<<20 {
+		return "", errors.New("evidence resource exceeds the 4 MiB input limit")
+	}
+	var envelope struct {
+		Kind string `yaml:"kind"`
+	}
+	if err := yaml.Unmarshal(data, &envelope); err != nil {
+		return "", err
+	}
+	return envelope.Kind, nil
+}
+
+func loadVerifiedAudit(path string) ([]audit.Event, string, error) {
+	events, err := audit.LoadJSONL(path)
+	if err != nil {
+		return nil, "", fmt.Errorf("load evidence audit %s: %w", filepath.Base(path), err)
+	}
+	head, err := audit.Verify(events)
+	if err != nil {
+		return nil, "", fmt.Errorf("verify evidence audit %s: %w", filepath.Base(path), err)
+	}
+	return events, head, nil
 }
 
 func verifyEvidenceAudit(events []audit.Event, result resources.ContractTestResult, catalogDigest string) error {
@@ -384,6 +583,34 @@ func verifyEvidenceAudit(events []audit.Event, result resources.ContractTestResu
 	}
 	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) || !hasSubject(terminal.Spec.Subjects, "ContractTestResult", result.Metadata.ResultID) {
 		return errors.New("terminal event does not bind catalog and result identities")
+	}
+	return nil
+}
+
+func verifyIntegrationEvidenceAudit(events []audit.Event, result resources.IntegrationTestResult, catalogDigest string) error {
+	if len(events) != 2 {
+		return fmt.Errorf("expected two events, found %d", len(events))
+	}
+	prefix, ok := map[string]string{
+		"component-smoke":     "integration.component-smoke",
+		"topology-end-to-end": "integration.topology-end-to-end",
+	}[result.Spec.Mode]
+	if !ok {
+		return errors.New("unsupported integration evidence mode")
+	}
+	suffix, outcome := "completed", "success"
+	if result.Spec.Outcome == "blocked" {
+		suffix, outcome = "blocked", "infeasible"
+	} else if result.Spec.Outcome == "failed" {
+		suffix, outcome = "failed", "failed"
+	}
+	terminal := events[len(events)-1]
+	expectedTarget := result.Spec.Environment.Transport + ":" + result.Spec.Environment.ReferenceDigest
+	if terminal.Spec.Action != prefix+"."+suffix || terminal.Spec.Outcome != outcome || terminal.Spec.Target != expectedTarget {
+		return errors.New("terminal action, outcome or target does not match integration result")
+	}
+	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) || !hasSubject(terminal.Spec.Subjects, "IntegrationTestResult", result.Metadata.ResultID) {
+		return errors.New("terminal event does not bind catalog and integration-result identities")
 	}
 	return nil
 }

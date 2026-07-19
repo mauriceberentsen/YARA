@@ -1,0 +1,10 @@
+apiVersion: yara.dev/v1alpha1
+kind: Capability
+metadata: {id: identity.oidc/v1, version: 1.0.0, status: supported, owners: [yara-catalog]}
+provenance:
+  sources: [{type: standard, ref: "https://openid.net/specs/openid-connect-core-1_0.html"}]
+  verifiedAt: 2026-07-19T19:49:58Z
+  reviewAfter: 2027-07-19T00:00:00Z
+  confidence: high
+spec:
+  description: OpenID Connect 1.0 identity-provider contract.

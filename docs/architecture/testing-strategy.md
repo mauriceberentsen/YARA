@@ -109,6 +109,8 @@ An unavailable hardware runner means that path cannot receive fresh supported ev
 
 Compatibility and benchmark jobs output structured evidence with environment, runner identity, artifact digests and results. `ContractTestResult` establishes this boundary for preflight, runtime-smoke, model-inference, capacity-boundary, sustained-capacity, policy and lifecycle observations. New results bind the runner version and exact executable SHA-256; older archived v1alpha1 results without that optional field remain valid but carry weaker provenance. Later modes must not weaken content identity or explicit limitations. Catalog promotion consumes reviewed evidence; test logs alone are not durable catalog facts.
 
+Cross-component observations use `IntegrationTestResult` rather than overloading compatibility evidence. Component-smoke and topology-end-to-end results bind exact catalog versions, observed environment facts, bounded checks and explicit limitations. Validation audit and execution audit are separate evidence classes; only the latter can affect integration coverage.
+
 ## Failure triage
 
 Classify a failure as engine regression, catalog contradiction/staleness, upstream break, environment issue or invalid support claim. Quarantine affected combinations first; restoring broad support is secondary to preventing unsafe recommendations.

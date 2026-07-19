@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.sglang, version: 0.5.12, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/sgl-project/sglang/releases/tag/v0.5.12"}
+    - {type: upstream-documentation, ref: "https://docs.sglang.io/backend/openai_api_completions.html"}
+  verifiedAt: 2026-07-19T19:49:58Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: inference-runtime
+  upstreamVersion: 0.5.12
+  homepage: https://docs.sglang.io/
+  license:
+    id: Apache-2.0
+    source: https://github.com/sgl-project/sglang/blob/v0.5.12/LICENSE
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: lmsysorg/sglang:v0.5.12-cu130
+      digest: sha256:42194170546745092e74cd5f81ad32a7c6e944c7111fe7bf13588152277ff356
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: http, path: /health}
+  roles: [inference.text-generation]
+  provides: [inference.text-generation]
+  consumes: []
+  apiContracts: [integration.api.openai-chat/v1]
+  runtimeOverheadGiB: 2
+  policy: {openSource: true, externalEgress: true, telemetry: false, artifactVerified: true}

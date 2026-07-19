@@ -2,7 +2,7 @@ apiVersion: yara.dev/v1alpha1
 kind: CatalogCoverageReport
 metadata:
     name: catalog-v0.2-coverage
-    reportId: sha256:0d040fd0fe430940bf1fb9ef3ce034dd3a54a238539378c2bd8af1fef4b22541
+    reportId: sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83
 spec:
     catalogDigest: sha256:0f7062b289e322a1c676cc52282cb9b0c816894bb3452535b790290e94ca0241
     complete: false
@@ -130,7 +130,8 @@ spec:
           relatedAssertions: []
           passedModes: []
           blockers:
-            - no-component-integration-evidence-model
+            - no-component-smoke-evidence
+            - no-topology-integration-evidence
         - id: core.grafana
           version: 13.1.0
           status: known
@@ -138,7 +139,8 @@ spec:
           relatedAssertions: []
           passedModes: []
           blockers:
-            - no-component-integration-evidence-model
+            - no-component-smoke-evidence
+            - no-topology-integration-evidence
         - id: core.langfuse
           version: 3.221.1
           status: known
@@ -146,7 +148,8 @@ spec:
           relatedAssertions: []
           passedModes: []
           blockers:
-            - no-component-integration-evidence-model
+            - no-component-smoke-evidence
+            - no-topology-integration-evidence
         - id: core.litellm
           version: 1.93.0
           status: experimental
@@ -154,7 +157,8 @@ spec:
           relatedAssertions: []
           passedModes: []
           blockers:
-            - no-component-integration-evidence-model
+            - no-component-smoke-evidence
+            - no-topology-integration-evidence
         - id: core.open-webui
           version: 0.10.2
           status: known
@@ -162,7 +166,8 @@ spec:
           relatedAssertions: []
           passedModes: []
           blockers:
-            - no-component-integration-evidence-model
+            - no-component-smoke-evidence
+            - no-topology-integration-evidence
         - id: core.postgresql
           version: "18.3"
           status: known
@@ -170,7 +175,8 @@ spec:
           relatedAssertions: []
           passedModes: []
           blockers:
-            - no-component-integration-evidence-model
+            - no-component-smoke-evidence
+            - no-topology-integration-evidence
         - id: core.prometheus
           version: 3.13.1
           status: known
@@ -178,7 +184,8 @@ spec:
           relatedAssertions: []
           passedModes: []
           blockers:
-            - no-component-integration-evidence-model
+            - no-component-smoke-evidence
+            - no-topology-integration-evidence
         - id: core.qdrant
           version: 1.18.3
           status: known
@@ -186,7 +193,8 @@ spec:
           relatedAssertions: []
           passedModes: []
           blockers:
-            - no-component-integration-evidence-model
+            - no-component-smoke-evidence
+            - no-topology-integration-evidence
         - id: core.redis
           version: 8.8.0
           status: known
@@ -194,7 +202,8 @@ spec:
           relatedAssertions: []
           passedModes: []
           blockers:
-            - no-component-integration-evidence-model
+            - no-component-smoke-evidence
+            - no-topology-integration-evidence
         - id: core.vllm
           version: 0.25.1
           status: experimental
@@ -216,6 +225,8 @@ spec:
             - runtime-smoke
             - sustained-capacity
           blockers:
+            - no-component-smoke-evidence
+            - no-topology-integration-evidence
             - related-assertions-not-promotion-eligible
     models:
         - id: models.qwen2.5-coder-7b-instruct-awq
@@ -731,4 +742,5 @@ spec:
         - A missing gate means no accepted evidence was found in the supplied directory; it does not prove incompatibility.
         - Audit verification proves local chain integrity, not target or actor attestation.
         - Component, model and hardware coverage is derived from exact compatibility assertions and does not replace dedicated integration review.
-        - Sustained-capacity and independent-promotion gates are represented but are not yet executable YARA contract modes.
+        - Independent promotion review is represented but remains an external review step.
+        - Integration validation alone is not execution evidence; component and topology coverage requires a matching execution audit chain.

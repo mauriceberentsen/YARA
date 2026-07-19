@@ -1,0 +1,32 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.redis, version: 8.8.0, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/redis/redis/releases/tag/8.8.0"}
+    - {type: upstream-license, ref: "https://github.com/redis/redis/blob/8.8.0/LICENSE.txt"}
+  verifiedAt: 2026-07-19T10:00:00Z
+  reviewAfter: 2026-10-19T00:00:00Z
+  confidence: high
+spec:
+  category: cache-and-queue
+  upstreamVersion: 8.8.0
+  homepage: https://redis.io/
+  license:
+    id: AGPL-3.0-only
+    source: https://github.com/redis/redis/blob/8.8.0/LICENSE.txt
+    osiApproved: true
+    redistribution: allowed-with-conditions
+    restrictions: [YARA selects the AGPLv3 option; network copyleft and source obligations apply.]
+  artifacts:
+    - type: oci-image
+      ref: redis:8.8.0-alpine
+      digest: sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+      platforms: [linux/amd64, linux/arm64]
+  health: {protocol: exec, command: [redis-cli, ping]}
+  roles: [cache.redis]
+  provides: [storage.cache-redis/v1]
+  consumes: []
+  apiContracts: [storage.cache-redis/v1]
+  runtimeOverheadGiB: 0.25
+  policy: {openSource: true, externalEgress: false, telemetry: false, artifactVerified: true}

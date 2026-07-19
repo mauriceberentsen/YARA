@@ -1,0 +1,10 @@
+apiVersion: yara.dev/v1alpha1
+kind: Capability
+metadata: {id: networking.reverse-proxy/v1, version: 1.0.0, status: supported, owners: [yara-catalog]}
+provenance:
+  sources: [{type: architecture, ref: "docs/architecture/deployment-engine.md"}]
+  verifiedAt: 2026-07-19T19:49:58Z
+  reviewAfter: 2027-07-19T00:00:00Z
+  confidence: high
+spec:
+  description: HTTP reverse-proxy and ingress routing contract.

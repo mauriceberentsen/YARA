@@ -1,0 +1,31 @@
+apiVersion: yara.dev/v1alpha1
+kind: Component
+metadata: {id: core.keycloak, version: 26.6.3, status: known, owners: [yara-catalog]}
+provenance:
+  sources:
+    - {type: upstream-release, ref: "https://github.com/keycloak/keycloak/releases/tag/26.6.3"}
+    - {type: upstream-documentation, ref: "https://www.keycloak.org/server/health"}
+  verifiedAt: 2026-07-19T19:49:58Z
+  reviewAfter: 2026-08-19T00:00:00Z
+  confidence: high
+spec:
+  category: identity-provider
+  upstreamVersion: 26.6.3
+  homepage: https://www.keycloak.org/
+  license:
+    id: Apache-2.0
+    source: https://github.com/keycloak/keycloak/blob/26.6.3/LICENSE.txt
+    osiApproved: true
+    redistribution: allowed
+  artifacts:
+    - type: oci-image
+      ref: quay.io/keycloak/keycloak:26.6.3
+      digest: sha256:9b0330756022422149aa6502eb2def8cd47c6e1b000c7c65cdb13e7c0133e992
+      platforms: [linux/amd64, linux/arm64, linux/ppc64le]
+  health: {protocol: http, path: /health/live}
+  roles: [identity.oidc]
+  provides: [identity.oidc/v1]
+  consumes: [storage.relational-postgresql/v1]
+  apiContracts: [identity.oidc/v1, storage.relational-postgresql/v1]
+  runtimeOverheadGiB: 2
+  policy: {openSource: true, externalEgress: false, telemetry: false, artifactVerified: true}
