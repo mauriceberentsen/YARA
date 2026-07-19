@@ -6,7 +6,9 @@ An air-gapped YARA workflow can plan, render, deploy and maintain an environment
 
 ## Connected staging side
 
-1. Resolve an approved plan and exact artifact manifest.
+The reference renderer now emits `sbom.spdx.json` and `offline-acquisition.yaml` inside every `DeploymentBundle`. These are acquisition inputs, not proof that acquisition, scanning, transfer or import occurred.
+
+1. Resolve an approved plan and validate its exact bundle, SPDX inventory and offline-acquisition manifest.
 2. Acquire permitted container images, packages, charts, model files and documentation.
 3. Record origin, license, size, digest and signature status.
 4. Scan and verify according to organization policy.

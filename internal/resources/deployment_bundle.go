@@ -2,7 +2,9 @@ package resources
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -26,6 +28,7 @@ type DeploymentBundleSpec struct {
 	PlanID         string                `json:"planId" yaml:"planId"`
 	CatalogDigest  string                `json:"catalogDigest" yaml:"catalogDigest"`
 	Renderer       BundleRenderer        `json:"renderer" yaml:"renderer"`
+	SupplyChain    BundleSupplyChain     `json:"supplyChain" yaml:"supplyChain"`
 	Files          []BundleFile          `json:"files" yaml:"files"`
 	Artifacts      []BundleArtifact      `json:"artifacts" yaml:"artifacts"`
 	RequiredInputs []BundleRequiredInput `json:"requiredInputs" yaml:"requiredInputs"`
@@ -33,6 +36,11 @@ type DeploymentBundleSpec struct {
 	Preflight      []string              `json:"preflight" yaml:"preflight"`
 	Postflight     []string              `json:"postflight" yaml:"postflight"`
 	Limitations    []string              `json:"limitations" yaml:"limitations"`
+}
+
+type BundleSupplyChain struct {
+	SBOMPath               string `json:"sbomPath" yaml:"sbomPath"`
+	OfflineAcquisitionPath string `json:"offlineAcquisitionPath" yaml:"offlineAcquisitionPath"`
 }
 
 type BundleRenderer struct {
@@ -111,6 +119,17 @@ func (b DeploymentBundle) Validate() diagnostics.Report {
 		}
 		previous = file.Path
 	}
+	fileByPath := make(map[string]BundleFile, len(b.Spec.Files))
+	for _, file := range b.Spec.Files {
+		fileByPath[file.Path] = file
+	}
+	sbom, sbomExists := fileByPath[b.Spec.SupplyChain.SBOMPath]
+	offline, offlineExists := fileByPath[b.Spec.SupplyChain.OfflineAcquisitionPath]
+	if b.Spec.SupplyChain.SBOMPath == b.Spec.SupplyChain.OfflineAcquisitionPath || !sbomExists || sbom.MediaType != "application/spdx+json" || !offlineExists || offline.MediaType != "application/vnd.yara.offline-acquisition+yaml" {
+		items = append(items, diagnostics.Error("YARA-BND-019", "Supply-chain paths must reference distinct embedded SPDX and offline-acquisition files.", "spec.supplyChain"))
+	} else {
+		items = append(items, validateEmbeddedSupplyChain(b, sbom.Content, offline.Content)...)
+	}
 	if len(b.Spec.Artifacts) == 0 {
 		items = append(items, diagnostics.Error("YARA-BND-014", "At least one immutable artifact is required.", "spec.artifacts"))
 	}
@@ -164,6 +183,79 @@ func (b DeploymentBundle) Validate() diagnostics.Report {
 		}
 	}
 	return diagnostics.NewReport(items...)
+}
+
+type embeddedSPDXDocument struct {
+	SPDXVersion       string `json:"spdxVersion"`
+	DataLicense       string `json:"dataLicense"`
+	SPDXID            string `json:"SPDXID"`
+	Name              string `json:"name"`
+	DocumentNamespace string `json:"documentNamespace"`
+	Packages          []struct {
+		Name             string `json:"name"`
+		VersionInfo      string `json:"versionInfo"`
+		LicenseDeclared  string `json:"licenseDeclared"`
+		LicenseConcluded string `json:"licenseConcluded"`
+	} `json:"packages"`
+}
+
+func validateEmbeddedSupplyChain(bundle DeploymentBundle, sbomContent, offlineContent string) []diagnostics.Diagnostic {
+	items := []diagnostics.Diagnostic{}
+	var manifest OfflineAcquisitionManifest
+	if err := decodeYAML([]byte(offlineContent), &manifest); err != nil {
+		items = append(items, diagnostics.Error("YARA-BND-020", "Embedded offline acquisition manifest cannot be decoded strictly.", "spec.supplyChain.offlineAcquisitionPath"))
+	} else {
+		if report := manifest.Validate(); !report.Valid {
+			items = append(items, diagnostics.Error("YARA-BND-020", "Embedded offline acquisition manifest is invalid.", "spec.supplyChain.offlineAcquisitionPath"))
+		}
+		expected := make([]OfflineAcquisitionArtifact, 0, len(bundle.Spec.Artifacts))
+		for _, artifact := range bundle.Spec.Artifacts {
+			method := "mirror-oci-index"
+			if artifact.Type == "huggingface-snapshot" {
+				method = "mirror-huggingface-snapshot"
+			}
+			expected = append(expected, OfflineAcquisitionArtifact{
+				Type: artifact.Type, Ref: artifact.Ref, Method: method, Digest: artifact.Digest, Revision: artifact.Revision,
+				Platforms: artifact.Platforms, Files: artifact.Files, LicenseID: artifact.LicenseID, LicenseSource: artifact.LicenseSource,
+			})
+		}
+		if manifest.Metadata.Name != bundle.Metadata.Name || manifest.Spec.PlanID != bundle.Spec.PlanID || manifest.Spec.CatalogDigest != bundle.Spec.CatalogDigest || manifest.Spec.GeneratedBy != bundle.Spec.Renderer || !reflect.DeepEqual(manifest.Spec.Artifacts, expected) {
+			items = append(items, diagnostics.Error("YARA-BND-021", "Offline acquisition manifest does not exactly bind the bundle identity and artifact inventory.", "spec.supplyChain.offlineAcquisitionPath"))
+		}
+	}
+
+	var sbom embeddedSPDXDocument
+	expectedPackageCount := len(bundle.Spec.Artifacts)
+	for _, artifact := range bundle.Spec.Artifacts {
+		expectedPackageCount += len(artifact.Files)
+	}
+	if err := json.Unmarshal([]byte(sbomContent), &sbom); err != nil || sbom.SPDXVersion != "SPDX-2.3" || sbom.DataLicense != "CC0-1.0" || sbom.SPDXID != "SPDXRef-DOCUMENT" || sbom.Name != "YARA-"+bundle.Metadata.Name || sbom.DocumentNamespace == "" || len(sbom.Packages) != expectedPackageCount {
+		items = append(items, diagnostics.Error("YARA-BND-022", "Embedded SPDX document is malformed or incomplete.", "spec.supplyChain.sbomPath"))
+	} else {
+		for index, artifact := range bundle.Spec.Artifacts {
+			version := artifact.Digest
+			if artifact.Type == "huggingface-snapshot" {
+				version = artifact.Revision
+			}
+			pkg := sbom.Packages[index]
+			if pkg.Name != artifact.Ref || pkg.VersionInfo != version || pkg.LicenseDeclared != artifact.LicenseID || pkg.LicenseConcluded != "NOASSERTION" {
+				items = append(items, diagnostics.Error("YARA-BND-023", "SPDX package inventory does not exactly represent bundle artifacts and declared licenses.", "spec.supplyChain.sbomPath"))
+				break
+			}
+		}
+		packageIndex := len(bundle.Spec.Artifacts)
+		for _, artifact := range bundle.Spec.Artifacts {
+			for _, file := range artifact.Files {
+				pkg := sbom.Packages[packageIndex]
+				if pkg.Name != artifact.Ref+"/"+file.Path || pkg.VersionInfo != file.Digest || pkg.LicenseDeclared != artifact.LicenseID || pkg.LicenseConcluded != "NOASSERTION" {
+					items = append(items, diagnostics.Error("YARA-BND-024", "SPDX shard package inventory does not exactly represent cataloged model files.", "spec.supplyChain.sbomPath"))
+					return items
+				}
+				packageIndex++
+			}
+		}
+	}
+	return items
 }
 
 func validBundleArtifactFiles(files []BundleArtifactFile) bool {

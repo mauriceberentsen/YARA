@@ -48,6 +48,8 @@ The bundle includes:
 - bundle digest and optional signature;
 - license/attribution inventory.
 
+The current `DeploymentBundle` realizes the third-party inventory as two embedded documents: an SPDX 2.3 SBOM and a YARA `OfflineAcquisitionManifest`. Both are deterministically generated, content-addressed and included in the enclosing bundle digest. The offline manifest binds the exact plan, catalog, renderer, OCI index digests, model revision, shard digests and declared license sources. It separates connected acquisition from network-denied execution but grants neither acquisition nor apply authority. Import locations, scans, signatures and receipts remain observed lifecycle data rather than renderer assumptions.
+
 Sensitive values are injected at execution and excluded from the bundle.
 
 ## Executor workflow
