@@ -147,6 +147,29 @@ go run ./cmd/yara contract policy \
 
 This test does not prove host or daemon hardening, non-root compatibility, universal absence of dependency telemetry, supply-chain security beyond pinned artifacts, or regulatory compliance. Model acquisition occurs before the no-network serving phase and is not air-gap evidence.
 
+## Implemented same-version lifecycle contract
+
+`contract lifecycle` reuses the exact artifact, preflight, isolated serving and bounded inference gates. It performs a fixed sequence:
+
+1. wait for health and complete one context-1024, concurrency-1 request;
+2. hash the immutable image, command, model mount and serving-container configuration selected for the test;
+3. request a restart of that same container;
+4. require a changed start timestamp while preserving the container identity and configuration digest;
+5. wait for health and complete the same bounded request again;
+6. remove only the uniquely owned containers and volume and verify their absence.
+
+```bash
+go run ./cmd/yara contract lifecycle \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --target user@gb10-runner.example \
+  --name gb10-qwen-coder-lifecycle \
+  --output .yara/contracts/gb10-qwen-coder-lifecycle.yaml \
+  --audit-output .yara/audit/gb10-qwen-coder-lifecycle.jsonl
+```
+
+No raw container ID, start timestamp, prompt, completion or configuration document is persisted. The evidence records only bounded response facts, content digests and boolean identity comparisons. A pass does not establish crash-loop recovery, host failure recovery, version upgrades, rollback, HA, traffic draining, zero downtime, backup/restore or stateful disaster recovery.
+
 ## Outcomes and exit codes
 
 | Result | Meaning | Exit code |
@@ -169,10 +192,10 @@ The actor remains the self-asserted local OS identity. The current hash chain de
 
 A passing preflight MUST NOT promote an assertion. Runtime smoke covers immutable identity verification and bounded container/CUDA startup. Model inference additionally covers one narrow model-load/health/request path, but the implemented modes still do not establish:
 
-- concurrency above one or a sustained-capacity boundary;
+- concurrency above one;
 - generalized inference correctness, quality or API compatibility beyond one fixed request;
-- hardened no-egress/telemetry policy;
-- restart, upgrade, rollback or recovery behavior;
+- sustained capacity, latency or throughput;
+- version upgrade, rollback, HA or stateful recovery behavior;
 - repeatability on another machine of the same advertised model.
 
 The result records these limitations explicitly.
@@ -185,7 +208,7 @@ For each exact compatibility tuple, promotion still requires:
 2. **Health and bounded inference:** implemented for one Qwen Coder/GB10 request; advertised context bounds and broader API conformance remain open.
 3. **Advertised-context boundary:** implemented as one exact 32768-token-envelope request; sustained capacity and any concurrency above one remain open until the catalog declares explicit bounds.
 4. **Policy contract:** implemented for observable egress, telemetry configuration, filesystem, secret exposure, privilege and cleanup controls; broader host, dependency and compliance claims remain explicitly out of scope.
-5. **Lifecycle contract:** restart and recover the isolated workload and capture state/health evidence.
+5. **Lifecycle contract:** implemented for one same-version container restart with pre/post health and inference plus identity-stability evidence; upgrade, rollback, HA and stateful recovery remain open.
 6. **Independent review:** review the complete evidence set and record an explicit promotion decision.
 
 Tests on a different accelerator are useful for discovering a new hardware profile, but they cannot approve an existing hardware assertion. The GB10 assertions therefore have their own knowledge-only identities and do not promote or validate an RTX 4090 assertion.
