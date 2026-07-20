@@ -1,68 +1,58 @@
 # YARA
 
-> **Your AI Runtime Architect** — turn hardware, goals and policy constraints into an explainable, reproducible AI-platform plan.
+> **Pre-alpha AI runtime planning and bounded deployment evidence.**
 
-YARA is an open-source project for designing and, eventually, operating a suitable AI platform from a user's desired outcomes. Instead of asking users to assemble inference servers, gateways, user interfaces, data stores, identity providers and observability tools themselves, YARA will reason about the environment and propose a compatible stack.
+YARA is an open-source CLI for deterministic AI platform planning plus bounded, auditable deployment workflows. It is in **pre-alpha** and should be evaluated as an evidence-first engineering toolchain, not a production platform product.
 
-YARA is currently in its **pre-alpha implementation and validation phase**. The CLI can validate v1alpha1 inputs, generate deterministic plans, compile evidence coverage, run bounded compatibility contracts, and render the narrow v0.2 LiteLLM/vLLM plan into audited content-addressed Docker Compose and Kubernetes/GitOps bundles. A bounded Kubernetes path now connects read-only preflight and change-set review to short-lived signed authorization, fail-closed direct apply and a content-addressed deployment receipt. It requires a pre-provisioned owned namespace and model PVC and is not yet a general installer.
+## What YARA does today
 
-## The problem
+Implemented and usable today:
 
-A useful self-hosted AI platform is rarely one application. It is a system of components with coupled constraints:
+- validate versioned resources and schemas (`v1alpha1`) with strict decode/validation rules;
+- generate deterministic, explainable platform plans from request + inventory + catalog;
+- render bounded reference bundles (Docker Compose and Kubernetes/GitOps) from exact plan identities;
+- execute read-only Kubernetes preflight and change-set observation before any mutation;
+- require review + signed short-lived authorization for mutation commands (`apply`, `retire`, `rollback`);
+- produce content-addressed receipts and append-only audit chains for planning, review, execution, and publication gates;
+- run deterministic CI and release checks with reproducible binary and schema artifacts.
 
-- models must fit the available accelerators and memory;
-- inference engines must support the selected model, quantization and hardware;
-- chat, coding, RAG and agent use cases require different capabilities;
-- identity, data residency, licensing and air-gap policies exclude some options;
-- concurrency, latency and availability objectives change the topology;
-- versions, drivers, protocols and APIs must remain compatible over time.
+## Hard support boundary (pre-alpha)
 
-Installation scripts can automate commands, but they cannot decide which architecture is appropriate. YARA's primary value is the knowledge and reasoning required to make that decision explicit, reviewable and repeatable.
+Current supported evaluation boundary:
 
-## The intended experience
+- single-node Linux profile with NVIDIA-focused catalog coverage (including GB10 and Ada-class reference assertions);
+- chat and coding oriented planning/evidence paths in the curated catalog snapshots;
+- explicit, fail-closed Kubernetes executor paths only (no implicit installers, adopters, or global environment management);
+- operator-reviewed workflows where immutable evidence IDs are the source of truth.
 
-Users provide a desired state:
+Out of scope for this pre-alpha support boundary:
 
-```yaml
-apiVersion: yara.dev/v1alpha1
-kind: PlatformRequest
-metadata:
-  name: private-coding-assistant
-spec:
-  useCases: [chat, coding]
-  users:
-    expected: 25
-    peakConcurrent: 8
-  environment:
-    connectivity: air-gapped
-  policies:
-    openSourceOnly: true
-    telemetry: forbidden
-  objectives:
-    priority: quality
-```
+- production SLA/uptime claims;
+- implicit prune/adopt/delete behavior;
+- undisclosed mutable automation beyond explicitly reviewed commands;
+- claims of universal hardware, orchestration, or workload compatibility.
 
-YARA combines this request with discovered or declared hardware, catalog data, compatibility constraints and policies. It returns a plan containing:
+## Deferred features (not in pre-alpha)
 
-- the selected architecture, components and models;
-- rejected alternatives and the reasons they were rejected;
-- assumptions, warnings and unresolved questions;
-- capacity estimates and confidence levels;
-- a dependency graph and ordered deployment stages;
-- a stable input and catalog fingerprint for reproducibility.
+The following are intentionally deferred and must not be interpreted as currently shipped:
 
-Deployment and lifecycle management will consume this plan in later milestones. The planner never renders or applies infrastructure directly.
+- runtime manager / drift detection;
+- backup and restore contracts;
+- version upgrade path;
+- team API and multi-user approval workflow;
+- web UI / review cockpit;
+- multi-node planning and RAG/embedding topology;
+- additional hardware vendors beyond current NVIDIA-focused coverage.
 
-## What makes YARA different
+## Suggested starting path
 
-- **Goal-driven:** users describe outcomes and constraints, not a shopping list of tools.
-- **Hardware-aware:** real compute, memory, storage and network limits are first-class inputs.
-- **Policy-aware:** privacy, licensing, connectivity and enterprise requirements are hard constraints where appropriate.
-- **Explainable:** every recommendation must cite the facts and rules that produced it.
-- **Auditable:** planning, policy, approval and lifecycle actions produce append-only evidence tied to immutable resource digests.
-- **Deterministic:** identical versioned inputs produce the same plan.
-- **Modular:** components, models, hardware and policies are catalog entries rather than hard-coded product branches.
-- **Lifecycle-oriented:** planning anticipates install, health, upgrade, backup, recovery and retirement.
+For first use on the currently implemented path:
+
+1. Read the [implementation quickstart](docs/implementation/quickstart.md).
+2. Run `make check`.
+3. Generate/validate plan and render artifacts.
+4. If using Kubernetes, follow preflight -> changeset -> approval -> authorization -> bounded apply exactly as documented.
+5. Verify receipts and audit chains after each major step.
 
 ## Architecture at a glance
 
@@ -96,26 +86,11 @@ The detailed design is in the [architecture documentation](docs/architecture/REA
 
 ## Scope
 
-The project deliberately starts narrower than its long-term vision.
+The complete product boundary, acceptance posture, and deferred roadmap are documented in:
 
-**v0.1 will:**
-
-- accept a versioned request and hardware inventory;
-- use a curated, schema-validated catalog;
-- plan one local, Linux-based, NVIDIA GPU deployment profile;
-- cover chat and coding use cases;
-- produce a deterministic plan with explanations and diagnostics;
-- perform no mutations to the target environment.
-
-**v0.1 will not:**
-
-- deploy Docker, Kubernetes or cloud resources;
-- claim globally optimal model or component selection;
-- dynamically ingest untrusted catalog data;
-- support every accelerator vendor or orchestration platform;
-- replace security, legal, capacity or architecture review.
-
-See [product scope](docs/product/scope.md) for the complete boundary.
+- [Product scope](docs/product/scope.md)
+- [Roadmap](docs/roadmap.md)
+- [Implementation status](docs/implementation/README.md)
 
 ## Documentation
 
@@ -459,7 +434,13 @@ YARA is pre-alpha. Validation and audit commands are working foundations, not a 
 
 ## Contributing
 
-Early contributions should improve falsifiability: clearer requirements, counterexamples, schemas, compatibility evidence, test scenarios and small proof-of-concept implementations. Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.
+Contribution policy for this pre-alpha phase:
+
+- prefer small, reviewable changes that improve determinism, evidence quality, and fail-closed behavior;
+- prioritize schema/resource validation, diagnostics stability, audit integrity, and reproducible docs/automation;
+- avoid broad speculative feature expansion that weakens current support-boundary honesty.
+
+Early contributions should improve falsifiability: clearer requirements, counterexamples, schemas, compatibility evidence, and test scenarios. Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.
 
 ## License
 

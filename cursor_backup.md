@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `5d3bb2f` (`Add reproducible GoReleaser binary and schema release wiring.`).
+- Branch baseline before this slice: `main` at `9a4e005` (`Upgrade workflow actions to Node-24-compatible major versions.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `BootstrapReceipt` (`schemas/yara.dev/v1alpha1/bootstrap-receipt.schema.json`);
@@ -103,6 +103,8 @@
 - CI quality gates are now enforced through GitHub Actions on every pull request and push to `main`, running repository-native checks (`make check`, `go test -race ./...`, `git diff --check`) plus explicit draft-2020-12 validation across all public schemas.
 - release automation now uses `.goreleaser.yaml` and `.github/workflows/release.yml` to build reproducible `yara` binaries for `linux/amd64`, `linux/arm64`, and `darwin/arm64`, publish SHA-256 checksums, and attach a deterministic schema archive (`yara-schemas-v1alpha1.tar.gz`) as a release artifact.
 - release publication now binds to a repository-owned release notes template (`.github/release-notes/v0.1.0-alpha.1.md`) through release workflow policy, requiring explicit catalog/schema/limitations/support-boundary content before first pre-alpha tag publication.
+- release workflow now executes snapshot dry-runs on manual dispatch and publish mode only on version tags, and workflow actions are upgraded to Node-24-compatible majors (`actions/checkout@v7`, `actions/setup-go@v7`, `goreleaser/goreleaser-action@v7`).
+- `README.md` user-facing sections now present an explicit pre-alpha announcement with implemented capabilities, hard support boundary, deferred features, and contribution policy.
 
 ## Verified capabilities
 
@@ -114,6 +116,8 @@
   - GitHub Actions CI (`.github/workflows/ci.yml`) now fail-closes mergeability on PR/push when repository checks, race tests, schema validation (draft 2020-12), or `git diff --check` fail.
   - GoReleaser release wiring now produces deterministic multi-platform binary archives and a deterministic schema archive with SHA-256 checksums via one repository-owned configuration (`.goreleaser.yaml`) and one bounded tag-triggered release workflow (`.github/workflows/release.yml`).
   - release workflow now verifies and consumes a canonical first pre-alpha release notes template (`.github/release-notes/v0.1.0-alpha.1.md`) and repository documentation now defines immutable release-notes authoring policy (`docs/implementation/release-process.md`).
+  - release workflow manual validation now passes in snapshot mode without requiring git tags, while tag pushes retain publish-only behavior.
+  - README pre-alpha messaging now separates implemented behavior from deferred roadmap scope and aligns support boundary statements with current verified capabilities.
   - catalog coverage now loads and audit-verifies `ArtifactImportReceipt`, `ArtifactTransferReceipt`, and `ArtifactScanReceipt` evidence and binds assertion-scoped import-chain diagnostics deterministically;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
@@ -188,19 +192,17 @@
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
 - **Validated in this run (simulated/local only):**
-  - `gofmt -w <changed-go-files>` not required (workflow/docs/config slice; no Go files changed);
+  - `gofmt -w <changed-go-files>` not required (docs-only slice; no Go files changed);
   - `git diff --check` passed;
   - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check` passed;
-  - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...` passed;
-  - `go run github.com/goreleaser/goreleaser/v2@latest release --clean --snapshot --skip=publish --release-notes .github/release-notes/v0.1.0-alpha.1.md` passed, producing `dist/checksums.txt` and archives for `linux/amd64`, `linux/arm64`, and `darwin/arm64`;
-  - goreleaser checksum manifest includes `yara-schemas-v1alpha1.tar.gz` from deterministic archive generation (`scripts/create_schema_archive.py`).
+  - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...` passed.
 
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `5d3bb2f`, `7d99690`, `fbd1111`, `8ef2ce7`, `3036cd0`.
+- Recent commits before this slice (newest first): `9a4e005`, `8026278`, `293c4b0`, `5d3bb2f`, `7d99690`.
 - M1 (Publication gating closure) is complete.
-- This slice completes M4 slice 3 by adding canonical first pre-alpha release notes template/policy wiring for deterministic release publication metadata.
+- This slice completes M5 slice 1 by rewriting `README.md` user-facing sections as an explicit pre-alpha announcement with supported boundary, deferred scope, and contribution policy.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -267,7 +269,7 @@ Exit: `gh release download` produces a working binary; CI blocks merges that bre
 **Goal:** a visitor to the repository understands what YARA is, what it can do today, what it cannot do, and how to start.
 
 Slices:
-1. Rewrite `README.md` user sections as an honest pre-alpha announcement: working features, hard limitations, supported hardware, deferred features (clean-bootstrap, web UI, team API, runtime manager, multi-node, RAG topology, backup/restore), and contribution policy.
+1. Completed: `README.md` user-facing sections now present an honest pre-alpha announcement with implemented capabilities, hard support boundary, deferred roadmap scope, and contribution policy.
 2. `docs/quickstart.md` — abbreviated walkthrough (references M3 full guide) aimed at a first-time visitor; includes minimum prerequisites and expected time.
 3. `docs/reference/commands.md` — one-liner per command with flag summary; generated or manually maintained; must match CLI `--help` output.
 4. `docs/architecture/README.md` updated to link implemented vs. future subsystems clearly, distinguishing what is built from what is planned per the architecture docs.
@@ -300,17 +302,17 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **M5 slice 1: README pre-alpha announcement rewrite with explicit support boundary**:
+Implement **M5 slice 2: visitor-oriented abbreviated quickstart**:
 
-- rewrite user-facing `README.md` sections as an honest pre-alpha announcement focused on what is implemented now versus explicitly deferred;
-- include explicit supported hardware scope, hard limitations, deferred features (runtime manager, backup/restore, version upgrade, team API, web UI, multi-node, RAG topology), and contribution policy;
-- keep claims bounded to verified capabilities and existing audited evidence paths only (no speculative platform/runtime claims).
+- add `docs/quickstart.md` as a concise visitor entry point that references the full implementation walkthrough in `docs/implementation/quickstart.md`;
+- include minimum prerequisites, expected completion time, and exact supported path boundaries for pre-alpha usage;
+- keep the abbreviated guide aligned with current commands/evidence flow and explicitly mark unsupported or deferred paths.
 
 Acceptance criteria:
 
-- `README.md` clearly separates implemented capabilities from deferred roadmap items with no ambiguity;
-- support boundary and known limitations are explicit and consistent with ADRs/handoff constraints;
-- first-time reader can follow the supported pre-alpha starting path without reading source code internals;
+- `docs/quickstart.md` exists and provides a concise path a first-time visitor can follow;
+- abbreviated quickstart references the full implementation quickstart without diverging command contracts;
+- prerequisites/time/limitations are explicit and consistent with current support boundary;
 - local validation of documentation changes passes existing repository checks.
 
 ## Validation requirements
