@@ -1070,6 +1070,108 @@ func TestServeWorkflowRunbookExportRejectsOutOfWorkspacePath(t *testing.T) {
 	}
 }
 
+func TestServeWorkflowCapsuleReadyPath(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, _ := writeExecutionInputs(t, sourcePath, now)
+	planPath, _ := writeV02Plan(t, sourcePath)
+	copyIntoWorkspace := func(path string) {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		target := filepath.Join(workspacePath, filepath.Base(path))
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			t.Fatalf("write %s: %v", target, err)
+		}
+	}
+	copyIntoWorkspace(planPath)
+	for _, flag := range []string{"--bundle", "--preflight", "--change-set", "--approval", "--authorization"} {
+		copyIntoWorkspace(valueForFlag(paths, flag))
+	}
+	if err := os.WriteFile(filepath.Join(workspacePath, "workflow.runbook.md"), []byte("# runbook"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspacePath, "workflow.runbook.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/workflow/capsule", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected capsule success, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode capsule response: %v", err)
+	}
+	capsule, _ := payload["capsule"].(map[string]any)
+	if ready, _ := capsule["ready"].(bool); !ready {
+		t.Fatalf("expected ready capsule, got %#v", capsule)
+	}
+	exports, _ := capsule["runbookExports"].(map[string]any)
+	markdownPaths, _ := exports["markdownPaths"].([]any)
+	if len(markdownPaths) == 0 {
+		t.Fatalf("expected runbook export references, got %#v", exports)
+	}
+}
+
+func TestServeWorkflowCapsuleBlockedPath(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, _ := writeExecutionInputs(t, sourcePath, now)
+	planPath, _ := writeV02Plan(t, sourcePath)
+	copyIntoWorkspace := func(path string) {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		target := filepath.Join(workspacePath, filepath.Base(path))
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			t.Fatalf("write %s: %v", target, err)
+		}
+	}
+	copyIntoWorkspace(planPath)
+	for _, flag := range []string{"--bundle", "--preflight", "--change-set", "--approval", "--authorization"} {
+		copyIntoWorkspace(valueForFlag(paths, flag))
+	}
+	approvalPath := filepath.Join(workspacePath, filepath.Base(valueForFlag(paths, "--approval")))
+	approval, err := resources.LoadDeploymentApproval(approvalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval.Spec.BundleID = testCLIDigest('f')
+	approval, err = approval.AssignApprovalID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeYAMLFixture(t, approvalPath, approval)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/workflow/capsule", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected capsule response, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode capsule response: %v", err)
+	}
+	capsule, _ := payload["capsule"].(map[string]any)
+	if ready, _ := capsule["ready"].(bool); ready {
+		t.Fatalf("expected blocked capsule, got %#v", capsule)
+	}
+	blockers, _ := capsule["blockers"].([]any)
+	if len(blockers) == 0 {
+		t.Fatalf("expected blockers in blocked capsule, got %#v", capsule)
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)

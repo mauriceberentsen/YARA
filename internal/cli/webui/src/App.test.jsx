@@ -166,6 +166,38 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/capsule" && (init.method || "GET").toUpperCase() === "GET") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          capsule: {
+            workspacePath: ".yara/workspaces/default",
+            ready: true,
+            stages: [
+              { id: "plan", label: "Plan", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.plan.yaml" },
+              { id: "bundle", label: "Bundle", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.kubernetes.bundle.yaml" },
+              { id: "preflight", label: "Preflight", status: "complete", artifactPath: ".yara/workspaces/default/reference-preflight.yaml" },
+              { id: "changeset", label: "Change-set", status: "complete", artifactPath: ".yara/workspaces/default/reference-change-set.yaml" },
+              { id: "approval", label: "Approval", status: "complete", artifactPath: ".yara/workspaces/default/reference-approval.yaml" },
+              { id: "authorization", label: "Authorization", status: "complete", artifactPath: ".yara/workspaces/default/reference-authorization.yaml" },
+              { id: "receipt", label: "Apply receipt", status: "complete", artifactPath: ".yara/workspaces/default/reference-receipt.yaml" },
+            ],
+            evidence: {
+              planId: "sha256:plan",
+              bundleId: "sha256:bundle",
+              preflightResultId: "sha256:preflight",
+              changeSetId: "sha256:changeset",
+              approvalId: "sha256:approval",
+              authorizationId: "sha256:authorization",
+              targetReferenceDigest: "sha256:target",
+            },
+            runbookExports: {
+              markdownPaths: [".yara/workspaces/default/workflow.runbook.md"],
+              jsonPaths: [".yara/workspaces/default/workflow.runbook.json"],
+            },
+            blockers: [],
+          },
+        }), { status: 200 }));
+      }
       if (parsed.pathname === "/api/v1/workflow/runbook/export" && (init.method || "GET").toUpperCase() === "POST") {
         const requestPayload = JSON.parse(String(init.body || "{}"));
         if (requestPayload.markdownPath === requestPayload.jsonPath) {
@@ -406,6 +438,9 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export runbook" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.runbook.md")).toBeInTheDocument());
 
+    fireEvent.click(screen.getByRole("button", { name: "Execution capsule" }));
+    await waitFor(() => expect(screen.getByText("No blockers. Capsule is ready.")).toBeInTheDocument());
+
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
 
@@ -436,6 +471,36 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Type confirmation digest"), { target: { value: "sha256:authorization" } });
     fireEvent.change(screen.getByLabelText("Air-gap gate result path (optional)"), { target: { value: ".yara/workspaces/default/airgap-gate.yaml" } });
     await waitFor(() => expect(screen.getByText("Providing an air-gap gate result also requires trust policy path and confirmed trust policy ID.")).toBeInTheDocument());
+  });
+
+  it("renders blocked capsule diagnostics", async () => {
+    global.fetch = vi.fn((input) => {
+      const parsed = new URL(String(input), "http://localhost");
+      const endpoint = parsed.pathname + (parsed.search || "");
+      if (endpoint === "/api/v1/assertions") {
+        return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
+      }
+      if (endpoint === "/api/v1/workflow/capsule") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          capsule: {
+            workspacePath: ".yara/workspaces/default",
+            ready: false,
+            stages: [{ id: "plan", label: "Plan", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.plan.yaml" }],
+            runbookExports: { markdownPaths: [], jsonPaths: [] },
+            blockers: [{ code: "YARA-CAP-013", severity: "error", message: "evidence mismatch", remediation: "regenerate evidence chain" }],
+          },
+        }), { status: 200 }));
+      }
+      if (endpoint === "/api/v1/workspace?refresh=0") {
+        return Promise.resolve(new Response(JSON.stringify({ valid: true, workspace: { path: ".yara/workspaces/default", stages: [{ id: "plan", label: "Plan", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.plan.yaml" }] } }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ valid: true }), { status: 200 }));
+    });
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Execution capsule" }));
+    await waitFor(() => expect(screen.getByText("evidence mismatch")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("regenerate evidence chain")).toBeInTheDocument());
   });
 
   it("fails closed on malformed drift payload", async () => {

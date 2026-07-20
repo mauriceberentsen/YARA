@@ -1061,6 +1061,22 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.StepCount = len(runbook.Runbook.Steps)
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/capsule", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow capsule requires --workspace")
+			return
+		}
+		capsule, err := buildWorkflowCapsule(workspacePath)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-026", err.Error())
+			return
+		}
+		writeServeJSON(writer, http.StatusOK, capsule)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -1355,6 +1371,36 @@ type workflowRunbookExportResponse struct {
 		AuditPath    string `json:"auditPath"`
 		StepCount    int    `json:"stepCount"`
 	} `json:"export"`
+}
+
+type workflowCapsuleBlocker struct {
+	Code        string `json:"code"`
+	Severity    string `json:"severity"`
+	Message     string `json:"message"`
+	Remediation string `json:"remediation"`
+}
+
+type workflowCapsuleResponse struct {
+	Valid   bool `json:"valid"`
+	Capsule struct {
+		WorkspacePath string                 `json:"workspacePath"`
+		Ready         bool                   `json:"ready"`
+		Stages        []workspaceStageStatus `json:"stages"`
+		Evidence      struct {
+			PlanID                string `json:"planId,omitempty"`
+			BundleID              string `json:"bundleId,omitempty"`
+			PreflightResultID     string `json:"preflightResultId,omitempty"`
+			ChangeSetID           string `json:"changeSetId,omitempty"`
+			ApprovalID            string `json:"approvalId,omitempty"`
+			AuthorizationID       string `json:"authorizationId,omitempty"`
+			TargetReferenceDigest string `json:"targetReferenceDigest,omitempty"`
+		} `json:"evidence"`
+		RunbookExports struct {
+			MarkdownPaths []string `json:"markdownPaths"`
+			JSONPaths     []string `json:"jsonPaths"`
+		} `json:"runbookExports"`
+		Blockers []workflowCapsuleBlocker `json:"blockers"`
+	} `json:"capsule"`
 }
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
@@ -1869,6 +1915,162 @@ func buildWorkflowRunbook(workspacePath string) (workflowRunbookResponse, []audi
 		{Kind: "ExecutionAuthorization", Digest: authorization.Metadata.AuthorizationID},
 	}
 	return runbook, subjects, nil
+}
+
+func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, error) {
+	stages, err := workspacePipelineStages(workspacePath)
+	if err != nil {
+		return workflowCapsuleResponse{}, err
+	}
+	stageLookup := map[string]workspaceStageStatus{}
+	for _, stage := range stages {
+		stageLookup[stage.ID] = stage
+	}
+	capsule := workflowCapsuleResponse{Valid: true}
+	capsule.Capsule.WorkspacePath = workspacePath
+	capsule.Capsule.Stages = append([]workspaceStageStatus(nil), stages...)
+	capsule.Capsule.Ready = true
+
+	requirements := []struct {
+		id, code, remediation string
+	}{
+		{id: "plan", code: "YARA-CAP-001", remediation: "run workflow plan create"},
+		{id: "bundle", code: "YARA-CAP-002", remediation: "run workflow render"},
+		{id: "preflight", code: "YARA-CAP-003", remediation: "run workflow preflight"},
+		{id: "changeset", code: "YARA-CAP-004", remediation: "run workflow changeset"},
+		{id: "approval", code: "YARA-CAP-005", remediation: "run workflow approval"},
+		{id: "authorization", code: "YARA-CAP-006", remediation: "issue authorization and place file in workspace"},
+	}
+	for _, requirement := range requirements {
+		stage, exists := stageLookup[requirement.id]
+		if !exists || stage.Status != "complete" || stage.ArtifactPath == "" || stage.ArtifactPath == "none" {
+			capsule.Capsule.Ready = false
+			capsule.Capsule.Blockers = append(capsule.Capsule.Blockers, workflowCapsuleBlocker{
+				Code:        requirement.code,
+				Severity:    "error",
+				Message:     fmt.Sprintf("%s stage is incomplete", requirement.id),
+				Remediation: requirement.remediation,
+			})
+		}
+	}
+	capsule.Capsule.RunbookExports.MarkdownPaths, capsule.Capsule.RunbookExports.JSONPaths = discoverRunbookExports(workspacePath)
+	if !capsule.Capsule.Ready {
+		return capsule, nil
+	}
+
+	plan, err := resources.LoadPlatformPlan(stageLookup["plan"].ArtifactPath)
+	if err != nil || !plan.Validate().Valid {
+		capsule.Capsule.Ready = false
+		capsule.Capsule.Blockers = append(capsule.Capsule.Blockers, workflowCapsuleBlocker{
+			Code:        "YARA-CAP-007",
+			Severity:    "error",
+			Message:     "plan artifact is malformed",
+			Remediation: "recreate plan artifact through workflow plan create",
+		})
+		return capsule, nil
+	}
+	bundle, err := resources.LoadDeploymentBundle(stageLookup["bundle"].ArtifactPath)
+	if err != nil || !bundle.Validate().Valid {
+		capsule.Capsule.Ready = false
+		capsule.Capsule.Blockers = append(capsule.Capsule.Blockers, workflowCapsuleBlocker{
+			Code:        "YARA-CAP-008",
+			Severity:    "error",
+			Message:     "bundle artifact is malformed",
+			Remediation: "recreate bundle through workflow render",
+		})
+		return capsule, nil
+	}
+	preflight, err := resources.LoadTargetPreflightResult(stageLookup["preflight"].ArtifactPath)
+	if err != nil || !preflight.Validate().Valid {
+		capsule.Capsule.Ready = false
+		capsule.Capsule.Blockers = append(capsule.Capsule.Blockers, workflowCapsuleBlocker{
+			Code:        "YARA-CAP-009",
+			Severity:    "error",
+			Message:     "preflight artifact is malformed",
+			Remediation: "rerun workflow preflight",
+		})
+		return capsule, nil
+	}
+	changeSet, err := resources.LoadKubernetesChangeSet(stageLookup["changeset"].ArtifactPath)
+	if err != nil || !changeSet.Validate().Valid {
+		capsule.Capsule.Ready = false
+		capsule.Capsule.Blockers = append(capsule.Capsule.Blockers, workflowCapsuleBlocker{
+			Code:        "YARA-CAP-010",
+			Severity:    "error",
+			Message:     "change-set artifact is malformed",
+			Remediation: "rerun workflow changeset",
+		})
+		return capsule, nil
+	}
+	approval, err := resources.LoadDeploymentApproval(stageLookup["approval"].ArtifactPath)
+	if err != nil || !approval.Validate().Valid {
+		capsule.Capsule.Ready = false
+		capsule.Capsule.Blockers = append(capsule.Capsule.Blockers, workflowCapsuleBlocker{
+			Code:        "YARA-CAP-011",
+			Severity:    "error",
+			Message:     "approval artifact is malformed",
+			Remediation: "rerun workflow approval",
+		})
+		return capsule, nil
+	}
+	authorization, err := resources.LoadExecutionAuthorization(stageLookup["authorization"].ArtifactPath)
+	if err != nil || !authorization.Validate().Valid {
+		capsule.Capsule.Ready = false
+		capsule.Capsule.Blockers = append(capsule.Capsule.Blockers, workflowCapsuleBlocker{
+			Code:        "YARA-CAP-012",
+			Severity:    "error",
+			Message:     "authorization artifact is malformed",
+			Remediation: "reissue authorization and replace workspace authorization artifact",
+		})
+		return capsule, nil
+	}
+
+	capsule.Capsule.Evidence.PlanID = plan.Metadata.PlanID
+	capsule.Capsule.Evidence.BundleID = bundle.Metadata.BundleID
+	capsule.Capsule.Evidence.PreflightResultID = preflight.Metadata.ResultID
+	capsule.Capsule.Evidence.ChangeSetID = changeSet.Metadata.ChangeSetID
+	capsule.Capsule.Evidence.ApprovalID = approval.Metadata.ApprovalID
+	capsule.Capsule.Evidence.AuthorizationID = authorization.Metadata.AuthorizationID
+	capsule.Capsule.Evidence.TargetReferenceDigest = authorization.Spec.Target.ReferenceDigest
+
+	if bundle.Spec.PlanID != preflight.Spec.PlanID || bundle.Spec.PlanID != changeSet.Spec.PlanID || bundle.Spec.PlanID != approval.Spec.PlanID || bundle.Spec.PlanID != authorization.Spec.PlanID ||
+		bundle.Metadata.BundleID != preflight.Spec.BundleID || bundle.Metadata.BundleID != changeSet.Spec.BundleID || bundle.Metadata.BundleID != approval.Spec.BundleID || bundle.Metadata.BundleID != authorization.Spec.BundleID ||
+		preflight.Metadata.ResultID != changeSet.Spec.PreflightResultID || preflight.Metadata.ResultID != approval.Spec.PreflightResultID || preflight.Metadata.ResultID != authorization.Spec.PreflightResultID ||
+		changeSet.Metadata.ChangeSetID != approval.Spec.ChangeSetID || changeSet.Metadata.ChangeSetID != authorization.Spec.ChangeSetID || approval.Metadata.ApprovalID != authorization.Spec.ApprovalID ||
+		preflight.Spec.Target != changeSet.Spec.Target || preflight.Spec.Target != approval.Spec.Target || preflight.Spec.Target != authorization.Spec.Target {
+		capsule.Capsule.Ready = false
+		capsule.Capsule.Blockers = append(capsule.Capsule.Blockers, workflowCapsuleBlocker{
+			Code:        "YARA-CAP-013",
+			Severity:    "error",
+			Message:     "evidence artifacts are mismatched across plan, target, or approvals",
+			Remediation: "regenerate the workflow chain from plan through authorization using one consistent artifact set",
+		})
+	}
+	return capsule, nil
+}
+
+func discoverRunbookExports(workspacePath string) ([]string, []string) {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}, []string{}
+	}
+	markdownPaths := []string{}
+	jsonPaths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".runbook.md") {
+			markdownPaths = append(markdownPaths, filepath.Join(workspacePath, name))
+		}
+		if strings.HasSuffix(name, ".runbook.json") {
+			jsonPaths = append(jsonPaths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(markdownPaths)
+	sort.Strings(jsonPaths)
+	return markdownPaths, jsonPaths
 }
 
 func formatKubernetesResource(reference resources.KubernetesObjectReference) string {

@@ -2,7 +2,7 @@
 ## Current repository state
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `6e21c5c`, `8d628dd`, `2dffa71`, `041903c`, `840e289`.
+- Recent commits (newest first): `b83483e`, `6e21c5c`, `8d628dd`, `2dffa71`, `041903c`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
@@ -25,22 +25,7 @@
 - Interactive workflow cockpit I1 is implemented:
   - `yara serve --workspace <dir>` and `GET /api/v1/workspace` provide deterministic stage discovery (plan/bundle/preflight/change-set/approval/authorization/receipt);
   - Pipeline view now renders stage status and artifact paths using fail-closed workspace payload validation.
-- Interactive workflow cockpit I2 is implemented:
-  - `POST /api/v1/workflow/plan` executes bounded `plan create` using explicit request/inventory/catalog/output/audit paths;
-  - output and audit artifacts are restricted to the configured workspace and fail closed on invalid or out-of-workspace paths;
-  - Plan create UI form now writes plan artifacts and renders deterministic summary metadata in-session.
-- Interactive workflow cockpit I3 is implemented:
-  - `POST /api/v1/workflow/render` executes bounded bundle rendering (`kubernetes-gitops` or `docker-compose`) with explicit path/target inputs;
-  - bundle and audit outputs are restricted to workspace-managed output paths and fail closed on invalid targets/paths;
-  - Render UI form now writes bundle artifacts and renders deterministic bundle summary metadata in-session.
-- Interactive workflow cockpit I4 is implemented:
-  - `POST /api/v1/workflow/preflight` and `POST /api/v1/workflow/changeset` execute bounded read-only Kubernetes observation commands with explicit input/output paths;
-  - preflight and changeset outputs are restricted to workspace-managed output paths and fail closed on invalid/out-of-workspace paths;
-  - Preflight and Change-set UI forms now render deterministic summaries and change inspector output, including hard blocker signaling for blocked change-sets.
-- Interactive workflow cockpit I5 is implemented:
-  - `POST /api/v1/workflow/approval` executes bounded `approval record` with explicit bundle/preflight/change-set evidence bindings and decision inputs;
-  - approval and audit outputs are restricted to workspace-managed output paths and fail closed on invalid decisions/paths or broken evidence bindings;
-  - Approval UI now renders a review checklist, enforces explicit decision + reason-reference input, and returns deterministic approval identity metadata in-session.
+- Interactive workflow cockpit I2-I5 are implemented (plan/render/preflight/change-set/approval endpoints and forms) with workspace-bounded outputs and fail-closed validation.
 - Interactive workflow cockpit I6 is implemented:
   - `GET /api/v1/workflow/authorization-command` returns the deterministic `yara authorization issue` command with workspace-resolved bundle/preflight/change-set/approval paths and no private key material in API payloads;
   - `POST /api/v1/workflow/apply` executes bounded `deployment apply kubernetes` with explicit confirmation binding (`confirmAuthorization` + `typedConfirmationDigest`) and workspace-bounded receipt/audit outputs;
@@ -57,6 +42,10 @@
   - `POST /api/v1/workflow/runbook/export` now persists runbook markdown/json artifacts and mandatory audit output to workspace-bounded paths;
   - export flow is fail-closed for duplicate output paths, out-of-workspace paths, and pre-existing files (no overwrite behavior);
   - Runbook UI now supports explicit export paths and deterministic export result rendering.
+- Interactive workflow cockpit I10 is implemented:
+  - `GET /api/v1/workflow/capsule` now emits one deterministic readiness payload with stage status, evidence IDs, runbook export references, and fail-closed blocker diagnostics;
+  - capsule readiness fails closed when prerequisite stages are incomplete or evidence bindings are mismatched;
+  - Web UI now includes an `Execution capsule` panel with readiness summary cards, stage table, runbook export references, and blocker/remediation table.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -68,9 +57,9 @@
 ## Current branch and working tree
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `POST /api/v1/workflow/runbook/export` endpoint implemented with strict request decoding, workspace path bounding, duplicate-path rejection, and exclusive (no-overwrite) file creation;
-  - export writes both markdown and json runbook artifacts plus mandatory audit output with deterministic runbook + evidence subjects;
-  - Runbook UI now includes export form inputs, fail-closed path validation, and a deterministic export result panel.
+  - `GET /api/v1/workflow/capsule` endpoint implemented with deterministic readiness evaluation across stage completion, evidence integrity, and runbook export discovery;
+  - capsule endpoint emits explicit blocker taxonomy (`YARA-CAP-*`) with remediation guidance instead of ambiguous readiness output;
+  - UI `Execution capsule` view renders ready/blocked posture with stage/evidence/export context and blocker table for operator actioning.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui`;
@@ -126,16 +115,22 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 - add `GET /api/v1/workflow/capsule` that bundles workspace stage status, runbook export references, and apply readiness signals into one deterministic, redact-safe JSON payload;
 - include explicit blocker taxonomy for missing/expired/mismatched evidence and actionable remediation strings;
 - add UI capsule view to summarize operator readiness and link to plan/runbook/apply artifacts without mutating state.
+- Status: completed.
+
+### I11 — Capsule audit export and gating freeze
+- add `POST /api/v1/workflow/capsule/export` writing deterministic capsule json + markdown and mandatory audit output into workspace-bounded paths;
+- reject capsule export when readiness is blocked unless caller explicitly requests blocked-state archival (`allowBlocked=true`) with audit-coded reason;
+- add UI action to export capsule and show whether export represents a ready or blocked gate snapshot.
 ## Next implementation slice
-Implement **I10 — End-to-end cockpit execution capsule**:
-- add `GET /api/v1/workflow/capsule` producing a single deterministic readiness payload spanning stage status, evidence IDs, runbook export references, and apply gating signals;
-- preserve redact-safe boundaries (no secret material, no kubeconfig contents) while surfacing explicit blocker/remediation fields;
-- add UI capsule view with summary cards and blocker table so operators can validate rollout readiness quickly;
-- add backend/frontend tests for ready-path and fail-closed blocked-path responses.
+Implement **I11 — Capsule audit export and gating freeze**:
+- add `POST /api/v1/workflow/capsule/export` producing workspace-bounded capsule json/markdown outputs plus mandatory audit output;
+- preserve redact-safe capsule constraints and fail closed on duplicate/out-of-workspace output paths;
+- enforce blocked-state handling policy: export ready capsules by default, require explicit `allowBlocked` for blocked capsule archival;
+- add backend/frontend tests for ready export, blocked export rejection, and allowed blocked archival.
 Acceptance criteria:
-- capsule endpoint emits deterministic readiness output with explicit blockers/remediations and stage/evidence bindings;
-- UI capsule panel updates from live workspace state and clearly marks blocked vs ready states;
-- missing/malformed prerequisite artifacts produce structured fail-closed diagnostics and never emit ambiguous readiness;
+- capsule export writes deterministic workspace-bounded artifacts with auditable ready/blocked gate status;
+- blocked capsule export fails closed unless explicitly allowed and audit output records the policy decision;
+- UI capsule export flow surfaces artifact paths and blocked-policy diagnostics without exposing secret-bearing fields;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 ## Validation requirements
 Run at minimum for each slice:

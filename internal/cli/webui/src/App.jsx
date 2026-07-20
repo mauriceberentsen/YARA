@@ -9,6 +9,7 @@ const views = [
   { id: "approval", label: "Approval", endpoint: "/api/v1/workspace" },
   { id: "apply", label: "Authorization + apply", endpoint: "/api/v1/workspace" },
   { id: "runbook", label: "Runbook", endpoint: "/api/v1/workflow/runbook" },
+  { id: "capsule", label: "Execution capsule", endpoint: "/api/v1/workflow/capsule" },
   { id: "catalog", label: "Catalog", endpoint: "/api/v1/catalog" },
   { id: "coverage", label: "Coverage", endpoint: "/api/v1/coverage" },
   { id: "drift", label: "Drift", endpoint: "/api/v1/drift-posture" },
@@ -1298,6 +1299,71 @@ function RunbookView({ payload }) {
   );
 }
 
+function CapsuleView({ payload }) {
+  const capsule = payload?.capsule || {};
+  const stages = Array.isArray(capsule.stages) ? capsule.stages : [];
+  const blockers = Array.isArray(capsule.blockers) ? capsule.blockers : [];
+  const evidence = capsule.evidence || {};
+  const exports = capsule.runbookExports || {};
+  const markdownExports = Array.isArray(exports.markdownPaths) ? exports.markdownPaths : [];
+  const jsonExports = Array.isArray(exports.jsonPaths) ? exports.jsonPaths : [];
+  return (
+    <>
+      <p>Workspace: {capsule.workspacePath || "unknown"}</p>
+      <dl className="grid">
+        <div><dt>Readiness</dt><dd>{capsule.ready ? "ready" : "blocked"}</dd></div>
+        <div><dt>Blocker count</dt><dd>{String(blockers.length)}</dd></div>
+        <div><dt>Plan ID</dt><dd>{evidence.planId || "n/a"}</dd></div>
+        <div><dt>Bundle ID</dt><dd>{evidence.bundleId || "n/a"}</dd></div>
+        <div><dt>Preflight ID</dt><dd>{evidence.preflightResultId || "n/a"}</dd></div>
+        <div><dt>Change-set ID</dt><dd>{evidence.changeSetId || "n/a"}</dd></div>
+        <div><dt>Approval ID</dt><dd>{evidence.approvalId || "n/a"}</dd></div>
+        <div><dt>Authorization ID</dt><dd>{evidence.authorizationId || "n/a"}</dd></div>
+      </dl>
+      <h3>Stage status</h3>
+      <table>
+        <thead>
+          <tr><th>Stage</th><th>Status</th><th>Artifact</th></tr>
+        </thead>
+        <tbody>
+          {stages.map((stage) => (
+            <tr key={stage.id}>
+              <td>{stage.label}</td>
+              <td>{stage.status}</td>
+              <td>{stage.artifactPath || "none"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h3>Runbook exports</h3>
+      <ul>
+        <li>Markdown exports: {markdownExports.length > 0 ? markdownExports.join(", ") : "none"}</li>
+        <li>JSON exports: {jsonExports.length > 0 ? jsonExports.join(", ") : "none"}</li>
+      </ul>
+      <h3>Blockers</h3>
+      {blockers.length === 0 ? (
+        <p>No blockers. Capsule is ready.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr><th>Code</th><th>Severity</th><th>Message</th><th>Remediation</th></tr>
+          </thead>
+          <tbody>
+            {blockers.map((blocker) => (
+              <tr key={blocker.code}>
+                <td>{blocker.code}</td>
+                <td>{blocker.severity}</td>
+                <td>{blocker.message}</td>
+                <td>{blocker.remediation}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
 function renderView(viewID, payload, extra = {}) {
   if (viewID === "pipeline") {
     return <PipelineView payload={payload} />;
@@ -1322,6 +1388,9 @@ function renderView(viewID, payload, extra = {}) {
   }
   if (viewID === "runbook") {
     return <RunbookView payload={payload} />;
+  }
+  if (viewID === "capsule") {
+    return <CapsuleView payload={payload} />;
   }
   if (viewID === "catalog") {
     return (
