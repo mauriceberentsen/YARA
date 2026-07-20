@@ -398,6 +398,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure-certificate/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            manifestPath: requestPayload.manifestPath,
+            auditPath: requestPayload.auditPath,
+            certificateState: "certificate-ready",
+            blockerCode: "",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -687,6 +699,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Acceptance timestamp (RFC3339)"), { target: { value: "2026-07-21T00:55:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export acceptance receipt" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-acceptance.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Certificate reference"), { target: { value: "closure-certificate-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Issued by reference"), { target: { value: "release-authority-1" } });
+    fireEvent.change(screen.getByLabelText("Issued timestamp (RFC3339)"), { target: { value: "2026-07-21T01:00:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export publication certificate" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-certificate.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -706,7 +723,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Assertion filter"), { target: { value: "compat.a" } });
     await waitFor(() => expect(screen.getByText("missing-proof")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("record-proof")).toBeInTheDocument());
-  }, 25000);
+  }, 30000);
 
   it("enforces air-gap apply guardrails in UI", async () => {
     render(<App />);
@@ -828,6 +845,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-043", message: "YARA-RCA-003: latest rollout closure delivery record is blocked", severity: "error" }],
         }), { status: 422 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure-certificate/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-044", message: "YARA-RCC-003: latest rollout closure acceptance receipt is blocked", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -930,7 +953,13 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export acceptance receipt" }));
     await waitFor(() => expect(screen.getByText(/Acceptance readiness: blocked/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText(/YARA-RCA-003/)).toBeInTheDocument());
-  }, 25000);
+    fireEvent.change(screen.getByLabelText("Certificate reference"), { target: { value: "closure-certificate-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Issued by reference"), { target: { value: "release-authority-1" } });
+    fireEvent.change(screen.getByLabelText("Issued timestamp (RFC3339)"), { target: { value: "2026-07-21T01:00:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export publication certificate" }));
+    await waitFor(() => expect(screen.getByText(/Certificate readiness: blocked/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/YARA-RCC-003/)).toBeInTheDocument());
+  }, 30000);
 
   it("fails closed on malformed drift payload", async () => {
     global.fetch = vi.fn((input) => {

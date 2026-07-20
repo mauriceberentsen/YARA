@@ -1425,6 +1425,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-acceptance.export.audit.jsonl` : "",
   }));
   const [closureAcceptanceSubmitState, setClosureAcceptanceSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureCertificateForm, setClosureCertificateForm] = useState(() => ({
+    certificateReference: "",
+    issuedByReference: "",
+    issuedTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-certificate.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-certificate.export.audit.jsonl` : "",
+  }));
+  const [closureCertificateSubmitState, setClosureCertificateSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1507,6 +1515,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-acceptance.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-acceptance.export.audit.jsonl`,
+    }));
+    setClosureCertificateForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-certificate.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-certificate.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1961,6 +1974,36 @@ function CapsuleView({ payload }) {
       setClosureAcceptanceSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setClosureAcceptanceSubmitState({ loading: false, error: error.message || "Rollout closure acceptance export failed", result: null });
+    }
+  };
+  const updateClosureCertificate = (key) => (event) => {
+    setClosureCertificateForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureCertificate = closureCertificateForm.certificateReference.trim() !== "" &&
+    closureCertificateForm.issuedByReference.trim() !== "" &&
+    closureCertificateForm.issuedTimestamp.trim() !== "" &&
+    closureCertificateForm.manifestPath !== "" &&
+    closureCertificateForm.auditPath !== "" &&
+    closureCertificateForm.manifestPath !== closureCertificateForm.auditPath;
+  const submitClosureCertificate = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureCertificate) {
+      return;
+    }
+    setClosureCertificateSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure-certificate/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureCertificateForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure certificate export failed");
+      }
+      setClosureCertificateSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureCertificateSubmitState({ loading: false, error: error.message || "Rollout closure certificate export failed", result: null });
     }
   };
   return (
@@ -2550,6 +2593,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureAcceptanceSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Acceptance readiness</dt><dd>{closureAcceptanceSubmitState.result.acceptanceState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureAcceptanceSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export rollout closure publication certificate</h3>
+      <form onSubmit={submitClosureCertificate}>
+        <div className="formRow">
+          <label htmlFor="closure-certificate-reference">Certificate reference</label>
+          <input id="closure-certificate-reference" value={closureCertificateForm.certificateReference} onChange={updateClosureCertificate("certificateReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-certificate-issued-by-reference">Issued by reference</label>
+          <input id="closure-certificate-issued-by-reference" value={closureCertificateForm.issuedByReference} onChange={updateClosureCertificate("issuedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-certificate-issued-timestamp">Issued timestamp (RFC3339)</label>
+          <input id="closure-certificate-issued-timestamp" value={closureCertificateForm.issuedTimestamp} onChange={updateClosureCertificate("issuedTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-certificate-manifest-path">Certificate manifest output path</label>
+          <input id="closure-certificate-manifest-path" value={closureCertificateForm.manifestPath} onChange={updateClosureCertificate("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-certificate-audit-path">Certificate audit output path</label>
+          <input id="closure-certificate-audit-path" value={closureCertificateForm.auditPath} onChange={updateClosureCertificate("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureCertificateSubmitState.loading || !canExportClosureCertificate}>
+          {closureCertificateSubmitState.loading ? "Exporting publication certificate..." : "Export publication certificate"}
+        </button>
+      </form>
+      {!canExportClosureCertificate && <p className="error">Certificate export requires certificate reference, issued-by reference, issued timestamp, and distinct manifest/audit paths.</p>}
+      {closureCertificateSubmitState.error && <p className="error">Certificate readiness: blocked ({closureCertificateSubmitState.error})</p>}
+      {closureCertificateSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureCertificateSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureCertificateSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Certificate readiness</dt><dd>{closureCertificateSubmitState.result.certificateState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureCertificateSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>
