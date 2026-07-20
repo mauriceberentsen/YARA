@@ -7,11 +7,12 @@ This documentation is the design contract for YARA. It distinguishes committed a
 ### New contributors
 
 1. [Vision](vision.md)
-2. [Product scope](product/scope.md)
-3. [System overview](architecture/system-overview.md)
-4. [Domain model](architecture/domain-model.md)
-5. [Roadmap](roadmap.md)
-6. [Contributing](../CONTRIBUTING.md)
+2. [Quickstart](quickstart.md)
+3. [Product scope](product/scope.md)
+4. [System overview](architecture/system-overview.md)
+5. [Domain model](architecture/domain-model.md)
+6. [Roadmap](roadmap.md)
+7. [Contributing](../CONTRIBUTING.md)
 
 ### Planner and catalog contributors
 
@@ -58,7 +59,7 @@ This documentation is the design contract for YARA. It distinguishes committed a
 | Platform | [API](architecture/api.md), [plugins](architecture/plugin-system.md), [data and state](architecture/data-and-state.md) | Define extension and integration boundaries |
 | Assurance | [security](architecture/security.md), [auditing](architecture/auditing.md), [observability](architecture/observability.md), [risks](risk-register.md) | Define trust, accountability, diagnostics and major failure modes |
 | Operations | [air-gapped operation](operations/air-gapped.md), [upgrades, backup and recovery](operations/upgrades-backup-recovery.md) | Define operational reference workflows |
-| Delivery | [implementation guide](implementation/README.md), [v0.1 acceptance status](implementation/v0.1-acceptance-status.md), [contract testing](implementation/contract-testing.md), [integration evidence](implementation/integration-testing.md), [rendering](implementation/rendering.md), [target preflight](implementation/target-preflight.md), [change sets and approvals](implementation/change-sets-and-approvals.md), [roadmap](roadmap.md), [ADRs](adr/README.md), [examples](examples/README.md) | Make implementation, release gates and decisions concrete |
+| Delivery | [quickstart](quickstart.md), [implementation guide](implementation/README.md), [v0.1 acceptance status](implementation/v0.1-acceptance-status.md), [contract testing](implementation/contract-testing.md), [integration evidence](implementation/integration-testing.md), [rendering](implementation/rendering.md), [target preflight](implementation/target-preflight.md), [change sets and approvals](implementation/change-sets-and-approvals.md), [roadmap](roadmap.md), [ADRs](adr/README.md), [examples](examples/README.md) | Make implementation, release gates and decisions concrete |
 
 ## Normative language
 

@@ -97,6 +97,7 @@ The complete product boundary, acceptance posture, and deferred roadmap are docu
 Start at the [documentation index](docs/README.md). Important documents include:
 
 - [Vision and principles](docs/vision.md)
+- [Visitor quickstart](docs/quickstart.md)
 - [Product scope](docs/product/scope.md)
 - [System architecture](docs/architecture/system-overview.md)
 - [Domain model](docs/architecture/domain-model.md)
