@@ -21,7 +21,7 @@ func TestServeRequiresCatalogAndCoverageReport(t *testing.T) {
 }
 
 func TestServeAPIEndpoints(t *testing.T) {
-	handler := serveHandlerFixture(t)
+	handler := serveHandlerFixture(t, false)
 	tests := []struct {
 		name string
 		path string
@@ -52,7 +52,7 @@ func TestServeAPIEndpoints(t *testing.T) {
 }
 
 func TestServeRejectsUnknownRoute(t *testing.T) {
-	handler := serveHandlerFixture(t)
+	handler := serveHandlerFixture(t, false)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/unknown", nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
@@ -65,7 +65,7 @@ func TestServeRejectsUnknownRoute(t *testing.T) {
 }
 
 func TestServeRejectsMutationMethodOnReadOnlyEndpoint(t *testing.T) {
-	handler := serveHandlerFixture(t)
+	handler := serveHandlerFixture(t, false)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/catalog", nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
@@ -77,7 +77,20 @@ func TestServeRejectsMutationMethodOnReadOnlyEndpoint(t *testing.T) {
 	}
 }
 
-func serveHandlerFixture(t *testing.T) http.Handler {
+func TestServeUIShellRoute(t *testing.T) {
+	handler := serveHandlerFixture(t, true)
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected ui shell response, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA Web UI") {
+		t.Fatalf("ui shell response did not include app title: %s", recorder.Body.String())
+	}
+}
+
+func serveHandlerFixture(t *testing.T, uiEnabled bool) http.Handler {
 	t.Helper()
 	temp := t.TempDir()
 	coveragePath := filepath.Join(temp, "coverage.yaml")
@@ -99,5 +112,9 @@ func serveHandlerFixture(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("digest catalog snapshot: %v", err)
 	}
-	return newServeAPIHandler(snapshot, digest, report)
+	handler, err := newServeAPIHandler(snapshot, digest, report, uiEnabled)
+	if err != nil {
+		t.Fatalf("build serve handler: %v", err)
+	}
+	return handler
 }

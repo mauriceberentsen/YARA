@@ -5,3 +5,4 @@
 /coverage.out
 *.test
 .DS_Store
+internal/cli/webui/node_modules/

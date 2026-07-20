@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `b1c3ef0`, `204b6ba`, `0359114`, `c96f21b`, `3695a18`.
+- Recent commits (newest first): `2c15d1d`, `b1c3ef0`, `204b6ba`, `0359114`, `c96f21b`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
@@ -30,6 +30,10 @@
   - `yara serve --catalog <file> --coverage-report <file> [--port <port>]` starts a local `net/http` server;
   - read-only endpoints exposed: `/api/v1/catalog`, `/api/v1/assertions`, `/api/v1/coverage`, `/api/v1/drift-posture`, `/api/v1/lifecycle-policy`;
   - unknown routes and unsupported methods fail closed with structured `404` diagnostics and no mutation surface.
+- Web UI shell (W2) is now implemented as an embedded React + Vite SPA served by `yara serve --ui`:
+  - top-level views: Catalog, Coverage, Drift, Lifecycle;
+  - each view fetches existing W1 read-only endpoints with deterministic loading/empty/error states;
+  - no mutation endpoints or mutation controls are exposed in the UI.
 - Bootstrap + first-use path is implemented:
   - `deployment bootstrap kubernetes` (bounded namespace/PVC provisioning with `BootstrapReceipt`);
   - `deployment import kubernetes` (bounded single-model local staging into bootstrap PVC with `ArtifactImportReceipt`).
@@ -40,23 +44,25 @@
 ## Verified capabilities
 
 - **Local/simulated verification:** Go/unit/CLI/schema tests prove deterministic IDs, fail-closed stale/foreign/mismatch paths, and bounded mutation authority.
-- **Published release verification:** `v0.1.0-alpha.1` assets are downloadable and checksum-verifiable via `gh release download` and `shasum -a 256 -c checksums.txt`.
 - **Canonical release notes enforcement:** tag publish flow now applies repository-owned notes template to release body after GoReleaser upload.
 - **Pre-alpha docs clarity:** `README.md`, `docs/quickstart.md`, `docs/reference/commands.md`, and `docs/architecture/README.md` separate implemented behavior from deferred roadmap scope.
 - **Runtime drift contract verification:** new schema/resource/CLI/catalog-coverage wiring validates deterministic IDs, stale/foreign preflight rejection, audited target binding, and fail-closed malformed diagnostics parsing.
 - **Runtime drift policy gate verification:** dedicated policy command emits deterministic blocker/remediation output, produces auditable pass/fail responses, and enforces assertion-scoped infeasible exits for non-`in-sync` posture.
 - **Web UI API verification (simulated/local):** endpoint tests validate deterministic read responses from real catalog/coverage fixtures and fail-closed handling for unknown routes and non-read methods.
+- **Web UI shell verification (simulated/local):** `npm run check --prefix internal/cli/webui` runs Vitest + Vite build, embedded assets are served by `yara serve --ui`, and handler tests validate shell route behavior.
 
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
 - Tag: `v0.1.0-alpha.1` exists on origin and release workflow succeeded.
 - This slice completed:
-  - new `yara serve` command with bounded local read-only API surface and configurable `--catalog` / `--coverage-report` / `--port`;
-  - strict read-only API routes for catalog snapshot, assertion list, coverage report, runtime drift posture, and lifecycle publication policy blockers;
-  - fail-closed `404` responses for unknown routes and unsupported methods;
-  - endpoint tests over real catalog/coverage fixtures;
-  - command reference updates.
+  - embedded React + Vite web UI project under `internal/cli/webui` with deterministic nav/views over existing API endpoints;
+  - `yara serve --ui` support with embedded static asset serving and SPA fallback routing;
+  - strict fail-closed behavior preserved (no non-GET mutation routes introduced);
+  - frontend checks wired into `make check` via `ui-check` (`npm ci`, `npm run check`);
+  - frontend + backend docs/usage updates.
+- Validation (simulated/local) passed:
+  - `gofmt -w internal/cli/serve.go internal/cli/serve_ui_embed.go internal/cli/serve_test.go internal/cli/run.go`, `git diff --check`, `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`, and `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -77,23 +83,17 @@
 - Backup/restore, upgrades, multi-node topology, and broader vendor support remain post-alpha.
 
 ## MVP-2 milestone path — Web UI
-
 Goal: a minimal browser-based operator interface that surfaces existing CLI capabilities without weakening any existing gates or mutation controls.
 
 ### W1 — Backend HTTP API layer
 
-- Expose a bounded, read-mostly local HTTP server (`yara serve`) backed by the existing resource/catalog/coverage packages.
-- Endpoints: catalog snapshot, assertion list, coverage report (read), runtime drift posture, lifecycle publication policy status.
-- No write/mutation endpoints in this milestone; fail closed on any unrecognised route.
-- Exit criteria: `yara serve` starts on a configurable local port, responds to documented read endpoints with valid JSON, and exits cleanly on signal; unit + integration tests pass.
+- Bounded local read-only HTTP server and policy endpoints.
+- Status: completed.
 
 ### W2 — Minimal dashboard shell
 
-- Implement a single-page app shell (React + Vite) served by `yara serve` from an embedded filesystem.
-- Top-level nav: Catalog, Coverage, Drift, Lifecycle.
-- Each view fetches from W1 API endpoints and renders assertion-scoped status rows.
-- No mutation controls in the UI in this milestone.
-- Exit criteria: `yara serve --ui` opens the shell in a browser; each nav view loads and renders real catalog/coverage data without errors.
+- Embedded React + Vite shell with Catalog/Coverage/Drift/Lifecycle views over W1 endpoints.
+- Status: completed.
 
 ### W3 — Runtime drift posture view
 
@@ -116,18 +116,18 @@ Goal: a minimal browser-based operator interface that surfaces existing CLI capa
 
 ## Next implementation slice
 
-Implement **W2 — Minimal dashboard shell**:
+Implement **W3 — Runtime drift posture view**:
 
-- add a minimal React + Vite single-page shell under an embedded static directory served by `yara serve`;
-- include four top-level views: Catalog, Coverage, Drift, Lifecycle;
-- wire each view to existing W1 endpoints only (read-only) with deterministic empty/error states;
-- keep CLI and API behavior unchanged: UI must not introduce mutation authority;
-- add deterministic frontend build/test checks wired into repository validation flow.
+- extend the Drift view with assertion-scoped filtering and clear per-status posture cards (`in-sync`, `missing`, `drifted`);
+- show deterministic blocker/remediation mapping from `runtimeDriftPosture` records;
+- surface selected signal identity and audit reference where available without exposing raw target secrets;
+- keep all behavior read-only and fail closed when posture records are malformed or missing.
 
 Acceptance criteria:
 
-- `yara serve --ui` serves the embedded shell and all four views render from live API responses without JavaScript runtime errors;
-- each view handles empty or blocked policy states without changing backend responses;
+- Drift view supports assertion filter + posture card rendering from live API data with deterministic sort order;
+- missing and drifted posture states render explicit remediation guidance without changing backend policy semantics;
+- malformed posture payloads fail closed in UI rendering with non-destructive error state;
 - no mutation authority is added and no existing CLI gates are weakened;
 - backend and frontend checks both pass in `make check` and `go test -race ./...` (frontend checks classified simulated/local).
 

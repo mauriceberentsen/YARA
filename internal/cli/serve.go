@@ -7,10 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +24,7 @@ type serveOptions struct {
 	catalogPath        string
 	coverageReportPath string
 	port               int
+	ui                 bool
 }
 
 type lifecyclePolicyAssertion struct {
@@ -49,7 +52,10 @@ func serveAPI(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return writeLoadErrorWithExit(stdout, "YARA-SRV-005", err, ExitInvalidInput)
 	}
-	handler := newServeAPIHandler(snapshot, catalogDigest, report)
+	handler, err := newServeAPIHandler(snapshot, catalogDigest, report, options.ui)
+	if err != nil {
+		return writeLoadErrorWithExit(stdout, "YARA-SRV-500", err, ExitInternal)
+	}
 	address := fmt.Sprintf("127.0.0.1:%d", options.port)
 	server := &http.Server{
 		Addr:              address,
@@ -61,6 +67,7 @@ func serveAPI(args []string, stdout, stderr io.Writer) int {
 		"listening":      "http://" + address,
 		"catalog":        options.catalogPath,
 		"coverageReport": options.coverageReportPath,
+		"ui":             options.ui,
 	})
 	errChan := make(chan error, 1)
 	go func() {
@@ -90,6 +97,7 @@ func parseServeOptions(args []string, stderr io.Writer) (serveOptions, bool) {
 	flags.StringVar(&options.catalogPath, "catalog", "", "Validated CatalogSnapshot file")
 	flags.StringVar(&options.coverageReportPath, "coverage-report", "", "Validated CatalogCoverageReport file")
 	flags.IntVar(&options.port, "port", 7474, "Local listen port")
+	flags.BoolVar(&options.ui, "ui", false, "Serve embedded web UI shell")
 	if err := flags.Parse(args); err != nil {
 		return options, false
 	}
@@ -104,10 +112,10 @@ func parseServeOptions(args []string, stderr io.Writer) (serveOptions, bool) {
 	return options, true
 }
 
-func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report catalogcoverage.Report) http.Handler {
-	mux := http.NewServeMux()
+func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report catalogcoverage.Report, uiEnabled bool) (http.Handler, error) {
+	apiMux := http.NewServeMux()
 	inventory := snapshot.ManifestInventory()
-	mux.HandleFunc("/api/v1/catalog", func(writer http.ResponseWriter, request *http.Request) {
+	apiMux.HandleFunc("/api/v1/catalog", func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
 			writeServeNotFound(writer)
 			return
@@ -130,7 +138,7 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 			},
 		})
 	})
-	mux.HandleFunc("/api/v1/assertions", func(writer http.ResponseWriter, request *http.Request) {
+	apiMux.HandleFunc("/api/v1/assertions", func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
 			writeServeNotFound(writer)
 			return
@@ -142,7 +150,7 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 			"assertions": assertions,
 		})
 	})
-	mux.HandleFunc("/api/v1/coverage", func(writer http.ResponseWriter, request *http.Request) {
+	apiMux.HandleFunc("/api/v1/coverage", func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
 			writeServeNotFound(writer)
 			return
@@ -152,7 +160,7 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 			"report": report,
 		})
 	})
-	mux.HandleFunc("/api/v1/drift-posture", func(writer http.ResponseWriter, request *http.Request) {
+	apiMux.HandleFunc("/api/v1/drift-posture", func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
 			writeServeNotFound(writer)
 			return
@@ -169,7 +177,7 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 			"runtimeDriftPosture": posture,
 		})
 	})
-	mux.HandleFunc("/api/v1/lifecycle-policy", func(writer http.ResponseWriter, request *http.Request) {
+	apiMux.HandleFunc("/api/v1/lifecycle-policy", func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
 			writeServeNotFound(writer)
 			return
@@ -187,14 +195,58 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 			"taxonomy":                   catalogcoverage.LifecyclePublicationBlockerTaxonomy(),
 		})
 	})
+	var (
+		uiFileSystem fs.FS
+		uiFiles      http.Handler
+	)
+	if uiEnabled {
+		var err error
+		uiFileSystem, err = serveUIFileSystem()
+		if err != nil {
+			return nil, err
+		}
+		uiFiles = http.FileServer(http.FS(uiFileSystem))
+	}
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		_, pattern := mux.Handler(request)
-		if pattern == "" {
+		if strings.HasPrefix(request.URL.Path, "/api/") {
+			_, pattern := apiMux.Handler(request)
+			if pattern == "" {
+				writeServeNotFound(writer)
+				return
+			}
+			apiMux.ServeHTTP(writer, request)
+			return
+		}
+		if !uiEnabled || request.Method != http.MethodGet {
 			writeServeNotFound(writer)
 			return
 		}
-		mux.ServeHTTP(writer, request)
-	})
+		if request.URL.Path == "/" {
+			serveUIIndex(writer, uiFileSystem)
+			return
+		}
+		cleanPath := strings.TrimPrefix(request.URL.Path, "/")
+		if cleanPath == "" {
+			serveUIIndex(writer, uiFileSystem)
+			return
+		}
+		if _, err := fs.Stat(uiFileSystem, cleanPath); err == nil {
+			uiFiles.ServeHTTP(writer, request)
+			return
+		}
+		serveUIIndex(writer, uiFileSystem)
+	}), nil
+}
+
+func serveUIIndex(writer http.ResponseWriter, uiFileSystem fs.FS) {
+	indexHTML, err := fs.ReadFile(uiFileSystem, "index.html")
+	if err != nil {
+		writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", "embedded web ui index is unavailable")
+		return
+	}
+	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.WriteHeader(http.StatusOK)
+	_, _ = writer.Write(indexHTML)
 }
 
 func lifecyclePolicyFromReport(report catalogcoverage.Report) ([]lifecyclePolicyAssertion, error) {
