@@ -760,6 +760,123 @@ func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnAssertionScopedMi
 	}
 }
 
+func TestCatalogCoverageRuntimeDriftPolicyReportsBlockedAssertions(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	policyAuditPath := filepath.Join(temp, "runtime-drift-policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "runtime-drift-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitSuccess {
+		t.Fatalf("runtime drift policy failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	var response struct {
+		Valid        bool `json:"valid"`
+		PolicyPassed bool `json:"policyPassed"`
+		RuntimeDrift []struct {
+			Assertion string `json:"assertion"`
+			Status    string `json:"status"`
+		} `json:"runtimeDriftPosture"`
+		Blocked []struct {
+			Assertion   string `json:"assertion"`
+			Status      string `json:"status"`
+			Blocker     string `json:"blocker"`
+			Remediation string `json:"remediation"`
+		} `json:"blockedAssertions"`
+		ReportSubject struct {
+			Kind   string `json:"kind"`
+			Digest string `json:"digest"`
+		} `json:"reportSubject"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode runtime drift policy response: %v", err)
+	}
+	if !response.Valid || response.PolicyPassed {
+		t.Fatalf("expected blocked runtime drift policy response: %#v", response)
+	}
+	if len(response.RuntimeDrift) == 0 || response.RuntimeDrift[0].Status != "missing" {
+		t.Fatalf("runtime drift posture diagnostics missing from response: %#v", response.RuntimeDrift)
+	}
+	if len(response.Blocked) == 0 || response.Blocked[0].Status != "missing" || response.Blocked[0].Remediation != "record-runtime-drift-signal" {
+		t.Fatalf("runtime drift blocked assertion remediation missing: %#v", response.Blocked)
+	}
+	if response.ReportSubject.Kind != catalogcoverage.Kind || response.ReportSubject.Digest == "" {
+		t.Fatalf("runtime drift policy report subject missing: %#v", response.ReportSubject)
+	}
+	events, err := audit.LoadJSONL(policyAuditPath)
+	if err != nil {
+		t.Fatalf("load runtime drift policy audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "catalog.coverage.runtime-drift-policy.completed" {
+		t.Fatalf("unexpected runtime drift policy audit terminal event: %#v", terminal.Spec)
+	}
+}
+
+func TestCatalogCoverageRuntimeDriftPolicyFailsClosedOnAssertionScopedDriftState(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	policyAuditPath := filepath.Join(temp, "runtime-drift-policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{
+		"catalog", "coverage", "runtime-drift-policy",
+		"--report", outputPath,
+		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
+		"--audit-output", policyAuditPath,
+	}, &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected infeasible assertion-scoped runtime drift policy, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCatalogCoverageRuntimeDriftPolicyRejectsMalformedPostureLimitation(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	report, err := catalogcoverage.Load(outputPath)
+	if err != nil {
+		t.Fatalf("load report: %v", err)
+	}
+	mutated := false
+	for index, limitation := range report.Spec.Limitations {
+		if strings.HasPrefix(limitation, "runtime-drift-posture:") {
+			report.Spec.Limitations[index] = "runtime-drift-posture:assertion=compat.vllm-qwen-coder-7b-awq-gb10,status=missing,selected-signal=none"
+			mutated = true
+			break
+		}
+	}
+	if !mutated {
+		t.Fatal("runtime drift posture limitation record not found in report")
+	}
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	reportData, err := yaml.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(outputPath, reportData, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	policyAuditPath := filepath.Join(temp, "runtime-drift-policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "runtime-drift-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
+		t.Fatalf("expected internal error for malformed runtime drift posture limitation, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
 func TestCatalogCoverageSigningAuthorityBoundaryReportsIndependent(t *testing.T) {
 	temp := t.TempDir()
 	outputPath := filepath.Join(temp, "coverage.yaml")

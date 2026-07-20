@@ -32,6 +32,12 @@ type lifecyclePublicationPolicyOptions struct {
 	auditPath  string
 }
 
+type runtimeDriftPolicyOptions struct {
+	reportPath string
+	assertion  string
+	auditPath  string
+}
+
 type signingAuthorityBoundaryOptions struct {
 	reportPath       string
 	trustPolicyPath  string
@@ -93,6 +99,13 @@ type runtimeDriftPosture struct {
 	Status         string `json:"status"`
 	Blocker        string `json:"blocker,omitempty"`
 	SelectedSignal string `json:"selectedSignal,omitempty"`
+}
+
+type runtimeDriftBlockedAssertion struct {
+	Assertion   string `json:"assertion"`
+	Status      string `json:"status"`
+	Blocker     string `json:"blocker"`
+	Remediation string `json:"remediation"`
 }
 
 func catalogCoverage(args []string, stdout, stderr io.Writer) int {
@@ -318,6 +331,73 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 	return ExitSuccess
 }
 
+func explainRuntimeDriftPolicy(args []string, stdout, stderr io.Writer) int {
+	options, ok := parseRuntimeDriftPolicyOptions(args, stderr)
+	if !ok {
+		return ExitInvalidInput
+	}
+	report, err := catalogcoverage.Load(options.reportPath)
+	if err != nil {
+		return writeAuditedLoadError(stdout, options.auditPath, "catalog.coverage.runtime-drift-policy", catalogcoverage.Kind, options.reportPath, "YARA-COV-004", err, nil)
+	}
+	subject := audit.Subject{Kind: catalogcoverage.Kind, Digest: report.Metadata.ReportID}
+	filtered := make([]catalogcoverage.AssertionCoverage, 0, len(report.Spec.Assertions))
+	for _, assertion := range report.Spec.Assertions {
+		if options.assertion == "" || assertion.ID == options.assertion {
+			filtered = append(filtered, assertion)
+		}
+	}
+	if options.assertion != "" && len(filtered) == 0 {
+		return writeCatalogCoverageRuntimeDriftPolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-007", errors.New("assertion is not present in catalog coverage report"), ExitInvalidInput)
+	}
+	diagnostics, err := runtimeDriftPostureFromReport(report)
+	if err != nil {
+		return writeCatalogCoverageRuntimeDriftPolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
+	}
+	filteredDiagnostics := make([]runtimeDriftPosture, 0, len(filtered))
+	blocked := make([]runtimeDriftBlockedAssertion, 0, len(filtered))
+	for _, assertion := range filtered {
+		diagnostic, found := findRuntimeDriftDiagnostic(diagnostics, assertion.ID)
+		if !found {
+			return writeCatalogCoverageRuntimeDriftPolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", fmt.Errorf("assertion %s does not include runtime drift posture diagnostics", assertion.ID), ExitInternal)
+		}
+		filteredDiagnostics = append(filteredDiagnostics, diagnostic)
+		if diagnostic.Status == "in-sync" {
+			continue
+		}
+		blocker := diagnostic.Blocker
+		if blocker == "" {
+			blocker = "runtime-drift-posture-" + diagnostic.Status
+		}
+		blocked = append(blocked, runtimeDriftBlockedAssertion{
+			Assertion: assertion.ID, Status: diagnostic.Status, Blocker: blocker, Remediation: runtimeDriftRemediation(diagnostic.Status),
+		})
+	}
+	sort.Slice(filteredDiagnostics, func(i, j int) bool { return filteredDiagnostics[i].Assertion < filteredDiagnostics[j].Assertion })
+	sort.Slice(blocked, func(i, j int) bool { return blocked[i].Assertion < blocked[j].Assertion })
+	if options.assertion != "" && len(blocked) > 0 {
+		return writeCatalogCoverageRuntimeDriftPolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-014", fmt.Errorf("assertion %s runtime drift posture is not in-sync: %s", blocked[0].Assertion, blocked[0].Blocker), ExitInfeasible)
+	}
+	if err := persistOperationAudit(options.auditPath, "catalog.coverage.runtime-drift-policy", "completed", "success", []audit.Subject{subject}, nil); err != nil {
+		return writeLoadError(stdout, "YARA-AUD-005", err)
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(map[string]any{
+		"valid":               true,
+		"policyPassed":        len(blocked) == 0,
+		"reportId":            report.Metadata.ReportID,
+		"reportSubject":       map[string]string{"kind": catalogcoverage.Kind, "digest": report.Metadata.ReportID},
+		"assertionScope":      lifecyclePublicationAssertionScope(options.assertion),
+		"runtimeDriftPosture": filteredDiagnostics,
+		"blockedAssertions":   blocked,
+		"auditOutput":         options.auditPath,
+	}); err != nil {
+		return ExitInternal
+	}
+	return ExitSuccess
+}
+
 func findAssertionGate(assertion catalogcoverage.AssertionCoverage, gateID string) (catalogcoverage.GateCoverage, bool) {
 	for _, gate := range assertion.Gates {
 		if gate.ID == gateID {
@@ -406,6 +486,23 @@ func parseLifecyclePublicationPolicyOptions(args []string, stderr io.Writer) (li
 	}
 	if flags.NArg() != 0 || options.reportPath == "" || options.auditPath == "" {
 		fmt.Fprintln(stderr, "catalog coverage lifecycle-publication-policy requires --report and --audit-output")
+		return options, false
+	}
+	return options, true
+}
+
+func parseRuntimeDriftPolicyOptions(args []string, stderr io.Writer) (runtimeDriftPolicyOptions, bool) {
+	var options runtimeDriftPolicyOptions
+	flags := flag.NewFlagSet("catalog coverage runtime-drift-policy", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&options.reportPath, "report", "", "CatalogCoverageReport YAML file")
+	flags.StringVar(&options.assertion, "assertion", "", "Optional exact assertion ID to inspect")
+	flags.StringVar(&options.auditPath, "audit-output", "", "Generated runtime drift policy audit JSONL file")
+	if err := flags.Parse(args); err != nil {
+		return options, false
+	}
+	if flags.NArg() != 0 || options.reportPath == "" || options.auditPath == "" {
+		fmt.Fprintln(stderr, "catalog coverage runtime-drift-policy requires --report and --audit-output")
 		return options, false
 	}
 	return options, true
@@ -989,6 +1086,24 @@ func writeCatalogCoveragePolicyFailure(output io.Writer, auditPath string, subje
 		return writeLoadError(output, "YARA-AUD-005", auditErr)
 	}
 	return writeLoadErrorWithExit(output, code, err, exitCode)
+}
+
+func writeCatalogCoverageRuntimeDriftPolicyFailure(output io.Writer, auditPath string, subjects []audit.Subject, code string, err error, exitCode int) int {
+	if auditErr := persistOperationAudit(auditPath, "catalog.coverage.runtime-drift-policy", "failed", "failed", subjects, []string{code}); auditErr != nil {
+		return writeLoadError(output, "YARA-AUD-005", auditErr)
+	}
+	return writeLoadErrorWithExit(output, code, err, exitCode)
+}
+
+func runtimeDriftRemediation(status string) string {
+	switch status {
+	case "missing":
+		return "record-runtime-drift-signal"
+	case "drifted":
+		return "resolve-runtime-drift-and-rerecord-signal"
+	default:
+		return "none"
+	}
 }
 
 func writeCatalogCoverageBoundaryFailure(output io.Writer, auditPath string, subjects []audit.Subject, code string, err error, exitCode int) int {

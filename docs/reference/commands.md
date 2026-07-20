@@ -20,6 +20,7 @@ Source of truth:
 - `yara catalog coverage create` - compile evidence coverage report; key flags: `--catalog`, `--evidence-dir`, `--name`, `--output`, `--audit-output`.
 - `yara catalog coverage validate <file>` - validate coverage report; key flag: `--audit-output`.
 - `yara catalog coverage lifecycle-publication-policy` - emit lifecycle publication blockers/remediation; key flags: `--report`, `--assertion`, `--audit-output`.
+- `yara catalog coverage runtime-drift-policy` - evaluate runtime drift posture policy diagnostics; key flags: `--report`, `--assertion`, `--audit-output`.
 - `yara catalog coverage signing-authority-boundary` - verify signer/issuer independence; key flags: `--report`, `--trust-policy`, `--authorization`, `--audit-output`.
 
 ## Planning and debugging
