@@ -98,6 +98,7 @@
 - Apply remains explicit and bounded to exact rendered objects; it still does not implicitly delete/prune/adopt.
 - `deployment bootstrap kubernetes` now provides a separate bounded mutation path that can only create/verify one YARA-owned namespace plus one model PVC from explicit confirmed inputs and emits immutable `BootstrapReceipt` evidence;
 - bootstrap fails closed on target-confirmation drift, foreign ownership, storage-configuration drift, or durable audit/receipt persistence failure and never performs import/apply/retire/rollback side effects.
+- `docs/implementation/quickstart.md` now provides the first-use command chain from planning through apply receipt verification, including explicit confirmation points, expected evidence artifacts, and fail-closed checkpoints.
 - Mutating commands still require durable started audit before mutation and fail closed when terminal audit/receipt persistence cannot complete.
 
 ## Verified capabilities
@@ -106,6 +107,7 @@
   - content-addressed resources and schema/Go validation for apply/import/transfer/scan/air-gap gate/retire/rollback/integration/promotion review;
   - content-addressed `BootstrapReceipt` schema/Go validation + loader + validate command for bounded namespace/PVC provisioning evidence;
   - bounded Kubernetes deployment import path now fail-closes on bundle/target confirmation drift, unsafe import paths, and local digest/size mismatch before mutation, and preserves deterministic `ArtifactImportReceipt` identity bindings for selected model artifacts;
+  - first-use quickstart documentation now enumerates implemented command/artifact handoff dependencies and clearly marks deferred roadmap scope outside pre-alpha.
   - catalog coverage now loads and audit-verifies `ArtifactImportReceipt`, `ArtifactTransferReceipt`, and `ArtifactScanReceipt` evidence and binds assertion-scoped import-chain diagnostics deterministically;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
@@ -180,7 +182,7 @@
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
 - **Validated in this run (simulated/local only):**
-  - `gofmt -w <changed-go-files>` passed;
+  - `gofmt -w <changed-go-files>` not required (docs-only slice; no Go files changed);
   - `git diff --check` passed;
   - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check` passed;
   - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...` passed.
@@ -188,11 +190,12 @@
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `f3b9f6e`, `846cf28`, `6003e27`, `144309d`, `fe12a5c`.
+- Recent commits before this slice (newest first): `8ef2ce7`, `3036cd0`, `f2e7aaa`, `f3b9f6e`, `846cf28`.
 - M1 (Publication gating closure) is complete.
 - This slice completes M2 slice 3 by adding assertion-scoped artifact import-chain diagnostics and fail-closed limitation parity checks in catalog coverage create/policy outputs.
 - This slice completes M3 slice 1 by adding bounded Kubernetes bootstrap execution (`deployment bootstrap kubernetes`) with immutable `BootstrapReceipt` evidence and fail-closed started/terminal audit chaining.
 - This slice completes M3 slice 2 by adding bounded Kubernetes artifact staging (`deployment import kubernetes`) with immutable `ArtifactImportReceipt` evidence and fail-closed started/terminal audit chaining.
+- This slice completes M3 slice 3 by adding `docs/implementation/quickstart.md`, a reproducible command-by-command first-use walkthrough with explicit confirmations and fail-closed checkpoints.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -235,7 +238,7 @@ Exit: the acquisition-to-deployment artifact chain has immutable receipts at eve
 Slices:
 1. Completed: `deployment bootstrap kubernetes` command now creates/verifies only a YARA-owned namespace plus model PVC from explicit confirmed inputs, emits immutable `BootstrapReceipt` evidence, and fails closed on target/ownership/storage drift.
 2. Completed: `deployment import kubernetes` command now stages one explicit model artifact payload into the declared bootstrap PVC from local input, verifies digest/size against exact bundle identities, and emits immutable `ArtifactImportReceipt` evidence.
-3. End-to-end reference walkthrough documented in `docs/implementation/quickstart.md`: PlatformRequest → plan → render → bootstrap → import → preflight → change-set → approval → apply → contract tests → receipt; every command listed with expected output.
+3. Completed: end-to-end reference walkthrough is documented in `docs/implementation/quickstart.md` with explicit command shapes, output artifacts, confirmation gates, and fail-closed checkpoints from plan through apply receipt validation.
 
 Exit: a new user can reproduce the reference walkthrough on a fresh cluster using only the documented commands.
 
@@ -292,18 +295,18 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **M3 slice 3: end-to-end first-use walkthrough documentation**:
+Implement **M4 slice 1: CI enforcement for deterministic quality gates**:
 
-- add `docs/implementation/quickstart.md` that provides one reproducible command-by-command first-use path: PlatformRequest -> plan -> render -> bootstrap -> import -> preflight -> change-set -> approval -> apply -> contract tests -> receipt;
-- each step must include the exact command shape, required explicit confirmations, expected durable outputs (resource + audit), and fail-closed checkpoints (what must stop the flow);
-- keep scope honest: document only implemented commands/behaviors, explicitly mark simulated/local vs live execution expectations, and avoid claims of automated acquisition or clean-cluster install.
+- add GitHub Actions workflow(s) that run `make check`, `go test -race ./...`, JSON schema validation (draft 2020-12), and `git diff --check` on every PR and push to `main`;
+- fail closed on any mismatch so mergeability is blocked when deterministic formatting, schema validity, tests, or race checks fail;
+- keep workflow scope narrow and reproducible (no secret-dependent jobs, no release/publish side effects).
 
 Acceptance criteria:
 
-- quickstart doc enumerates every currently required command and artifact handoff from first plan generation through apply receipt validation;
-- steps include explicit confirmation flags (`--confirm-*`) and exact artifact dependencies so operators can fail closed when identities drift;
-- document names unsupported/deferred paths clearly (automatic acquisition, clean-cluster install, non-NVIDIA/multi-node/RAG/team API/web UI/etc.);
-- documentation changes pass required validation commands with no CLI/docs drift.
+- CI runs all required quality gates on both push and PR and fails when any gate fails;
+- workflow definitions use repository commands as source of truth (no parallel bespoke logic drifting from `make check`/project validation);
+- schema validation explicitly covers public schemas under `schemas/yara.dev/v1alpha1`;
+- local dry-run validation of workflow-related scripts/config changes passes existing repository checks.
 
 ## Validation requirements
 
