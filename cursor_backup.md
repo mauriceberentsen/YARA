@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `534f10e`, `9d2c86a`, `eb0be72`, `3438071`, `2c15d1d`.
+- Recent commits (newest first): `7d0528d`, `8bba86a`, `534f10e`, `9d2c86a`, `eb0be72`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
@@ -27,6 +27,9 @@
   - assertion-scoped checks fail with infeasible exit when posture is `missing` or `drifted`;
   - malformed/incomplete posture records fail closed before policy output.
 - Web UI (MVP-2, W1–W5) is fully implemented as a local-only, read-only embedded React/Vite SPA served by `yara serve --ui`; see MVP-2 milestone path below for detail; `v0.2.0-alpha.1` release notes and docs are aligned.
+- Interactive workflow cockpit I1 is implemented:
+  - `yara serve --workspace <dir>` and `GET /api/v1/workspace` provide deterministic stage discovery (plan/bundle/preflight/change-set/approval/authorization/receipt);
+  - Pipeline view now renders stage status and artifact paths using fail-closed workspace payload validation.
 - Bootstrap + first-use path is implemented:
   - `deployment bootstrap kubernetes` (bounded namespace/PVC provisioning with `BootstrapReceipt`);
   - `deployment import kubernetes` (bounded single-model local staging into bootstrap PVC with `ArtifactImportReceipt`).
@@ -39,17 +42,18 @@
 - **Local/simulated verification:** Go/unit/CLI/schema tests prove deterministic IDs, fail-closed stale/foreign/mismatch paths, and bounded mutation authority.
 - **Pre-alpha docs clarity:** `README.md`, `docs/quickstart.md`, `docs/reference/commands.md`, and `docs/architecture/README.md` separate implemented behavior from deferred roadmap scope.
 - **Runtime drift policy gate verification:** dedicated policy command emits deterministic blocker/remediation output, produces auditable pass/fail responses, and enforces assertion-scoped infeasible exits for non-`in-sync` posture.
-- **Web UI verification (simulated/local):** endpoint tests cover all read endpoints, assertion-scoped drift/lifecycle filtering, payload validation failures, and fail-closed handling; binary smoke test confirmed `yara serve --ui` serves embedded UI and policy endpoints.
+- **Web UI verification (simulated/local):** endpoint tests cover read endpoints (including workspace pipeline discovery), assertion-scoped drift/lifecycle filtering, payload validation failures, and fail-closed handling.
 
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - release workflow/template and top-level docs now align on Web UI startup and corrected scope (implemented local read-only UI, deferred team API/auth/mutations);
-  - release notes template now documents W1-W4 behavior, known limitations, and support boundary for `v0.2.0-alpha.1`;
-  - built-binary smoke test confirmed `yara serve --ui` serves `index.html` and `/api/v1/lifecycle-policy`.
+  - `serve --workspace` now validates existing workspace directories at startup;
+  - `/api/v1/workspace` now scans workspace YAML artifacts, validates known stage resources, and fails closed on malformed/unknown files;
+  - UI now includes a Pipeline view with deterministic seven-stage status rendering and strict workspace payload validation.
 - Validation (simulated/local) passed:
-  - built binary smoke check (`go build` + `catalog coverage create` + `serve --ui` + `curl` UI + `curl` lifecycle endpoint) succeeded.
+  - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
+  - `npm run check --prefix internal/cli/webui`;
   - `git diff --check`, `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`, and `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -62,7 +66,7 @@
 - No live cluster validation was executed in this run; run validated release publication and artifacts only.
 - Air-gap external trust chain remains outside YARA proof boundary.
 - Bootstrap remains intentionally narrow (single YARA-owned namespace + model PVC).
-- Web UI remains local-only and read-only in this stage (no auth, no multi-user/session, no mutation endpoints).
+- Web UI remains local-only in this stage (no auth, no multi-user/session); workflow mutation endpoints are not yet implemented.
 
 ## MVP-2 milestone path — Web UI
 
@@ -75,10 +79,8 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 
 ### I1 — Workspace and pipeline overview
 
-- `yara serve --workspace <dir>` introduces a named local artifact directory;
-- new `GET /api/v1/workspace` endpoint scans the workspace for known artifact files and maps them to pipeline stages (plan, bundle, preflight, change-set, approval, authorization, receipt);
-- UI renders a visual pipeline with per-stage status badges (not-started / inputs-ready / complete / failed);
-- no mutation — discovery only.
+- `serve --workspace` + `GET /api/v1/workspace` + UI Pipeline view for deterministic seven-stage discovery/status; no mutation.
+- Status: completed.
 
 ### I2 — Plan creation form
 
@@ -115,19 +117,18 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 
 ## Next implementation slice
 
-Implement **I1 — Workspace and pipeline overview**:
+Implement **I2 — Plan creation form**:
 
-- add `--workspace <dir>` flag to `yara serve`; reject startup if the directory does not exist;
-- implement `GET /api/v1/workspace` that scans the workspace for known artifact filenames and returns a structured pipeline stage map with per-stage status (`not-started`, `ready`, `complete`) derived from artifact presence and validity;
-- extend the UI with a Pipeline view (new top-level nav item) that renders the seven stages as a visual pipeline column with status badges and artifact path labels;
-- no forms, no mutation — this slice is discovery and display only.
+- add a bounded `POST /api/v1/workflow/plan` endpoint that executes `plan create` into the selected workspace;
+- accept explicit request/inventory/catalog input paths and output plan/audit paths (no implicit defaults);
+- return deterministic response metadata: plan path, plan ID, audit path, and summary fields needed by the UI;
+- extend the UI with a Plan form and result panel, reusing existing diagnostics rendering and fail-closed behavior.
 
 Acceptance criteria:
 
-- `yara serve --workspace .yara/workspaces/default --catalog ... --coverage-report ...` starts successfully only when the workspace directory exists;
-- `GET /api/v1/workspace` returns deterministic stage status for an empty workspace and for a workspace containing a real plan file from `plan create`;
-- Pipeline view renders all seven stages; a workspace with only a plan file shows "complete" for stage 1 and "not-started" for stages 2–7;
-- unknown or malformed artifact files in the workspace fail closed with a diagnostic, not a silent success;
+- plan endpoint rejects missing/invalid file paths with structured diagnostics and non-zero-equivalent response status;
+- successful plan creation writes both plan and audit artifacts inside workspace and appears as complete in Pipeline view;
+- UI form can create a plan and then render resulting plan summary without page reload;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 
 ## Validation requirements

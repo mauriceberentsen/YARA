@@ -10,7 +10,7 @@ Source of truth:
 ## Core validation and identity
 
 - `yara version` - print CLI version.
-- `yara serve` - start bounded local read-only HTTP API for catalog/coverage and optional embedded web UI shell; key flags: `--catalog`, `--coverage-report`, `--port`, `--ui`.
+- `yara serve` - start bounded local read-only HTTP API for catalog/coverage and optional embedded web UI shell; key flags: `--catalog`, `--coverage-report`, `--port`, `--ui`, `--workspace`.
 - `yara request validate <file>` - validate `PlatformRequest`; key flag: `--audit-output`.
 - `yara inventory validate <file>` - validate inventory input; key flag: `--audit-output`.
 - `yara catalog validate <snapshot-file>` - validate catalog snapshot; key flag: `--audit-output`.
@@ -18,7 +18,7 @@ Source of truth:
 
 Typical Web UI startup (pre-alpha, local-only):
 
-- `yara serve --catalog catalog/v0.2/snapshot.yaml --coverage-report .yara/catalog-v0.2-coverage.yaml --ui --port 7474`
+- `yara serve --catalog catalog/v0.2/snapshot.yaml --coverage-report .yara/catalog-v0.2-coverage.yaml --ui --workspace .yara/workspaces/default --port 7474`
 - open `http://127.0.0.1:7474`.
 
 ## Catalog coverage and policy diagnostics

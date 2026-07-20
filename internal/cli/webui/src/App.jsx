@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 const views = [
+  { id: "pipeline", label: "Pipeline", endpoint: "/api/v1/workspace" },
   { id: "catalog", label: "Catalog", endpoint: "/api/v1/catalog" },
   { id: "coverage", label: "Coverage", endpoint: "/api/v1/coverage" },
   { id: "drift", label: "Drift", endpoint: "/api/v1/drift-posture" },
@@ -16,6 +17,7 @@ const driftStatusRemediation = {
 };
 
 const lifecycleStatuses = ["passed", "missing", "blocked", "failed"];
+const pipelineStatuses = ["not-started", "ready", "complete"];
 
 function useEndpoint(endpoint, decoder = identityDecoder) {
   const [state, setState] = useState({ loading: true, payload: null, error: "" });
@@ -200,7 +202,73 @@ function LifecycleView({ lifecycleAssertion, setLifecycleAssertion, payload, ass
   );
 }
 
+function decodeWorkspacePayload(payload) {
+  if (!payload || payload.valid !== true || !payload.workspace || !Array.isArray(payload.workspace.stages)) {
+    throw new Error("Malformed workspace pipeline payload.");
+  }
+  const seen = new Set();
+  const stages = payload.workspace.stages.map((item) => {
+    if (!item || typeof item.id !== "string" || typeof item.label !== "string" || typeof item.status !== "string") {
+      throw new Error("Malformed workspace stage record.");
+    }
+    if (seen.has(item.id)) {
+      throw new Error("Duplicate workspace stage record.");
+    }
+    if (!pipelineStatuses.includes(item.status)) {
+      throw new Error("Unsupported workspace stage status.");
+    }
+    seen.add(item.id);
+    return {
+      id: item.id,
+      label: item.label,
+      status: item.status,
+      artifactPath: typeof item.artifactPath === "string" && item.artifactPath !== "" ? item.artifactPath : "none",
+    };
+  });
+  return {
+    ...payload,
+    workspace: {
+      path: payload.workspace.path || "unknown",
+      stages,
+    },
+  };
+}
+
+function PipelineView({ payload }) {
+  const stages = payload.workspace?.stages || [];
+  return (
+    <>
+      <p>Workspace: {payload.workspace?.path || "unknown"}</p>
+      {stages.length === 0 ? (
+        <p className="empty">No pipeline stages available.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Stage</th>
+              <th>Status</th>
+              <th>Artifact</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stages.map((stage) => (
+              <tr key={stage.id}>
+                <td>{stage.label}</td>
+                <td>{stage.status}</td>
+                <td>{stage.artifactPath}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
 function renderView(viewID, payload, extra = {}) {
+  if (viewID === "pipeline") {
+    return <PipelineView payload={payload} />;
+  }
   if (viewID === "catalog") {
     return (
       <dl className="grid">
@@ -237,7 +305,14 @@ export function App() {
   const lifecycleEndpoint = lifecycleAssertion ? `/api/v1/lifecycle-policy?assertion=${encodeURIComponent(lifecycleAssertion)}` : "/api/v1/lifecycle-policy";
   const activeView = useMemo(() => views.find((view) => view.id === activeViewID) || views[0], [activeViewID]);
   const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.endpoint;
-  const decoder = activeView.id === "drift" ? decodeDriftPayload : activeView.id === "lifecycle" ? decodeLifecyclePayload : undefined;
+  const decoder =
+    activeView.id === "drift"
+      ? decodeDriftPayload
+      : activeView.id === "lifecycle"
+        ? decodeLifecyclePayload
+        : activeView.id === "pipeline"
+          ? decodeWorkspacePayload
+          : undefined;
   const { loading, payload, error } = useEndpoint(endpoint, decoder);
   const assertionsResponse = useEndpoint(assertionEndpoint);
   const assertionIDs = useMemo(() => {

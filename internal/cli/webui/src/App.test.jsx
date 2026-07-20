@@ -10,6 +10,21 @@ describe("App", () => {
       const endpoint = parsed.pathname + (parsed.search || "");
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
+        "/api/v1/workspace": {
+          valid: true,
+          workspace: {
+            path: ".yara/workspaces/default",
+            stages: [
+              { id: "plan", label: "Plan", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.plan.yaml" },
+              { id: "bundle", label: "Bundle", status: "not-started" },
+              { id: "preflight", label: "Preflight", status: "not-started" },
+              { id: "changeset", label: "Change-set", status: "not-started" },
+              { id: "approval", label: "Approval", status: "not-started" },
+              { id: "authorization", label: "Authorization", status: "not-started" },
+              { id: "receipt", label: "Apply receipt", status: "not-started" },
+            ],
+          },
+        },
         "/api/v1/catalog": { valid: true, catalog: { digest: "sha256:test", metadata: { version: "v0.2" } }, summary: { assertions: 1, components: 2 } },
         "/api/v1/coverage": { valid: true, report: { metadata: { reportId: "sha256:report" }, spec: { complete: true, summary: { assertionCount: 1, lifecyclePublicationReadyAssertions: 0 } } } },
         "/api/v1/drift-posture": {
@@ -79,6 +94,10 @@ describe("App", () => {
   it("renders nav and loads each view", async () => {
     render(<App />);
     expect(screen.getByText("YARA Web UI (Read-only)")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Plan")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/reference-stack.plan.yaml")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Coverage" }));
@@ -130,5 +149,21 @@ describe("App", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Lifecycle" }));
     await waitFor(() => expect(screen.getByText(/Malformed lifecycle publication payload|Malformed lifecycle gate status/)).toBeInTheDocument());
+  });
+
+  it("fails closed on malformed workspace payload", async () => {
+    global.fetch = vi.fn((input) => {
+      const parsed = new URL(String(input), "http://localhost");
+      const endpoint = parsed.pathname + (parsed.search || "");
+      if (endpoint === "/api/v1/assertions") {
+        return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
+      }
+      if (endpoint === "/api/v1/workspace") {
+        return Promise.resolve(new Response(JSON.stringify({ valid: true, workspace: { path: ".yara", stages: [{ id: "plan", label: "Plan", status: "invalid" }] } }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ valid: true }), { status: 200 }));
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/Malformed workspace pipeline payload|Unsupported workspace stage status/)).toBeInTheDocument());
   });
 });

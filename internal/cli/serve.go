@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/catalogcoverage"
+	"github.com/mauriceberentsen/YARA/internal/resources"
 )
 
 type serveOptions struct {
@@ -25,6 +27,7 @@ type serveOptions struct {
 	coverageReportPath string
 	port               int
 	ui                 bool
+	workspacePath      string
 }
 
 type lifecyclePolicyAssertion struct {
@@ -64,7 +67,7 @@ func serveAPI(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return writeLoadErrorWithExit(stdout, "YARA-SRV-005", err, ExitInvalidInput)
 	}
-	handler, err := newServeAPIHandler(snapshot, catalogDigest, report, options.ui)
+	handler, err := newServeAPIHandler(snapshot, catalogDigest, report, options.ui, options.workspacePath)
 	if err != nil {
 		return writeLoadErrorWithExit(stdout, "YARA-SRV-500", err, ExitInternal)
 	}
@@ -80,6 +83,7 @@ func serveAPI(args []string, stdout, stderr io.Writer) int {
 		"catalog":        options.catalogPath,
 		"coverageReport": options.coverageReportPath,
 		"ui":             options.ui,
+		"workspace":      mapValueOrDefault(options.workspacePath, "none"),
 	})
 	errChan := make(chan error, 1)
 	go func() {
@@ -110,6 +114,7 @@ func parseServeOptions(args []string, stderr io.Writer) (serveOptions, bool) {
 	flags.StringVar(&options.coverageReportPath, "coverage-report", "", "Validated CatalogCoverageReport file")
 	flags.IntVar(&options.port, "port", 7474, "Local listen port")
 	flags.BoolVar(&options.ui, "ui", false, "Serve embedded web UI shell")
+	flags.StringVar(&options.workspacePath, "workspace", "", "Workspace directory for interactive pipeline discovery")
 	if err := flags.Parse(args); err != nil {
 		return options, false
 	}
@@ -121,10 +126,17 @@ func parseServeOptions(args []string, stderr io.Writer) (serveOptions, bool) {
 		fmt.Fprintln(stderr, "--port must be between 1 and 65535")
 		return options, false
 	}
+	if options.workspacePath != "" {
+		workspaceInfo, err := os.Stat(options.workspacePath)
+		if err != nil || !workspaceInfo.IsDir() {
+			fmt.Fprintln(stderr, "--workspace must point to an existing directory")
+			return options, false
+		}
+	}
 	return options, true
 }
 
-func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report catalogcoverage.Report, uiEnabled bool) (http.Handler, error) {
+func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report catalogcoverage.Report, uiEnabled bool, workspacePath string) (http.Handler, error) {
 	apiMux := http.NewServeMux()
 	inventory := snapshot.ManifestInventory()
 	apiMux.HandleFunc("/api/v1/catalog", func(writer http.ResponseWriter, request *http.Request) {
@@ -250,6 +262,28 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 			"taxonomy":                   catalogcoverage.LifecyclePublicationBlockerTaxonomy(),
 		})
 	})
+	apiMux.HandleFunc("/api/v1/workspace", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workspace scanning requires --workspace")
+			return
+		}
+		stages, err := workspacePipelineStages(workspacePath)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-010", err.Error())
+			return
+		}
+		writeServeJSON(writer, http.StatusOK, map[string]any{
+			"valid": true,
+			"workspace": map[string]any{
+				"path":   workspacePath,
+				"stages": stages,
+			},
+		})
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -291,6 +325,110 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		}
 		serveUIIndex(writer, uiFileSystem)
 	}), nil
+}
+
+type workspaceStageStatus struct {
+	ID           string `json:"id"`
+	Label        string `json:"label"`
+	Status       string `json:"status"`
+	ArtifactPath string `json:"artifactPath,omitempty"`
+}
+
+func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return nil, fmt.Errorf("read workspace directory: %w", err)
+	}
+	artifacts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+			artifacts = append(artifacts, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(artifacts)
+	stageArtifacts := map[string]string{}
+	for _, artifactPath := range artifacts {
+		stageID, err := classifyWorkspaceArtifact(artifactPath)
+		if err != nil {
+			return nil, err
+		}
+		if existing, hasExisting := stageArtifacts[stageID]; hasExisting {
+			return nil, fmt.Errorf("multiple workspace artifacts matched stage %s: %s and %s", stageID, filepath.Base(existing), filepath.Base(artifactPath))
+		}
+		stageArtifacts[stageID] = artifactPath
+	}
+	stages := []workspaceStageStatus{
+		{ID: "plan", Label: "Plan"},
+		{ID: "bundle", Label: "Bundle"},
+		{ID: "preflight", Label: "Preflight"},
+		{ID: "changeset", Label: "Change-set"},
+		{ID: "approval", Label: "Approval"},
+		{ID: "authorization", Label: "Authorization"},
+		{ID: "receipt", Label: "Apply receipt"},
+	}
+	for index := range stages {
+		if artifactPath, exists := stageArtifacts[stages[index].ID]; exists {
+			stages[index].Status = "complete"
+			stages[index].ArtifactPath = artifactPath
+			continue
+		}
+		if index == 0 {
+			stages[index].Status = "ready"
+			continue
+		}
+		stages[index].Status = "not-started"
+	}
+	return stages, nil
+}
+
+func classifyWorkspaceArtifact(path string) (string, error) {
+	if plan, err := resources.LoadPlatformPlan(path); err == nil {
+		if report := plan.Validate(); !report.Valid {
+			return "", fmt.Errorf("workspace artifact %s is malformed PlatformPlan: %s", filepath.Base(path), report.Diagnostics[0].Code)
+		}
+		return "plan", nil
+	}
+	if bundle, err := resources.LoadDeploymentBundle(path); err == nil {
+		if report := bundle.Validate(); !report.Valid {
+			return "", fmt.Errorf("workspace artifact %s is malformed DeploymentBundle: %s", filepath.Base(path), report.Diagnostics[0].Code)
+		}
+		return "bundle", nil
+	}
+	if preflight, err := resources.LoadTargetPreflightResult(path); err == nil {
+		if report := preflight.Validate(); !report.Valid {
+			return "", fmt.Errorf("workspace artifact %s is malformed TargetPreflightResult: %s", filepath.Base(path), report.Diagnostics[0].Code)
+		}
+		return "preflight", nil
+	}
+	if changeSet, err := resources.LoadKubernetesChangeSet(path); err == nil {
+		if report := changeSet.Validate(); !report.Valid {
+			return "", fmt.Errorf("workspace artifact %s is malformed KubernetesChangeSet: %s", filepath.Base(path), report.Diagnostics[0].Code)
+		}
+		return "changeset", nil
+	}
+	if approval, err := resources.LoadDeploymentApproval(path); err == nil {
+		if report := approval.Validate(); !report.Valid {
+			return "", fmt.Errorf("workspace artifact %s is malformed DeploymentApproval: %s", filepath.Base(path), report.Diagnostics[0].Code)
+		}
+		return "approval", nil
+	}
+	if authorization, err := resources.LoadExecutionAuthorization(path); err == nil {
+		if report := authorization.Validate(); !report.Valid {
+			return "", fmt.Errorf("workspace artifact %s is malformed ExecutionAuthorization: %s", filepath.Base(path), report.Diagnostics[0].Code)
+		}
+		return "authorization", nil
+	}
+	if receipt, err := resources.LoadDeploymentReceipt(path); err == nil {
+		if report := receipt.Validate(); !report.Valid {
+			return "", fmt.Errorf("workspace artifact %s is malformed DeploymentReceipt: %s", filepath.Base(path), report.Diagnostics[0].Code)
+		}
+		return "receipt", nil
+	}
+	return "", fmt.Errorf("workspace artifact %s is unknown or unsupported", filepath.Base(path))
 }
 
 func serveUIIndex(writer http.ResponseWriter, uiFileSystem fs.FS) {
