@@ -130,6 +130,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 3 && args[0] == "promotion" && args[1] == "review" && args[2] == "record" {
 		return recordPromotionReview(args[3:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "artifact" && args[1] == "import" && args[2] == "record" {
+		return recordArtifactImport(args[3:], stdout, stderr)
+	}
 	if len(args) >= 3 && args[0] == "artifact" && args[1] == "transfer" && args[2] == "record" {
 		return recordArtifactTransfer(args[3:], stdout, stderr)
 	}
@@ -655,6 +658,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara contract validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara promotion review record --catalog <file> --assertion <id> --evidence <sha256:id> [--evidence <sha256:id> ...] [--publication-chain-rehearsal <file> --confirm-publication-chain-rehearsal <sha256:id> --max-rehearsal-age <duration> --publication-chain-retention-audit <file> --confirm-publication-chain-retention-audit <sha256:id> --max-retention-audit-age <duration> --publication-chain-renewal-review <file> --confirm-publication-chain-renewal-review <sha256:id> --max-renewal-review-age <duration>] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara promotion-review validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara artifact import record --bundle <file> --preflight <file> --importer-name <name> --importer-version <version> [--internal-root <path>] --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara artifact transfer record --bundle <file> --import-receipt <file> --stage <staging-to-vault|vault-to-registry|registry-to-runtime> --source-attestation-ref <ref> --destination-attestation-ref <ref> [--prior-receipt <sha256:id> ...] --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara artifact-transfer-receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara artifact scan record --bundle <file> --transfer-receipt <file> --scanner-name <name> --scanner-version <version> --scanner-profile <profile> --policy-digest <sha256:id> --verdict <passed|failed|blocked> --reason-reference <ref> [--prior-receipt <sha256:id> ...] --name <name> --output <file> --audit-output <file>")

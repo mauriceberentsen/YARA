@@ -129,7 +129,21 @@ go run ./cmd/yara receipt validate receipt.yaml
 
 It binds plan, bundle, preflight, change set, approval, signed authorization, target, exact executor binary, execution correlation, per-object before/after evidence and postflight checks. Its overall outcome is derived from operation and postflight results.
 
-`ArtifactImportReceipt` is a separate public contract for pre-apply model import evidence and internal non-secret file locations. Validate it through:
+`ArtifactImportReceipt` is a separate public contract for pre-apply model import evidence and internal non-secret file locations. Record it through:
+
+```bash
+go run ./cmd/yara artifact import record \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --preflight reference-stack.preflight.yaml \
+  --importer-name yara-importer \
+  --importer-version 0.1.0 \
+  --internal-root model \
+  --name reference-stack-import \
+  --output reference-stack.import-receipt.yaml \
+  --audit-output reference-stack.import-receipt.audit.jsonl
+```
+
+Validate it through:
 
 ```bash
 go run ./cmd/yara import-receipt validate reference-stack.import-receipt.yaml

@@ -146,6 +146,7 @@
     - `integration topology-end-to-end`,
     - `integration execute`,
     - `promotion review record`,
+    - `artifact import record`,
     - `artifact transfer record`,
     - `artifact scan record`,
     - `airgap provenance-gate evaluate`,
@@ -176,12 +177,9 @@
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `6003e27`, `144309d`, `fe12a5c`, `991a865`, `86aca55`.
-- This slice closes **Phase 8 slice 3** for publication-readiness acceptance/matrix proof coverage.
-- M1 (Publication gating closure / Phase 8) status:
-  - slice 1 completed: lifecycle publication readiness requires passing renewal-review evidence for integration-required assertion scopes with deterministic taxonomy-coded blockers/remediation;
-  - slice 2 completed: lifecycle publication readiness requires passing publication-chain rehearsal plus renewal review for integration-required assertion scopes (full four-pillar gating);
-  - slice 3 completed in this run: acceptance fixture + blocker matrix tests now prove full four-pillar readiness and deterministic missing-pillar blocker mapping.
+- Recent commits before this slice (newest first): `846cf28`, `6003e27`, `144309d`, `fe12a5c`, `991a865`.
+- M1 (Publication gating closure) is complete.
+- This slice starts M2 and completes M2 slice 1 by adding immutable `artifact import record` evidence emission and audit chaining.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -209,9 +207,9 @@ Exit: the full publication-chain governance loop is closed and locally validated
 **Goal:** complete the air-gap provenance story so acquisition → transfer → scan → import is fully traceable.
 
 Slices:
-1. `artifact import record` command — emit immutable `ArtifactImportReceipt` binding exact bundle artifact digests, transfer-receipt IDs, scan-receipt IDs, and import timestamp; content-addressed and audit-chained.
-2. Schema + Go validation for `ArtifactImportReceipt`; validate command; `LoadArtifactImportReceipt` decoder.
-3. Catalog coverage gates air-gap completeness claims on accepted import receipts; deployment receipt optionally binds `importReceiptIds`.
+1. Completed: `artifact import record` command now emits immutable `ArtifactImportReceipt` evidence from exact bundle + preflight bindings, deterministic model-file internal paths, and dedicated audit chain output.
+2. Completed: `ArtifactImportReceipt` schema + Go validation + decoder + validate command are present and exercised in tests.
+3. Remaining: catalog coverage gates air-gap completeness claims on accepted import receipts and surfaces deterministic import-chain diagnostics in publication-facing outputs.
 
 Exit: the acquisition-to-deployment artifact chain has immutable receipts at every handoff stage.
 
@@ -281,20 +279,19 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **M2 slice 1: artifact import receipt command and immutable evidence model**:
+Implement **M2 slice 3: catalog-coverage import-chain gating and diagnostics**:
 
-- add `artifact import record` command to emit immutable `ArtifactImportReceipt` bound to exact bundle artifact digests and prior transfer/scan receipt identities;
-- add schema, resource validation, loader/validate command, and fail-closed audit binding for import receipts;
-- keep the command non-mutating and deterministic from an evidence perspective (no secret or raw payload persistence) while preserving existing apply/receipt behavior.
+- require import-chain completeness posture in `catalog coverage create` for assertions depending on air-gap execution evidence;
+- gate publication-facing readiness output on accepted import receipts bound to selected bundle/target identities and prior transfer/scan chain state;
+- emit deterministic explainability diagnostics for missing, foreign, stale, or mismatched import-chain evidence without broadening mutation authority.
 
 Acceptance criteria:
 
-- `artifact import record` writes a valid immutable `ArtifactImportReceipt` for one assertion-scoped import chain and persists a valid audit chain;
-- import receipt validation fails closed on foreign catalog/bundle bindings, confirmation mismatches, malformed or missing transfer/scan dependencies, stale evidence, and selected-evidence drift;
-- deterministic identity tests prove equivalent import inputs produce the same receipt ID and any material mutation changes the ID;
-- downstream evidence consumers can load and validate the new receipt without changing mutation authority;
-- apply-side provenance remains fail-closed and unaffected by publication-gating changes;
-- schema validation and Go validation remain aligned with focused CLI and negative tests.
+- `catalog coverage create` fails closed when required import-chain evidence is missing, malformed, foreign, stale, or unbound to selected transfer/scan evidence;
+- `catalog coverage lifecycle-publication-policy` exposes stable import-chain posture diagnostics for blocked assertion scopes;
+- taxonomy/remediation strings remain deterministic and parity-tested between create and policy command surfaces;
+- no mutation command gains implicit delete/adopt/prune/rollback behavior;
+- existing apply-time provenance enforcement remains unchanged and passing.
 
 ## Validation requirements
 
