@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/canonical"
@@ -130,13 +131,20 @@ type acceptedPromotionReview struct {
 	OccurredAt string
 }
 
+type acceptedLifecycleProofApproval struct {
+	Approval   resources.LifecycleProofApproval
+	AuditHead  string
+	OccurredAt string
+}
+
 type evidenceIndex struct {
-	Contracts          map[string][]acceptedEvidence
-	ComponentEvidence  map[string][]acceptedIntegrationEvidence
-	TopologyEvidence   map[string][]acceptedIntegrationEvidence
-	PromotionReviews   map[string][]acceptedPromotionReview
-	AcceptedCount      int
-	VerifiedAuditCount int
+	Contracts               map[string][]acceptedEvidence
+	ComponentEvidence       map[string][]acceptedIntegrationEvidence
+	TopologyEvidence        map[string][]acceptedIntegrationEvidence
+	PromotionReviews        map[string][]acceptedPromotionReview
+	LifecycleProofApprovals map[string][]acceptedLifecycleProofApproval
+	AcceptedCount           int
+	VerifiedAuditCount      int
 }
 
 func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Report, error) {
@@ -166,7 +174,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 	}
 	slices.Sort(report.Spec.Limitations)
 	for _, assertion := range inventory.Compatibility {
-		coverage := assertionCoverage(assertion, evidence.Contracts[assertion.ID], evidence.PromotionReviews[assertion.ID])
+		coverage := assertionCoverage(assertion, evidence.Contracts[assertion.ID], evidence.PromotionReviews[assertion.ID], evidence.LifecycleProofApprovals[assertion.ID], catalogDigest)
 		report.Spec.Assertions = append(report.Spec.Assertions, coverage)
 		if coverage.PromotionEligible {
 			report.Spec.Summary.PromotionEligibleAssertions++
@@ -190,7 +198,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 	return report.AssignReportID()
 }
 
-func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []acceptedEvidence, reviews []acceptedPromotionReview) AssertionCoverage {
+func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []acceptedEvidence, reviews []acceptedPromotionReview, approvals []acceptedLifecycleProofApproval, catalogDigest string) AssertionCoverage {
 	coverage := AssertionCoverage{
 		ID: assertion.ID, Status: assertion.Status, RuntimeRef: assertion.RuntimeRef, ModelRef: assertion.ModelRef,
 		HardwareProfileRef: assertion.HardwareProfileRef,
@@ -205,9 +213,8 @@ func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []accepte
 	for _, mode := range requiredContractModes {
 		coverage.Gates = append(coverage.Gates, contractGate(mode, evidence))
 	}
-	coverage.Gates = append(coverage.Gates,
-		promotionReviewGate(reviews),
-	)
+	coverage.Gates = append(coverage.Gates, promotionReviewGate(reviews))
+	coverage.Gates = append(coverage.Gates, lifecycleProofApprovalGate(evidence, approvals, catalogDigest))
 	slices.SortFunc(coverage.Gates, func(left, right GateCoverage) int { return strings.Compare(left.ID, right.ID) })
 	for _, gate := range coverage.Gates {
 		if gate.Status != "passed" {
@@ -266,6 +273,101 @@ func promotionReviewGate(reviews []acceptedPromotionReview) GateCoverage {
 		gate.Status = "failed"
 		gate.Blocker = "selected-review-decision-changes-required"
 	}
+	return gate
+}
+
+func lifecycleProofApprovalGate(lifecycleEvidence []acceptedEvidence, approvals []acceptedLifecycleProofApproval, catalogDigest string) GateCoverage {
+	gate := GateCoverage{
+		ID:               "lifecycle-proof-publication-approval",
+		Status:           "missing",
+		ObservedEvidence: []EvidenceBinding{},
+		Blocker:          "lifecycle-proof-approval-not-recorded",
+	}
+	filteredEvidence := make([]acceptedEvidence, 0)
+	for _, item := range lifecycleEvidence {
+		if item.Result.Spec.Mode == "lifecycle-contract" && item.Result.Spec.Outcome == "passed" {
+			filteredEvidence = append(filteredEvidence, item)
+		}
+	}
+	if len(filteredEvidence) == 0 {
+		gate.Blocker = "no-accepted-lifecycle-contract-evidence"
+		return gate
+	}
+	if len(approvals) == 0 {
+		return gate
+	}
+	sorted := slices.Clone(approvals)
+	slices.SortFunc(sorted, func(left, right acceptedLifecycleProofApproval) int {
+		if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Approval.Metadata.ApprovalID, right.Approval.Metadata.ApprovalID)
+	})
+	lifecycleEvidenceByID := map[string]acceptedEvidence{}
+	latestLifecycleOccurredAt := ""
+	for _, item := range filteredEvidence {
+		lifecycleEvidenceByID[item.Result.Metadata.ResultID] = item
+		if strings.Compare(item.OccurredAt, latestLifecycleOccurredAt) > 0 {
+			latestLifecycleOccurredAt = item.OccurredAt
+		}
+	}
+	for _, item := range sorted {
+		outcome := "failed"
+		if item.Approval.Spec.Decision == resources.PromotionDecisionApproved {
+			outcome = "passed"
+		} else if item.Approval.Spec.Decision == resources.PromotionDecisionAbstained {
+			outcome = "blocked"
+		}
+		gate.ObservedEvidence = append(gate.ObservedEvidence, EvidenceBinding{
+			ResultID:  item.Approval.Metadata.ApprovalID,
+			Outcome:   outcome,
+			AuditHead: item.AuditHead,
+		})
+	}
+	selected := sorted[len(sorted)-1]
+	gate.SelectedResult = selected.Approval.Metadata.ApprovalID
+	gate.SelectedAuditHead = selected.AuditHead
+	if selected.Approval.Spec.CatalogDigest != catalogDigest {
+		gate.Status = "failed"
+		gate.Blocker = "selected-approval-catalog-mismatch"
+		return gate
+	}
+	if selected.Approval.Spec.Decision != resources.PromotionDecisionApproved {
+		if selected.Approval.Spec.Decision == resources.PromotionDecisionAbstained {
+			gate.Status = "blocked"
+			gate.Blocker = "selected-approval-decision-abstained"
+		} else {
+			gate.Status = "failed"
+			gate.Blocker = "selected-approval-decision-changes-required"
+		}
+		return gate
+	}
+	bindsLifecycleEvidence := false
+	for _, digest := range selected.Approval.Spec.SelectedEvidence {
+		if _, ok := lifecycleEvidenceByID[digest]; ok {
+			bindsLifecycleEvidence = true
+			break
+		}
+	}
+	if !bindsLifecycleEvidence {
+		gate.Status = "failed"
+		gate.Blocker = "selected-approval-does-not-bind-lifecycle-evidence"
+		return gate
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, selected.Approval.Spec.ExpiresAt)
+	if err != nil {
+		gate.Status = "failed"
+		gate.Blocker = "selected-approval-expiry-invalid"
+		return gate
+	}
+	latestLifecycleTime, err := time.Parse(time.RFC3339Nano, latestLifecycleOccurredAt)
+	if err != nil || !expiresAt.After(latestLifecycleTime) {
+		gate.Status = "failed"
+		gate.Blocker = "selected-approval-expired-for-lifecycle-evidence"
+		return gate
+	}
+	gate.Status = "passed"
+	gate.Blocker = ""
 	return gate
 }
 
@@ -476,10 +578,11 @@ func structuralCoverage(manifests []catalog.ManifestDescriptor) []ManifestCovera
 
 func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest string) (evidenceIndex, error) {
 	result := evidenceIndex{
-		Contracts:         make(map[string][]acceptedEvidence),
-		ComponentEvidence: make(map[string][]acceptedIntegrationEvidence),
-		TopologyEvidence:  make(map[string][]acceptedIntegrationEvidence),
-		PromotionReviews:  make(map[string][]acceptedPromotionReview),
+		Contracts:               make(map[string][]acceptedEvidence),
+		ComponentEvidence:       make(map[string][]acceptedIntegrationEvidence),
+		TopologyEvidence:        make(map[string][]acceptedIntegrationEvidence),
+		PromotionReviews:        make(map[string][]acceptedPromotionReview),
+		LifecycleProofApprovals: make(map[string][]acceptedLifecycleProofApproval),
 	}
 	assertions := make(map[string]catalog.AssertionDescriptor)
 	inventory := snapshot.ManifestInventory()
@@ -495,6 +598,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		topologies[topology.ID+"@"+topology.Version] = struct{}{}
 	}
 	pendingPromotionReviewPaths := []string{}
+	pendingLifecycleProofApprovalPaths := []string{}
 	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -546,6 +650,10 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		}
 		if kind == "PromotionReview" {
 			pendingPromotionReviewPaths = append(pendingPromotionReviewPaths, path)
+			return nil
+		}
+		if kind == "LifecycleProofApproval" {
+			pendingLifecycleProofApprovalPaths = append(pendingLifecycleProofApprovalPaths, path)
 			return nil
 		}
 		if kind != "ContractTestResult" {
@@ -625,6 +733,43 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		terminal := events[len(events)-1]
 		result.PromotionReviews[assertion.ID] = append(result.PromotionReviews[assertion.ID], acceptedPromotionReview{
 			Review:     review,
+			AuditHead:  head,
+			OccurredAt: terminal.Metadata.OccurredAt,
+		})
+		result.AcceptedCount++
+		result.VerifiedAuditCount++
+	}
+	for _, path := range pendingLifecycleProofApprovalPaths {
+		approval, err := resources.LoadLifecycleProofApproval(path)
+		if err != nil {
+			return evidenceIndex{}, fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if report := approval.Validate(); !report.Valid || approval.Spec.CatalogDigest != catalogDigest {
+			return evidenceIndex{}, fmt.Errorf("evidence %s is invalid or not bound to this catalog", filepath.Base(path))
+		}
+		if _, ok := assertions[approval.Spec.AssertionRef]; !ok {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references an unknown assertion", filepath.Base(path))
+		}
+		acceptedEvidenceIDs := map[string]struct{}{}
+		for _, item := range result.Contracts[approval.Spec.AssertionRef] {
+			acceptedEvidenceIDs[item.Result.Metadata.ResultID] = struct{}{}
+		}
+		for _, selected := range approval.Spec.SelectedEvidence {
+			if _, ok := acceptedEvidenceIDs[selected]; !ok {
+				return evidenceIndex{}, fmt.Errorf("evidence %s selects unknown or unbound evidence %s", filepath.Base(path), selected)
+			}
+		}
+		auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
+		events, head, err := loadVerifiedAudit(auditPath)
+		if err != nil {
+			return evidenceIndex{}, err
+		}
+		if err := verifyLifecycleProofApprovalAudit(events, approval, catalogDigest); err != nil {
+			return evidenceIndex{}, fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
+		}
+		terminal := events[len(events)-1]
+		result.LifecycleProofApprovals[approval.Spec.AssertionRef] = append(result.LifecycleProofApprovals[approval.Spec.AssertionRef], acceptedLifecycleProofApproval{
+			Approval:   approval,
 			AuditHead:  head,
 			OccurredAt: terminal.Metadata.OccurredAt,
 		})
@@ -733,6 +878,20 @@ func verifyPromotionReviewAudit(events []audit.Event, review resources.Promotion
 	}
 	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) || !hasSubject(terminal.Spec.Subjects, "PromotionReview", review.Metadata.ReviewID) {
 		return errors.New("terminal event does not bind catalog and promotion-review identities")
+	}
+	return nil
+}
+
+func verifyLifecycleProofApprovalAudit(events []audit.Event, approval resources.LifecycleProofApproval, catalogDigest string) error {
+	if len(events) != 2 {
+		return fmt.Errorf("expected two events, found %d", len(events))
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "lifecycle.proof.approve-publication.completed" || terminal.Spec.Outcome != "success" || terminal.Spec.Target != "catalog:"+catalogDigest {
+		return errors.New("terminal action, outcome or target does not match lifecycle-proof approval")
+	}
+	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) || !hasSubject(terminal.Spec.Subjects, "LifecycleProofApproval", approval.Metadata.ApprovalID) || !hasSubject(terminal.Spec.Subjects, "LifecycleProofLedger", approval.Spec.LedgerID) {
+		return errors.New("terminal event does not bind catalog, lifecycle-proof ledger and lifecycle-proof approval identities")
 	}
 	return nil
 }

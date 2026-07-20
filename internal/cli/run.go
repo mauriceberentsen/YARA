@@ -154,6 +154,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 3 && args[0] == "lifecycle" && args[1] == "proof" && args[2] == "record" {
 		return recordLifecycleProof(args[3:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "lifecycle" && args[1] == "proof" && args[2] == "approve-publication" {
+		return approveLifecycleProofPublication(args[3:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "integration" && args[1] == "component-smoke" {
 		return runIntegrationComponentSmoke(args[2:], stdout, stderr)
 	}
@@ -480,6 +483,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "LifecycleProofLedger", Digest: result.Metadata.LedgerID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "lifecycle.proof-ledger.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "lifecycle-proof-approval":
+		result, err := resources.LoadLifecycleProofApproval(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "lifecycle.proof-approval.validate", "LifecycleProofApproval", options.inputPath, "YARA-LPA-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("LifecycleProofApproval", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "LifecycleProofApproval", Digest: result.Metadata.ApprovalID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "lifecycle.proof-approval.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -583,11 +600,13 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara airgap gate-trust-policy diff --from-policy <file> --to-policy <file> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara airgap gate-trust-policy review-transition --policy-diff <file> --decision <approved|changes-required|abstained> --reviewer-role <role> --reason-reference <ref> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara lifecycle proof record --apply-receipt <file> --retirement-receipt <file> --rollback-receipt <file> --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --name <name> --output <file> --audit-output <file> [--max-receipt-age <duration>]")
+	fmt.Fprintln(output, "  yara lifecycle proof approve-publication --catalog <file> --assertion <id> --lifecycle-proof-ledger <file> --confirm-lifecycle-proof-ledger <sha256:id> --evidence <sha256:id> [--evidence <sha256:id> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --max-ledger-age <duration> [--valid-for <duration>] --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara airgap-provenance-gate-result validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-gate-trust-policy validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-gate-trust-policy-diff validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-gate-transition-review validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara lifecycle-proof-ledger validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara lifecycle-proof-approval validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara integration component-smoke --catalog <file> --target <local|user@host> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration topology-end-to-end --catalog <file> --target <local|user@host> --topology <id@version> --component <id@version> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration validate <file> [--audit-output <file>]")

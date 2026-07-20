@@ -268,6 +268,20 @@ go run ./cmd/yara lifecycle proof record \
   --output reference-stack.lifecycle-proof-ledger.yaml \
   --audit-output reference-stack.lifecycle-proof-ledger.audit.jsonl
 go run ./cmd/yara lifecycle-proof-ledger validate reference-stack.lifecycle-proof-ledger.yaml
+go run ./cmd/yara lifecycle proof approve-publication \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --lifecycle-proof-ledger reference-stack.lifecycle-proof-ledger.yaml \
+  --confirm-lifecycle-proof-ledger 'sha256:<full-ledger-id>' \
+  --evidence sha256:<lifecycle-contract-result-id> \
+  --reviewer-role release-manager \
+  --decision approved \
+  --reason-reference ticket-lifecycle-publication-123 \
+  --max-ledger-age 720h \
+  --name reference-stack-lifecycle-proof-approval \
+  --output reference-stack.lifecycle-proof-approval.yaml \
+  --audit-output reference-stack.lifecycle-proof-approval.audit.jsonl
+go run ./cmd/yara lifecycle-proof-approval validate reference-stack.lifecycle-proof-approval.yaml
 go run ./cmd/yara plan diff docs/examples/platform-plan.yaml plan.yaml \
   --audit-output plan-diff.audit.jsonl
 go run ./cmd/yara debug bundle \

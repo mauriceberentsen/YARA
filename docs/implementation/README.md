@@ -144,6 +144,15 @@ yara contract lifecycle --catalog catalog/v0.2/snapshot.yaml \
   --lifecycle-proof-max-age 720h \
   --target user@gb10-runner.example --name gb10-lifecycle \
   --output gb10-lifecycle.yaml --audit-output gb10-lifecycle.audit.jsonl
+yara lifecycle proof approve-publication --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --lifecycle-proof-ledger reference-stack.lifecycle-proof-ledger.yaml \
+  --confirm-lifecycle-proof-ledger 'sha256:<full-ledger-id>' \
+  --evidence sha256:<lifecycle-contract-result-id> \
+  --reviewer-role release-manager --decision approved \
+  --reason-reference ticket-lifecycle-publication-123 --max-ledger-age 720h \
+  --name gb10-lifecycle-proof-approval \
+  --output gb10-lifecycle-proof-approval.yaml --audit-output gb10-lifecycle-proof-approval.audit.jsonl
 yara contract validate contract-result.yaml
 yara target preflight kubernetes --bundle kubernetes-bundle.yaml \
   --name reference-preflight --output preflight.yaml \

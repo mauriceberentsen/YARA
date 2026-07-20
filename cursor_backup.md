@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `cbae37a` (`Add lifecycle proof ledger recording and validation.`).
+- Branch baseline before this slice: `main` at `6528cbc` (`Bind lifecycle contract execution to reviewed lifecycle-proof evidence.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
@@ -12,7 +12,8 @@
   - `AirgapProvenanceGateResult` (`schemas/yara.dev/v1alpha1/airgap-provenance-gate-result.schema.json`);
   - `AirgapGateTrustPolicy` (`schemas/yara.dev/v1alpha1/airgap-gate-trust-policy.schema.json`);
   - `AirgapGateTransitionReview` (`schemas/yara.dev/v1alpha1/airgap-gate-transition-review.schema.json`);
-  - `LifecycleProofLedger` (`schemas/yara.dev/v1alpha1/lifecycle-proof-ledger.schema.json`).
+  - `LifecycleProofLedger` (`schemas/yara.dev/v1alpha1/lifecycle-proof-ledger.schema.json`);
+  - `LifecycleProofApproval` (`schemas/yara.dev/v1alpha1/lifecycle-proof-approval.schema.json`).
 - Latest archived catalog coverage artifact remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`.
 
 ## Current product boundary
@@ -31,6 +32,8 @@
   - `lifecycle proof record` emits immutable `LifecycleProofLedger` evidence linking exact apply/retire/rollback receipt IDs into one reviewed lifecycle narrative;
   - lifecycle proof recording is read-only and fail-closed on foreign chains (plan/bundle/target mismatch), stale receipt windows, invalid ordering, or incomplete/non-succeeded lifecycle stages.
   - `contract lifecycle` now requires explicit lifecycle-proof inputs (`--lifecycle-proof-ledger`, linked apply/retire/rollback receipts, explicit ledger ID confirmation, explicit reason-reference confirmation, and bounded max-age policy) and fails closed when ledger identity, stage ordering, receipt bindings, or freshness drift.
+  - `lifecycle proof approve-publication` emits immutable `LifecycleProofApproval` evidence that independently reviews one lifecycle ledger identity for one catalog assertion using explicit selected lifecycle evidence IDs and bounded freshness policy;
+  - catalog coverage now gates lifecycle publication claims on `lifecycle-proof-publication-approval` and fails closed when lifecycle approvals are missing, unapproved, unbound to lifecycle evidence, catalog-mismatched, or stale relative to selected lifecycle evidence.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -57,6 +60,7 @@
   - destructive transition review evidence is content-addressed (`reviewId`), bound to exact `policyDiffId`/`fromPolicyId`/`toPolicyId`/target identities, and required for destructive transition consumption in verify/apply;
   - lifecycle proof ledger evidence is content-addressed (`ledgerId`), binds exact apply/retire/rollback receipt IDs plus execution correlations in strict stage order, and records reviewed operator intent without mutation authority;
   - lifecycle contract execution now binds deterministic lifecycle-proof checks (`lifecycle.proof-ledger.binding`, `lifecycle.proof-ledger.freshness-policy`) into `ContractTestResult` evidence and audit subjects, including explicit freshness-policy and reviewed-reason references;
+  - lifecycle proof publication approvals are content-addressed (`approvalId`), bind exact `catalogDigest`/`assertionRef`/`ledgerId`/selected evidence IDs with bounded validity and reviewer decision, and are consumed by catalog-coverage lifecycle publication gating;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -73,12 +77,14 @@
     - `airgap gate-trust-policy diff`,
     - `airgap gate-trust-policy review-transition`,
     - `lifecycle proof record`,
+    - `lifecycle proof approve-publication`,
     - `contract lifecycle` (with explicit lifecycle-proof evidence binding),
     - `airgap provenance-gate verify`,
     - `airgap-gate-trust-policy validate`,
     - `airgap-gate-trust-policy-diff validate`,
     - `airgap-gate-transition-review validate`,
-    - `lifecycle-proof-ledger validate`.
+    - `lifecycle-proof-ledger validate`,
+    - `lifecycle-proof-approval validate`.
 - **Validated on live environment (historical evidence already present):**
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
@@ -90,35 +96,35 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by seven committed slices before this uncommitted work).
-- Recent commits before this slice (newest first): `cbae37a`, `300717f`, `a092705`, `686920f`, `0c696a0`.
-- This slice links lifecycle-proof evidence into `contract lifecycle` with explicit ledger/receipt/reason/freshness confirmations, deterministic output bindings, and fail-closed stale/foreign drift enforcement.
+- Branch: `main` tracking `origin/main` (local ahead by eight committed slices before this uncommitted work).
+- Recent commits before this slice (newest first): `6528cbc`, `cbae37a`, `300717f`, `a092705`, `686920f`.
+- This slice adds lifecycle-proof publication approvals and catalog-coverage lifecycle publication gating with fail-closed missing/unapproved/stale/unbound approval behavior.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## Open limitations and unproven claims
 
-- No live validation was executed for rollback, integration execution, promotion-review recording, lifecycle-proof ledger recording/consumption, transfer/scan receipt enforcement, trust-policy recording/diffing/review-transition, or trust-policy gate verification/enforcement in this run.
+- No live validation was executed for rollback, integration execution, promotion-review recording, lifecycle-proof ledger recording/consumption/publication approval, transfer/scan receipt enforcement, trust-policy recording/diffing/review-transition, or trust-policy gate verification/enforcement in this run.
 - Air-gap completeness remains unproven end-to-end: acquisition execution, transfer medium attestation trust chain, and scanning attestations remain external.
 - Clean-cluster bootstrap (namespace/PVC/storage provisioning) remains out of scope.
 - Integration execution remains bounded to catalog/target contract checks and does not prove latency, throughput, availability, or production readiness.
 
 ## Next implementation slice
 
-Implement **Phase 3 milestone continuation: lifecycle-proof approval attestation and catalog publication gate**:
+Implement **Phase 3 milestone continuation: lifecycle-proof catalog publication closure in coverage summary and policy docs**:
 
-- add an immutable lifecycle-proof approval attestation resource that independently reviews one `LifecycleProofLedger` identity for publication eligibility;
-- gate catalog-coverage promotion for lifecycle claims on explicit accepted lifecycle-proof approval evidence (parallel to existing promotion review patterns);
-- fail closed when lifecycle publication attempts reference unapproved or stale lifecycle-proof attestations;
+- tighten catalog-coverage summary semantics so lifecycle publication readiness is surfaced explicitly (separate from generic promotion eligibility counts);
+- add explicit publication-policy diagnostics and documentation artifacts for lifecycle claims, including operator-facing remediation paths for missing/stale lifecycle approvals;
+- add negative tests proving lifecycle publication readiness remains blocked when approval audits are malformed or ledger/approval subject bindings drift;
 - keep gate-evaluation signing authority independent from deployment authorization keys while preserving deterministic, content-addressed evidence;
 - preserve non-secret durable evidence boundaries (no raw scanner logs, payloads, secrets, kubeconfig, or host addresses).
 
 Acceptance criteria:
 
-- lifecycle-proof approval evidence is deterministic, content-addressed, and bound to exact lifecycle-ledger identity plus reviewed publication intent;
-- lifecycle-claim publication paths fail closed unless approval evidence is accepted and freshness-valid;
-- durable audit chains prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
-- apply-side provenance remains fail-closed and unaffected by lifecycle publication-gating additions;
+- lifecycle publication readiness is explicitly represented in coverage summaries and diagnostics (not inferred indirectly);
+- lifecycle publication diagnostics provide deterministic, operator-actionable blockers tied to immutable evidence identities;
+- durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
+- apply-side provenance remains fail-closed and unaffected by lifecycle publication-summary/policy additions;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 
 ## Validation requirements
