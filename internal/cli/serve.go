@@ -1070,12 +1070,98 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow capsule requires --workspace")
 			return
 		}
-		capsule, err := buildWorkflowCapsule(workspacePath)
+		capsule, _, err := buildWorkflowCapsule(workspacePath)
 		if err != nil {
 			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-026", err.Error())
 			return
 		}
 		writeServeJSON(writer, http.StatusOK, capsule)
+	})
+	apiMux.HandleFunc("/api/v1/workflow/capsule/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow capsule export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowCapsuleExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-027", err.Error())
+			return
+		}
+		markdownPath, err := ensureWorkspaceFilePath(workspacePath, payload.MarkdownPath, "markdownPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-027", err.Error())
+			return
+		}
+		jsonPath, err := ensureWorkspaceFilePath(workspacePath, payload.JSONPath, "jsonPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-027", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-027", err.Error())
+			return
+		}
+		if markdownPath == jsonPath || markdownPath == auditPath || jsonPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-027", "markdownPath, jsonPath and auditPath must be different files")
+			return
+		}
+		capsule, subjects, err := buildWorkflowCapsule(workspacePath)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-027", err.Error())
+			return
+		}
+		if !capsule.Capsule.Ready && !payload.AllowBlocked {
+			writeServeError(writer, http.StatusUnprocessableEntity, "YARA-SRV-027", "capsule is blocked; set allowBlocked=true with allowBlockedReasonReference to archive blocked state")
+			return
+		}
+		if !capsule.Capsule.Ready && strings.TrimSpace(payload.AllowBlockedReasonReference) == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-027", "allowBlockedReasonReference is required when exporting a blocked capsule")
+			return
+		}
+		diagnosticCodes := []string{}
+		if !capsule.Capsule.Ready {
+			diagnosticCodes = append(diagnosticCodes, "YARA-CAP-014")
+		}
+		markdownBytes := []byte(renderCapsuleMarkdown(capsule, payload.AllowBlockedReasonReference) + "\n")
+		if err := writeExclusive(markdownPath, markdownBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-027", err.Error())
+			return
+		}
+		jsonBytes, err := json.MarshalIndent(capsule, "", "  ")
+		if err != nil {
+			_ = os.Remove(markdownPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode capsule export json: %v", err))
+			return
+		}
+		jsonBytes = append(jsonBytes, '\n')
+		if err := writeExclusive(jsonPath, jsonBytes); err != nil {
+			_ = os.Remove(markdownPath)
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-027", err.Error())
+			return
+		}
+		exportSubjects := append(append([]audit.Subject(nil), subjects...),
+			audit.Subject{Kind: "CapsuleMarkdown", Digest: digestBytes(markdownBytes)},
+			audit.Subject{Kind: "CapsuleJSON", Digest: digestBytes(jsonBytes)},
+		)
+		if err := persistOperationAuditForTarget(auditPath, "workflow.capsule.export", "completed", "success", "kubernetes:"+mapValueOrDefault(capsule.Capsule.Evidence.TargetReferenceDigest, "unknown"), exportSubjects, diagnosticCodes); err != nil {
+			_ = os.Remove(markdownPath)
+			_ = os.Remove(jsonPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowCapsuleExportResponse{Valid: true}
+		response.Export.MarkdownPath = markdownPath
+		response.Export.JSONPath = jsonPath
+		response.Export.AuditPath = auditPath
+		response.Export.Ready = capsule.Capsule.Ready
+		response.Export.BlockedArchival = !capsule.Capsule.Ready
+		response.Export.BlockerCount = len(capsule.Capsule.Blockers)
+		writeServeJSON(writer, http.StatusOK, response)
 	})
 	var (
 		uiFileSystem fs.FS
@@ -1401,6 +1487,26 @@ type workflowCapsuleResponse struct {
 		} `json:"runbookExports"`
 		Blockers []workflowCapsuleBlocker `json:"blockers"`
 	} `json:"capsule"`
+}
+
+type workflowCapsuleExportRequest struct {
+	MarkdownPath                string `json:"markdownPath"`
+	JSONPath                    string `json:"jsonPath"`
+	AuditPath                   string `json:"auditPath"`
+	AllowBlocked                bool   `json:"allowBlocked"`
+	AllowBlockedReasonReference string `json:"allowBlockedReasonReference,omitempty"`
+}
+
+type workflowCapsuleExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		MarkdownPath    string `json:"markdownPath"`
+		JSONPath        string `json:"jsonPath"`
+		AuditPath       string `json:"auditPath"`
+		Ready           bool   `json:"ready"`
+		BlockedArchival bool   `json:"blockedArchival"`
+		BlockerCount    int    `json:"blockerCount"`
+	} `json:"export"`
 }
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
@@ -1782,6 +1888,29 @@ func decodeWorkflowRunbookExportRequest(request *http.Request) (workflowRunbookE
 	return payload, nil
 }
 
+func decodeWorkflowCapsuleExportRequest(request *http.Request) (workflowCapsuleExportRequest, error) {
+	var payload workflowCapsuleExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.MarkdownPath) == "" || strings.TrimSpace(payload.JSONPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("markdownPath, jsonPath and auditPath are required")
+	}
+	if payload.MarkdownPath == payload.JSONPath || payload.MarkdownPath == payload.AuditPath || payload.JSONPath == payload.AuditPath {
+		return payload, errors.New("markdownPath, jsonPath and auditPath must be different files")
+	}
+	if payload.AllowBlocked && strings.TrimSpace(payload.AllowBlockedReasonReference) == "" {
+		return payload, errors.New("allowBlockedReasonReference is required when allowBlocked=true")
+	}
+	return payload, nil
+}
+
 func shellQuote(value string) string {
 	if value == "" {
 		return "''"
@@ -1917,10 +2046,10 @@ func buildWorkflowRunbook(workspacePath string) (workflowRunbookResponse, []audi
 	return runbook, subjects, nil
 }
 
-func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, error) {
+func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, []audit.Subject, error) {
 	stages, err := workspacePipelineStages(workspacePath)
 	if err != nil {
-		return workflowCapsuleResponse{}, err
+		return workflowCapsuleResponse{}, nil, err
 	}
 	stageLookup := map[string]workspaceStageStatus{}
 	for _, stage := range stages {
@@ -1954,8 +2083,9 @@ func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, error)
 		}
 	}
 	capsule.Capsule.RunbookExports.MarkdownPaths, capsule.Capsule.RunbookExports.JSONPaths = discoverRunbookExports(workspacePath)
+	subjects := []audit.Subject{}
 	if !capsule.Capsule.Ready {
-		return capsule, nil
+		return capsule, subjects, nil
 	}
 
 	plan, err := resources.LoadPlatformPlan(stageLookup["plan"].ArtifactPath)
@@ -1967,7 +2097,7 @@ func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, error)
 			Message:     "plan artifact is malformed",
 			Remediation: "recreate plan artifact through workflow plan create",
 		})
-		return capsule, nil
+		return capsule, subjects, nil
 	}
 	bundle, err := resources.LoadDeploymentBundle(stageLookup["bundle"].ArtifactPath)
 	if err != nil || !bundle.Validate().Valid {
@@ -1978,7 +2108,7 @@ func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, error)
 			Message:     "bundle artifact is malformed",
 			Remediation: "recreate bundle through workflow render",
 		})
-		return capsule, nil
+		return capsule, subjects, nil
 	}
 	preflight, err := resources.LoadTargetPreflightResult(stageLookup["preflight"].ArtifactPath)
 	if err != nil || !preflight.Validate().Valid {
@@ -1989,7 +2119,7 @@ func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, error)
 			Message:     "preflight artifact is malformed",
 			Remediation: "rerun workflow preflight",
 		})
-		return capsule, nil
+		return capsule, subjects, nil
 	}
 	changeSet, err := resources.LoadKubernetesChangeSet(stageLookup["changeset"].ArtifactPath)
 	if err != nil || !changeSet.Validate().Valid {
@@ -2000,7 +2130,7 @@ func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, error)
 			Message:     "change-set artifact is malformed",
 			Remediation: "rerun workflow changeset",
 		})
-		return capsule, nil
+		return capsule, subjects, nil
 	}
 	approval, err := resources.LoadDeploymentApproval(stageLookup["approval"].ArtifactPath)
 	if err != nil || !approval.Validate().Valid {
@@ -2011,7 +2141,7 @@ func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, error)
 			Message:     "approval artifact is malformed",
 			Remediation: "rerun workflow approval",
 		})
-		return capsule, nil
+		return capsule, subjects, nil
 	}
 	authorization, err := resources.LoadExecutionAuthorization(stageLookup["authorization"].ArtifactPath)
 	if err != nil || !authorization.Validate().Valid {
@@ -2022,7 +2152,7 @@ func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, error)
 			Message:     "authorization artifact is malformed",
 			Remediation: "reissue authorization and replace workspace authorization artifact",
 		})
-		return capsule, nil
+		return capsule, subjects, nil
 	}
 
 	capsule.Capsule.Evidence.PlanID = plan.Metadata.PlanID
@@ -2046,7 +2176,15 @@ func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, error)
 			Remediation: "regenerate the workflow chain from plan through authorization using one consistent artifact set",
 		})
 	}
-	return capsule, nil
+	subjects = []audit.Subject{
+		{Kind: "PlatformPlan", Digest: plan.Metadata.PlanID},
+		{Kind: "DeploymentBundle", Digest: bundle.Metadata.BundleID},
+		{Kind: "TargetPreflightResult", Digest: preflight.Metadata.ResultID},
+		{Kind: "KubernetesChangeSet", Digest: changeSet.Metadata.ChangeSetID},
+		{Kind: "DeploymentApproval", Digest: approval.Metadata.ApprovalID},
+		{Kind: "ExecutionAuthorization", Digest: authorization.Metadata.AuthorizationID},
+	}
+	return capsule, subjects, nil
 }
 
 func discoverRunbookExports(workspacePath string) ([]string, []string) {
@@ -2071,6 +2209,34 @@ func discoverRunbookExports(workspacePath string) ([]string, []string) {
 	sort.Strings(markdownPaths)
 	sort.Strings(jsonPaths)
 	return markdownPaths, jsonPaths
+}
+
+func renderCapsuleMarkdown(capsule workflowCapsuleResponse, blockedReasonReference string) string {
+	lines := []string{
+		"# YARA execution capsule",
+		"",
+		"## Readiness",
+		"- Ready: " + fmt.Sprintf("%t", capsule.Capsule.Ready),
+		"- Blocker count: " + fmt.Sprintf("%d", len(capsule.Capsule.Blockers)),
+		"",
+		"## Evidence",
+		"- Plan ID: " + mapValueOrDefault(capsule.Capsule.Evidence.PlanID, "n/a"),
+		"- Bundle ID: " + mapValueOrDefault(capsule.Capsule.Evidence.BundleID, "n/a"),
+		"- Preflight ID: " + mapValueOrDefault(capsule.Capsule.Evidence.PreflightResultID, "n/a"),
+		"- Change-set ID: " + mapValueOrDefault(capsule.Capsule.Evidence.ChangeSetID, "n/a"),
+		"- Approval ID: " + mapValueOrDefault(capsule.Capsule.Evidence.ApprovalID, "n/a"),
+		"- Authorization ID: " + mapValueOrDefault(capsule.Capsule.Evidence.AuthorizationID, "n/a"),
+	}
+	if blockedReasonReference != "" {
+		lines = append(lines, "", "## Blocked archival reason", "- Reference: "+blockedReasonReference)
+	}
+	if len(capsule.Capsule.Blockers) > 0 {
+		lines = append(lines, "", "## Blockers")
+		for _, blocker := range capsule.Capsule.Blockers {
+			lines = append(lines, "- "+blocker.Code+": "+blocker.Message+" | remediation="+blocker.Remediation)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func formatKubernetesResource(reference resources.KubernetesObjectReference) string {

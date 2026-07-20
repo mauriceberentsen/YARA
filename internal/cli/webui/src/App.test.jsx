@@ -216,6 +216,20 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/capsule/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            markdownPath: requestPayload.markdownPath,
+            jsonPath: requestPayload.jsonPath,
+            auditPath: requestPayload.auditPath,
+            ready: true,
+            blockedArchival: false,
+            blockerCount: 0,
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -440,6 +454,8 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Execution capsule" }));
     await waitFor(() => expect(screen.getByText("No blockers. Capsule is ready.")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Export capsule" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.capsule.md")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -474,9 +490,29 @@ describe("App", () => {
   });
 
   it("renders blocked capsule diagnostics", async () => {
-    global.fetch = vi.fn((input) => {
+    global.fetch = vi.fn((input, init = {}) => {
       const parsed = new URL(String(input), "http://localhost");
       const endpoint = parsed.pathname + (parsed.search || "");
+      if (parsed.pathname === "/api/v1/workflow/capsule/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        if (!requestPayload.allowBlocked) {
+          return Promise.resolve(new Response(JSON.stringify({
+            valid: false,
+            diagnostics: [{ code: "YARA-SRV-027", message: "capsule is blocked; set allowBlocked=true with allowBlockedReasonReference to archive blocked state", severity: "error" }],
+          }), { status: 422 }));
+        }
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            markdownPath: requestPayload.markdownPath,
+            jsonPath: requestPayload.jsonPath,
+            auditPath: requestPayload.auditPath,
+            ready: false,
+            blockedArchival: true,
+            blockerCount: 1,
+          },
+        }), { status: 200 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -501,6 +537,12 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Execution capsule" }));
     await waitFor(() => expect(screen.getByText("evidence mismatch")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("regenerate evidence chain")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Export capsule" }));
+    await waitFor(() => expect(screen.getByText(/allowBlocked=true/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("Allow blocked archival"));
+    fireEvent.change(screen.getByLabelText("Blocked archival reason reference"), { target: { value: "ticket-42" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export capsule" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.capsule.export.audit.jsonl")).toBeInTheDocument());
   });
 
   it("fails closed on malformed drift payload", async () => {

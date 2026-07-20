@@ -2,7 +2,7 @@
 ## Current repository state
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `efd79b3`, `b83483e`, `6e21c5c`, `8d628dd`, `2dffa71`.
+- Recent commits (newest first): `f4bc3fc`, `efd79b3`, `b83483e`, `6e21c5c`, `8d628dd`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
@@ -46,6 +46,10 @@
   - `GET /api/v1/workflow/capsule` now emits one deterministic readiness payload with stage status, evidence IDs, runbook export references, and fail-closed blocker diagnostics;
   - capsule readiness fails closed when prerequisite stages are incomplete or evidence bindings are mismatched;
   - Web UI now includes an `Execution capsule` panel with readiness summary cards, stage table, runbook export references, and blocker/remediation table.
+- Interactive workflow cockpit I11 is implemented:
+  - `POST /api/v1/workflow/capsule/export` persists deterministic capsule markdown/json outputs plus mandatory audit output with workspace-bounded path enforcement;
+  - blocked capsules fail closed by default and require explicit `allowBlocked=true` plus `allowBlockedReasonReference` to archive blocked gate posture;
+  - capsule export audit includes blocker diagnostic codes for blocked archival snapshots and UI now supports ready/blocked snapshot export with policy diagnostics.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -57,13 +61,15 @@
 ## Current branch and working tree
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `GET /api/v1/workflow/capsule` endpoint implemented with deterministic readiness evaluation across stage completion, evidence integrity, and runbook export discovery;
-  - capsule endpoint emits explicit blocker taxonomy (`YARA-CAP-*`) with remediation guidance instead of ambiguous readiness output;
-  - UI `Execution capsule` view renders ready/blocked posture with stage/evidence/export context and blocker table for operator actioning.
+  - `POST /api/v1/workflow/capsule/export` now writes deterministic capsule markdown/json outputs plus mandatory audit output into workspace-bounded paths;
+  - blocked capsule exports fail closed unless `allowBlocked=true` and `allowBlockedReasonReference` are provided, preserving explicit policy intent;
+  - UI capsule panel now supports export actions and surfaces whether the exported snapshot captured ready or blocked posture.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui`;
-  - `git diff --check`, `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`, and `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
+  - `git diff --check`;
+  - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`;
+  - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 ## MVP milestone path
 - M1–M5 — completed (publication gating, artifact import, bootstrap, CI/release, public documentation).
@@ -110,27 +116,26 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 - add UI action to export the active runbook and show resulting artifact/audit paths;
 - enforce fail-closed behavior for overwrite attempts and out-of-workspace export paths.
 - Status: completed.
-
 ### I10 — End-to-end cockpit execution capsule
 - add `GET /api/v1/workflow/capsule` that bundles workspace stage status, runbook export references, and apply readiness signals into one deterministic, redact-safe JSON payload;
 - include explicit blocker taxonomy for missing/expired/mismatched evidence and actionable remediation strings;
 - add UI capsule view to summarize operator readiness and link to plan/runbook/apply artifacts without mutating state.
 - Status: completed.
-
 ### I11 — Capsule audit export and gating freeze
 - add `POST /api/v1/workflow/capsule/export` writing deterministic capsule json + markdown and mandatory audit output into workspace-bounded paths;
 - reject capsule export when readiness is blocked unless caller explicitly requests blocked-state archival (`allowBlocked=true`) with audit-coded reason;
 - add UI action to export capsule and show whether export represents a ready or blocked gate snapshot.
+Status: completed.
 ## Next implementation slice
-Implement **I11 — Capsule audit export and gating freeze**:
-- add `POST /api/v1/workflow/capsule/export` producing workspace-bounded capsule json/markdown outputs plus mandatory audit output;
-- preserve redact-safe capsule constraints and fail closed on duplicate/out-of-workspace output paths;
-- enforce blocked-state handling policy: export ready capsules by default, require explicit `allowBlocked` for blocked capsule archival;
-- add backend/frontend tests for ready export, blocked export rejection, and allowed blocked archival.
+Implement **I12 — Workflow evidence bundle export index**:
+- add `POST /api/v1/workflow/evidence-bundle/export` to persist one deterministic manifest that references plan, bundle, preflight, change-set, approval, authorization, runbook exports, and capsule exports by immutable IDs and workspace paths;
+- enforce fail-closed validation that every referenced artifact exists, validates, and binds to one coherent evidence chain before writing the manifest;
+- add mandatory audit output and reject duplicate/out-of-workspace manifest or audit paths with no-overwrite semantics;
+- add UI action in the capsule panel to export the evidence bundle manifest and render readiness/errors for operator handoff.
 Acceptance criteria:
-- capsule export writes deterministic workspace-bounded artifacts with auditable ready/blocked gate status;
-- blocked capsule export fails closed unless explicitly allowed and audit output records the policy decision;
-- UI capsule export flow surfaces artifact paths and blocked-policy diagnostics without exposing secret-bearing fields;
+- evidence bundle export writes deterministic manifest + audit artifacts with complete immutable references to the workflow chain;
+- evidence bundle export fails closed on missing/malformed/mismatched evidence and on out-of-workspace or duplicate output paths;
+- UI evidence-bundle export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 ## Validation requirements
 Run at minimum for each slice:

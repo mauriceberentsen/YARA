@@ -1172,6 +1172,192 @@ func TestServeWorkflowCapsuleBlockedPath(t *testing.T) {
 	}
 }
 
+func TestServeWorkflowCapsuleExportWritesArtifactsAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, _ := writeExecutionInputs(t, sourcePath, now)
+	planPath, _ := writeV02Plan(t, sourcePath)
+	copyIntoWorkspace := func(path string) {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		target := filepath.Join(workspacePath, filepath.Base(path))
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			t.Fatalf("write %s: %v", target, err)
+		}
+	}
+	copyIntoWorkspace(planPath)
+	for _, flag := range []string{"--bundle", "--preflight", "--change-set", "--approval", "--authorization"} {
+		copyIntoWorkspace(valueForFlag(paths, flag))
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	markdownPath := filepath.Join(workspacePath, "workflow.capsule.md")
+	jsonPath := filepath.Join(workspacePath, "workflow.capsule.json")
+	auditPath := filepath.Join(workspacePath, "workflow.capsule.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"markdownPath":%q,"jsonPath":%q,"auditPath":%q}`, markdownPath, jsonPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/capsule/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for capsule export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	exportJSONBytes, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("read capsule json export: %v", err)
+	}
+	exportJSON := map[string]any{}
+	if err := json.Unmarshal(exportJSONBytes, &exportJSON); err != nil {
+		t.Fatalf("decode capsule json export: %v", err)
+	}
+	if _, ok := exportJSON["capsule"]; !ok {
+		t.Fatalf("expected capsule payload in export json, got %#v", exportJSON)
+	}
+	markdownBytes, err := os.ReadFile(markdownPath)
+	if err != nil {
+		t.Fatalf("read capsule markdown export: %v", err)
+	}
+	if !strings.Contains(string(markdownBytes), "## Readiness") {
+		t.Fatalf("expected readiness section in capsule markdown, got %s", string(markdownBytes))
+	}
+	auditLog, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load capsule export audit: %v", err)
+	}
+	if len(auditLog) == 0 {
+		t.Fatalf("expected audit entries for capsule export")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode capsule export response: %v", err)
+	}
+	export, _ := payload["export"].(map[string]any)
+	if blocked, _ := export["blockedArchival"].(bool); blocked {
+		t.Fatalf("expected ready capsule export to report blockedArchival=false, got %#v", export)
+	}
+}
+
+func TestServeWorkflowCapsuleExportRejectsBlockedWithoutAllow(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, _ := writeExecutionInputs(t, sourcePath, now)
+	planPath, _ := writeV02Plan(t, sourcePath)
+	copyIntoWorkspace := func(path string) {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		target := filepath.Join(workspacePath, filepath.Base(path))
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			t.Fatalf("write %s: %v", target, err)
+		}
+	}
+	copyIntoWorkspace(planPath)
+	for _, flag := range []string{"--bundle", "--preflight", "--change-set", "--approval", "--authorization"} {
+		copyIntoWorkspace(valueForFlag(paths, flag))
+	}
+	approvalPath := filepath.Join(workspacePath, filepath.Base(valueForFlag(paths, "--approval")))
+	approval, err := resources.LoadDeploymentApproval(approvalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval.Spec.BundleID = testCLIDigest('f')
+	approval, err = approval.AssignApprovalID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeYAMLFixture(t, approvalPath, approval)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"markdownPath":%q,"jsonPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "blocked.capsule.md"),
+		filepath.Join(workspacePath, "blocked.capsule.json"),
+		filepath.Join(workspacePath, "blocked.capsule.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/capsule/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for blocked capsule export without allow, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "allowBlocked=true") {
+		t.Fatalf("expected allowBlocked diagnostic, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowCapsuleExportAllowsBlockedWithReason(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, _ := writeExecutionInputs(t, sourcePath, now)
+	planPath, _ := writeV02Plan(t, sourcePath)
+	copyIntoWorkspace := func(path string) {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		target := filepath.Join(workspacePath, filepath.Base(path))
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			t.Fatalf("write %s: %v", target, err)
+		}
+	}
+	copyIntoWorkspace(planPath)
+	for _, flag := range []string{"--bundle", "--preflight", "--change-set", "--approval", "--authorization"} {
+		copyIntoWorkspace(valueForFlag(paths, flag))
+	}
+	approvalPath := filepath.Join(workspacePath, filepath.Base(valueForFlag(paths, "--approval")))
+	approval, err := resources.LoadDeploymentApproval(approvalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval.Spec.BundleID = testCLIDigest('f')
+	approval, err = approval.AssignApprovalID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeYAMLFixture(t, approvalPath, approval)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	markdownPath := filepath.Join(workspacePath, "blocked.capsule.md")
+	jsonPath := filepath.Join(workspacePath, "blocked.capsule.json")
+	auditPath := filepath.Join(workspacePath, "blocked.capsule.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"markdownPath":%q,"jsonPath":%q,"auditPath":%q,"allowBlocked":true,"allowBlockedReasonReference":"ticket-rollback-42"}`,
+		markdownPath,
+		jsonPath,
+		auditPath,
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/capsule/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for blocked capsule export with allow, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	markdownBytes, err := os.ReadFile(markdownPath)
+	if err != nil {
+		t.Fatalf("read capsule markdown export: %v", err)
+	}
+	if !strings.Contains(string(markdownBytes), "ticket-rollback-42") {
+		t.Fatalf("expected blocked reason reference in markdown export, got %s", string(markdownBytes))
+	}
+	auditLog, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load capsule export audit: %v", err)
+	}
+	if len(auditLog) == 0 {
+		t.Fatalf("expected blocked archival diagnostic code in audit log")
+	}
+	lastEvent := auditLog[len(auditLog)-1]
+	if len(lastEvent.Spec.DiagnosticCodes) == 0 {
+		t.Fatalf("expected blocked archival diagnostic code in audit log")
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)

@@ -1307,9 +1307,65 @@ function CapsuleView({ payload }) {
   const exports = capsule.runbookExports || {};
   const markdownExports = Array.isArray(exports.markdownPaths) ? exports.markdownPaths : [];
   const jsonExports = Array.isArray(exports.jsonPaths) ? exports.jsonPaths : [];
+  const workspacePath = capsule.workspacePath || "";
+  const [form, setForm] = useState(() => ({
+    markdownPath: workspacePath ? `${workspacePath}/workflow.capsule.md` : "",
+    jsonPath: workspacePath ? `${workspacePath}/workflow.capsule.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.capsule.export.audit.jsonl` : "",
+    allowBlocked: false,
+    allowBlockedReasonReference: "",
+  }));
+  const [submitState, setSubmitState] = useState({ loading: false, error: "", result: null });
+
+  useEffect(() => {
+    if (!workspacePath) {
+      return;
+    }
+    setForm((previous) => ({
+      ...previous,
+      markdownPath: previous.markdownPath || `${workspacePath}/workflow.capsule.md`,
+      jsonPath: previous.jsonPath || `${workspacePath}/workflow.capsule.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.capsule.export.audit.jsonl`,
+    }));
+  }, [workspacePath]);
+
+  const update = (key) => (event) => {
+    const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+    setForm((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const canExport = form.markdownPath !== "" &&
+    form.jsonPath !== "" &&
+    form.auditPath !== "" &&
+    form.markdownPath !== form.jsonPath &&
+    form.markdownPath !== form.auditPath &&
+    form.jsonPath !== form.auditPath &&
+    (!form.allowBlocked || form.allowBlockedReasonReference.trim() !== "");
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!canExport) {
+      return;
+    }
+    setSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/capsule/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Capsule export failed");
+      }
+      setSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setSubmitState({ loading: false, error: error.message || "Capsule export failed", result: null });
+    }
+  };
   return (
     <>
-      <p>Workspace: {capsule.workspacePath || "unknown"}</p>
+      <p>Workspace: {workspacePath || "unknown"}</p>
       <dl className="grid">
         <div><dt>Readiness</dt><dd>{capsule.ready ? "ready" : "blocked"}</dd></div>
         <div><dt>Blocker count</dt><dd>{String(blockers.length)}</dd></div>
@@ -1359,6 +1415,44 @@ function CapsuleView({ payload }) {
             ))}
           </tbody>
         </table>
+      )}
+      <h3>Export capsule snapshot</h3>
+      <form onSubmit={submit}>
+        <div className="formRow">
+          <label htmlFor="capsule-markdown-path">Markdown output path</label>
+          <input id="capsule-markdown-path" value={form.markdownPath} onChange={update("markdownPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="capsule-json-path">JSON output path</label>
+          <input id="capsule-json-path" value={form.jsonPath} onChange={update("jsonPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="capsule-audit-path">Audit output path</label>
+          <input id="capsule-audit-path" value={form.auditPath} onChange={update("auditPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="capsule-allow-blocked">Allow blocked archival</label>
+          <input id="capsule-allow-blocked" type="checkbox" checked={form.allowBlocked} onChange={update("allowBlocked")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="capsule-blocked-reason">Blocked archival reason reference</label>
+          <input id="capsule-blocked-reason" value={form.allowBlockedReasonReference} onChange={update("allowBlockedReasonReference")} />
+        </div>
+        <button type="submit" disabled={submitState.loading || !canExport}>
+          {submitState.loading ? "Exporting capsule..." : "Export capsule"}
+        </button>
+      </form>
+      {!canExport && <p className="error">Capsule export requires distinct output paths and a reason reference when blocked archival is enabled.</p>}
+      {submitState.error && <p className="error">Error: {submitState.error}</p>}
+      {submitState.result && (
+        <dl className="grid">
+          <div><dt>Markdown path</dt><dd>{submitState.result.markdownPath || "n/a"}</dd></div>
+          <div><dt>JSON path</dt><dd>{submitState.result.jsonPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{submitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Ready snapshot</dt><dd>{String(Boolean(submitState.result.ready))}</dd></div>
+          <div><dt>Blocked archival</dt><dd>{String(Boolean(submitState.result.blockedArchival))}</dd></div>
+          <div><dt>Blocker count</dt><dd>{String(submitState.result.blockerCount ?? 0)}</dd></div>
+        </dl>
       )}
     </>
   );
