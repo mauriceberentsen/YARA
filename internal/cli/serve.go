@@ -22,6 +22,7 @@ import (
 	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/catalogcoverage"
 	"github.com/mauriceberentsen/YARA/internal/resources"
+	"gopkg.in/yaml.v3"
 )
 
 type serveOptions struct {
@@ -1221,6 +1222,94 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.CapsuleExportCount = len(manifest.Manifest.CapsuleExports)
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/receipt-timeline", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow receipt timeline requires --workspace")
+			return
+		}
+		timeline, _, err := buildWorkflowReceiptTimeline(workspacePath)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-029", err.Error())
+			return
+		}
+		writeServeJSON(writer, http.StatusOK, timeline)
+	})
+	apiMux.HandleFunc("/api/v1/workflow/receipt-timeline/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow receipt timeline export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowReceiptTimelineExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-030", err.Error())
+			return
+		}
+		markdownPath, err := ensureWorkspaceFilePath(workspacePath, payload.MarkdownPath, "markdownPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-030", err.Error())
+			return
+		}
+		jsonPath, err := ensureWorkspaceFilePath(workspacePath, payload.JSONPath, "jsonPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-030", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-030", err.Error())
+			return
+		}
+		if markdownPath == jsonPath || markdownPath == auditPath || jsonPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-030", "markdownPath, jsonPath and auditPath must be different files")
+			return
+		}
+		timeline, subjects, err := buildWorkflowReceiptTimeline(workspacePath)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-030", err.Error())
+			return
+		}
+		markdownBytes := []byte(renderReceiptTimelineMarkdown(timeline) + "\n")
+		if err := writeExclusive(markdownPath, markdownBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-030", err.Error())
+			return
+		}
+		jsonBytes, err := json.MarshalIndent(timeline, "", "  ")
+		if err != nil {
+			_ = os.Remove(markdownPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode receipt timeline export json: %v", err))
+			return
+		}
+		jsonBytes = append(jsonBytes, '\n')
+		if err := writeExclusive(jsonPath, jsonBytes); err != nil {
+			_ = os.Remove(markdownPath)
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-030", err.Error())
+			return
+		}
+		exportSubjects := append(append([]audit.Subject(nil), subjects...),
+			audit.Subject{Kind: "ReceiptTimelineMarkdown", Digest: digestBytes(markdownBytes)},
+			audit.Subject{Kind: "ReceiptTimelineJSON", Digest: digestBytes(jsonBytes)},
+		)
+		if err := persistOperationAuditForTarget(auditPath, "workflow.receipt-timeline.export", "completed", "success", "kubernetes:"+timeline.Timeline.Continuity.TargetDigest, exportSubjects, nil); err != nil {
+			_ = os.Remove(markdownPath)
+			_ = os.Remove(jsonPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowReceiptTimelineExportResponse{Valid: true}
+		response.Export.MarkdownPath = markdownPath
+		response.Export.JSONPath = jsonPath
+		response.Export.AuditPath = auditPath
+		response.Export.ReceiptCount = len(timeline.Timeline.Prior) + 1
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -1617,6 +1706,45 @@ type workflowExportReference struct {
 	Blockers     int    `json:"blockers,omitempty"`
 }
 
+type workflowReceiptTimelineResponse struct {
+	Valid    bool `json:"valid"`
+	Timeline struct {
+		WorkspacePath string                           `json:"workspacePath"`
+		Latest        workflowReceiptTimelineReceipt   `json:"latest"`
+		Prior         []workflowReceiptTimelineReceipt `json:"prior"`
+		Continuity    struct {
+			AuthorizationID string `json:"authorizationId"`
+			TargetDigest    string `json:"targetDigest"`
+		} `json:"continuity"`
+	} `json:"timeline"`
+}
+
+type workflowReceiptTimelineReceipt struct {
+	ReceiptID       string `json:"receiptId"`
+	Path            string `json:"path"`
+	Outcome         string `json:"outcome"`
+	StartedAt       string `json:"startedAt"`
+	CompletedAt     string `json:"completedAt"`
+	AuthorizationID string `json:"authorizationId"`
+	TargetDigest    string `json:"targetDigest"`
+}
+
+type workflowReceiptTimelineExportRequest struct {
+	MarkdownPath string `json:"markdownPath"`
+	JSONPath     string `json:"jsonPath"`
+	AuditPath    string `json:"auditPath"`
+}
+
+type workflowReceiptTimelineExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		MarkdownPath string `json:"markdownPath"`
+		JSONPath     string `json:"jsonPath"`
+		AuditPath    string `json:"auditPath"`
+		ReceiptCount int    `json:"receiptCount"`
+	} `json:"export"`
+}
+
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -1640,6 +1768,12 @@ func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, erro
 			return nil, err
 		}
 		if existing, hasExisting := stageArtifacts[stageID]; hasExisting {
+			if stageID == "receipt" {
+				// Keep the first deterministic match for pipeline stage status;
+				// receipt timeline endpoints enumerate all receipt artifacts.
+				_ = existing
+				continue
+			}
 			return nil, fmt.Errorf("multiple workspace artifacts matched stage %s: %s and %s", stageID, filepath.Base(existing), filepath.Base(artifactPath))
 		}
 		stageArtifacts[stageID] = artifactPath
@@ -2039,6 +2173,26 @@ func decodeWorkflowEvidenceBundleExportRequest(request *http.Request) (workflowE
 	return payload, nil
 }
 
+func decodeWorkflowReceiptTimelineExportRequest(request *http.Request) (workflowReceiptTimelineExportRequest, error) {
+	var payload workflowReceiptTimelineExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.MarkdownPath) == "" || strings.TrimSpace(payload.JSONPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("markdownPath, jsonPath and auditPath are required")
+	}
+	if payload.MarkdownPath == payload.JSONPath || payload.MarkdownPath == payload.AuditPath || payload.JSONPath == payload.AuditPath {
+		return payload, errors.New("markdownPath, jsonPath and auditPath must be different files")
+	}
+	return payload, nil
+}
+
 func shellQuote(value string) string {
 	if value == "" {
 		return "''"
@@ -2362,6 +2516,192 @@ func buildWorkflowEvidenceBundleManifest(workspacePath string) (workflowEvidence
 	subjects = append(subjects, runbookRefSubjects...)
 	subjects = append(subjects, capsuleRefSubjects...)
 	return manifest, subjects, nil
+}
+
+type deploymentReceiptFile struct {
+	Path      string
+	Receipt   resources.DeploymentReceipt
+	Completed time.Time
+}
+
+func buildWorkflowReceiptTimeline(workspacePath string) (workflowReceiptTimelineResponse, []audit.Subject, error) {
+	stageLookup, receiptPaths, err := workflowCoreArtifacts(workspacePath)
+	if err != nil {
+		return workflowReceiptTimelineResponse{}, nil, err
+	}
+	authorizationPath, ok := stageLookup["authorization"]
+	if !ok {
+		return workflowReceiptTimelineResponse{}, nil, errors.New("receipt timeline requires authorization artifact in workspace")
+	}
+	authorization, err := resources.LoadExecutionAuthorization(authorizationPath)
+	if err != nil || !authorization.Validate().Valid {
+		return workflowReceiptTimelineResponse{}, nil, errors.New("workspace authorization artifact is invalid")
+	}
+	receipts, err := loadDeploymentReceipts(receiptPaths)
+	if err != nil {
+		return workflowReceiptTimelineResponse{}, nil, err
+	}
+	if len(receipts) == 0 {
+		return workflowReceiptTimelineResponse{}, nil, errors.New("receipt timeline requires at least one deployment receipt in workspace")
+	}
+	for _, item := range receipts {
+		if item.Receipt.Spec.AuthorizationID != authorization.Metadata.AuthorizationID {
+			return workflowReceiptTimelineResponse{}, nil, fmt.Errorf("receipt %s authorization binding does not match workspace authorization", filepath.Base(item.Path))
+		}
+		if item.Receipt.Spec.Target.ReferenceDigest != authorization.Spec.Target.ReferenceDigest {
+			return workflowReceiptTimelineResponse{}, nil, fmt.Errorf("receipt %s target digest diverges from workspace authorization", filepath.Base(item.Path))
+		}
+	}
+	sort.Slice(receipts, func(i, j int) bool {
+		if receipts[i].Completed.Equal(receipts[j].Completed) {
+			return receipts[i].Receipt.Metadata.ReceiptID > receipts[j].Receipt.Metadata.ReceiptID
+		}
+		return receipts[i].Completed.After(receipts[j].Completed)
+	})
+	timeline := workflowReceiptTimelineResponse{Valid: true}
+	timeline.Timeline.WorkspacePath = workspacePath
+	timeline.Timeline.Continuity.AuthorizationID = authorization.Metadata.AuthorizationID
+	timeline.Timeline.Continuity.TargetDigest = authorization.Spec.Target.ReferenceDigest
+	timeline.Timeline.Latest = toWorkflowTimelineReceipt(receipts[0])
+	timeline.Timeline.Prior = make([]workflowReceiptTimelineReceipt, 0, len(receipts)-1)
+	subjects := []audit.Subject{
+		{Kind: "ExecutionAuthorization", Digest: authorization.Metadata.AuthorizationID},
+	}
+	subjects = append(subjects, audit.Subject{Kind: "DeploymentReceipt", Digest: receipts[0].Receipt.Metadata.ReceiptID})
+	for _, item := range receipts[1:] {
+		timeline.Timeline.Prior = append(timeline.Timeline.Prior, toWorkflowTimelineReceipt(item))
+		subjects = append(subjects, audit.Subject{Kind: "DeploymentReceipt", Digest: item.Receipt.Metadata.ReceiptID})
+	}
+	return timeline, subjects, nil
+}
+
+func workflowCoreArtifacts(workspacePath string) (map[string]string, []string, error) {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read workspace directory: %w", err)
+	}
+	stageLookup := map[string]string{}
+	receiptPaths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+			continue
+		}
+		fullPath := filepath.Join(workspacePath, name)
+		kind, err := detectResourceKind(fullPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("inspect workspace artifact %s: %w", filepath.Base(fullPath), err)
+		}
+		if kind == "DeploymentReceipt" {
+			receiptPaths = append(receiptPaths, fullPath)
+			continue
+		}
+		stageID, err := classifyWorkspaceArtifact(fullPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		if stageID == "receipt" {
+			receiptPaths = append(receiptPaths, fullPath)
+			continue
+		}
+		if existing := stageLookup[stageID]; existing != "" {
+			return nil, nil, fmt.Errorf("multiple workspace artifacts matched stage %s: %s and %s", stageID, filepath.Base(existing), filepath.Base(fullPath))
+		}
+		stageLookup[stageID] = fullPath
+	}
+	sort.Strings(receiptPaths)
+	return stageLookup, receiptPaths, nil
+}
+
+func loadDeploymentReceipts(paths []string) ([]deploymentReceiptFile, error) {
+	receipts := make([]deploymentReceiptFile, 0, len(paths))
+	targetDigest := ""
+	for _, path := range paths {
+		receipt, err := resources.LoadDeploymentReceipt(path)
+		if err != nil {
+			return nil, fmt.Errorf("load receipt %s: %w", filepath.Base(path), err)
+		}
+		report := receipt.Validate()
+		if !report.Valid {
+			return nil, fmt.Errorf("receipt %s failed validation: %s", filepath.Base(path), report.Diagnostics[0].Code)
+		}
+		completedAt, err := time.Parse(time.RFC3339Nano, receipt.Spec.CompletedAt)
+		if err != nil {
+			return nil, fmt.Errorf("receipt %s has invalid completedAt timestamp", filepath.Base(path))
+		}
+		if targetDigest == "" {
+			targetDigest = receipt.Spec.Target.ReferenceDigest
+		} else if receipt.Spec.Target.ReferenceDigest != targetDigest {
+			return nil, fmt.Errorf("receipt %s target digest diverges from prior receipt chain", filepath.Base(path))
+		}
+		receipts = append(receipts, deploymentReceiptFile{
+			Path:      path,
+			Receipt:   receipt,
+			Completed: completedAt,
+		})
+	}
+	return receipts, nil
+}
+
+func toWorkflowTimelineReceipt(item deploymentReceiptFile) workflowReceiptTimelineReceipt {
+	return workflowReceiptTimelineReceipt{
+		ReceiptID:       item.Receipt.Metadata.ReceiptID,
+		Path:            item.Path,
+		Outcome:         item.Receipt.Spec.Outcome,
+		StartedAt:       item.Receipt.Spec.StartedAt,
+		CompletedAt:     item.Receipt.Spec.CompletedAt,
+		AuthorizationID: item.Receipt.Spec.AuthorizationID,
+		TargetDigest:    item.Receipt.Spec.Target.ReferenceDigest,
+	}
+}
+
+func renderReceiptTimelineMarkdown(timeline workflowReceiptTimelineResponse) string {
+	lines := []string{
+		"# YARA receipt timeline",
+		"",
+		"## Continuity",
+		"- Authorization ID: " + timeline.Timeline.Continuity.AuthorizationID,
+		"- Target digest: " + timeline.Timeline.Continuity.TargetDigest,
+		"",
+		"## Latest receipt",
+		"- Receipt ID: " + timeline.Timeline.Latest.ReceiptID,
+		"- Path: " + timeline.Timeline.Latest.Path,
+		"- Outcome: " + timeline.Timeline.Latest.Outcome,
+		"- Completed at: " + timeline.Timeline.Latest.CompletedAt,
+	}
+	if len(timeline.Timeline.Prior) > 0 {
+		lines = append(lines, "", "## Prior receipts")
+		for _, prior := range timeline.Timeline.Prior {
+			lines = append(lines, "- "+prior.CompletedAt+" | "+prior.ReceiptID+" | "+prior.Outcome+" | "+prior.Path)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func detectResourceKind(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	envelope := map[string]any{}
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return "", errors.New("resource is empty")
+	}
+	if trimmed[0] == '{' {
+		if err := json.Unmarshal(trimmed, &envelope); err != nil {
+			return "", err
+		}
+	} else {
+		if err := yaml.Unmarshal(trimmed, &envelope); err != nil {
+			return "", err
+		}
+	}
+	kind, _ := envelope["kind"].(string)
+	return kind, nil
 }
 
 func collectRunbookExportReferences(expected workflowRunbookResponse, markdownPaths, jsonPaths []string) ([]workflowExportReference, []audit.Subject, error) {

@@ -1321,6 +1321,12 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.evidence-bundle.export.audit.jsonl` : "",
   }));
   const [bundleSubmitState, setBundleSubmitState] = useState({ loading: false, error: "", result: null });
+  const [timelineForm, setTimelineForm] = useState(() => ({
+    markdownPath: workspacePath ? `${workspacePath}/workflow.receipt-timeline.md` : "",
+    jsonPath: workspacePath ? `${workspacePath}/workflow.receipt-timeline.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.receipt-timeline.export.audit.jsonl` : "",
+  }));
+  const [timelineSubmitState, setTimelineSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1336,6 +1342,12 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.evidence-bundle.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.evidence-bundle.export.audit.jsonl`,
+    }));
+    setTimelineForm((previous) => ({
+      ...previous,
+      markdownPath: previous.markdownPath || `${workspacePath}/workflow.receipt-timeline.md`,
+      jsonPath: previous.jsonPath || `${workspacePath}/workflow.receipt-timeline.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.receipt-timeline.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1396,6 +1408,36 @@ function CapsuleView({ payload }) {
       setBundleSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setBundleSubmitState({ loading: false, error: error.message || "Evidence bundle export failed", result: null });
+    }
+  };
+  const updateTimeline = (key) => (event) => {
+    setTimelineForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportTimeline = timelineForm.markdownPath !== "" &&
+    timelineForm.jsonPath !== "" &&
+    timelineForm.auditPath !== "" &&
+    timelineForm.markdownPath !== timelineForm.jsonPath &&
+    timelineForm.markdownPath !== timelineForm.auditPath &&
+    timelineForm.jsonPath !== timelineForm.auditPath;
+  const submitTimeline = async (event) => {
+    event.preventDefault();
+    if (!canExportTimeline) {
+      return;
+    }
+    setTimelineSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/receipt-timeline/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(timelineForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Receipt timeline export failed");
+      }
+      setTimelineSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setTimelineSubmitState({ loading: false, error: error.message || "Receipt timeline export failed", result: null });
     }
   };
   return (
@@ -1511,6 +1553,34 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{bundleSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Runbook exports</dt><dd>{String(bundleSubmitState.result.runbookExportCount ?? 0)}</dd></div>
           <div><dt>Capsule exports</dt><dd>{String(bundleSubmitState.result.capsuleExportCount ?? 0)}</dd></div>
+        </dl>
+      )}
+      <h3>Export receipt timeline</h3>
+      <form onSubmit={submitTimeline}>
+        <div className="formRow">
+          <label htmlFor="receipt-timeline-markdown-path">Markdown output path</label>
+          <input id="receipt-timeline-markdown-path" value={timelineForm.markdownPath} onChange={updateTimeline("markdownPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="receipt-timeline-json-path">JSON output path</label>
+          <input id="receipt-timeline-json-path" value={timelineForm.jsonPath} onChange={updateTimeline("jsonPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="receipt-timeline-audit-path">Audit output path</label>
+          <input id="receipt-timeline-audit-path" value={timelineForm.auditPath} onChange={updateTimeline("auditPath")} />
+        </div>
+        <button type="submit" disabled={timelineSubmitState.loading || !canExportTimeline}>
+          {timelineSubmitState.loading ? "Exporting receipt timeline..." : "Export receipt timeline"}
+        </button>
+      </form>
+      {!canExportTimeline && <p className="error">Receipt timeline export requires distinct markdown/json/audit paths.</p>}
+      {timelineSubmitState.error && <p className="error">Error: {timelineSubmitState.error}</p>}
+      {timelineSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Markdown path</dt><dd>{timelineSubmitState.result.markdownPath || "n/a"}</dd></div>
+          <div><dt>JSON path</dt><dd>{timelineSubmitState.result.jsonPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{timelineSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Receipt count</dt><dd>{String(timelineSubmitState.result.receiptCount ?? 0)}</dd></div>
         </dl>
       )}
     </>

@@ -1452,6 +1452,85 @@ func TestServeWorkflowEvidenceBundleExportRejectsMismatchedRunbookExport(t *test
 	}
 }
 
+func TestServeWorkflowReceiptTimelineReturnsLatestAndPrior(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	receipts := writeDeploymentReceiptFixtures(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/workflow/receipt-timeline", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for receipt timeline, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	payload := workflowReceiptTimelineResponse{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode receipt timeline response: %v", err)
+	}
+	if payload.Timeline.Latest.ReceiptID != receipts[1].Metadata.ReceiptID {
+		t.Fatalf("expected latest receipt id %s, got %s", receipts[1].Metadata.ReceiptID, payload.Timeline.Latest.ReceiptID)
+	}
+	if len(payload.Timeline.Prior) != 1 || payload.Timeline.Prior[0].ReceiptID != receipts[0].Metadata.ReceiptID {
+		t.Fatalf("expected one prior receipt with id %s, got %#v", receipts[0].Metadata.ReceiptID, payload.Timeline.Prior)
+	}
+}
+
+func TestServeWorkflowReceiptTimelineRejectsDivergedTargetDigest(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	receipts := writeDeploymentReceiptFixtures(t, workspacePath)
+	receiptPath := filepath.Join(workspacePath, "reference-receipt-older.yaml")
+	corrupted := receipts[0]
+	corrupted.Spec.Target.ReferenceDigest = testCLIDigest('e')
+	corrupted, err := corrupted.AssignReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeYAMLFixture(t, receiptPath, corrupted)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/workflow/receipt-timeline", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for diverged target digest, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "target digest diverges") {
+		t.Fatalf("expected target divergence diagnostic, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowReceiptTimelineExportWritesArtifactsAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeDeploymentReceiptFixtures(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	markdownPath := filepath.Join(workspacePath, "workflow.receipt-timeline.md")
+	jsonPath := filepath.Join(workspacePath, "workflow.receipt-timeline.json")
+	auditPath := filepath.Join(workspacePath, "workflow.receipt-timeline.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"markdownPath":%q,"jsonPath":%q,"auditPath":%q}`, markdownPath, jsonPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/receipt-timeline/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for receipt timeline export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	markdownBytes, err := os.ReadFile(markdownPath)
+	if err != nil {
+		t.Fatalf("read receipt timeline markdown: %v", err)
+	}
+	if !strings.Contains(string(markdownBytes), "## Latest receipt") {
+		t.Fatalf("expected latest receipt section in markdown export, got %s", string(markdownBytes))
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load receipt timeline audit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected audit events for receipt timeline export")
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
@@ -1620,6 +1699,90 @@ func writeEvidenceBundleFixtures(t *testing.T, workspacePath string) {
 	if err := os.WriteFile(capsuleJSONPath, capsuleJSONBytes, 0o600); err != nil {
 		t.Fatalf("write capsule json fixture: %v", err)
 	}
+}
+
+func writeDeploymentReceiptFixtures(t *testing.T, workspacePath string) []resources.DeploymentReceipt {
+	t.Helper()
+	stageLookup, err := workspaceStageArtifacts(workspacePath)
+	if err != nil {
+		t.Fatalf("load workspace stage artifacts: %v", err)
+	}
+	bundle, err := resources.LoadDeploymentBundle(stageLookup["bundle"])
+	if err != nil {
+		t.Fatalf("load bundle fixture: %v", err)
+	}
+	preflight, err := resources.LoadTargetPreflightResult(stageLookup["preflight"])
+	if err != nil {
+		t.Fatalf("load preflight fixture: %v", err)
+	}
+	changeSet, err := resources.LoadKubernetesChangeSet(stageLookup["changeset"])
+	if err != nil {
+		t.Fatalf("load change-set fixture: %v", err)
+	}
+	approval, err := resources.LoadDeploymentApproval(stageLookup["approval"])
+	if err != nil {
+		t.Fatalf("load approval fixture: %v", err)
+	}
+	authorization, err := resources.LoadExecutionAuthorization(stageLookup["authorization"])
+	if err != nil {
+		t.Fatalf("load authorization fixture: %v", err)
+	}
+	evidenceDigest, err := canonical.Digest(struct {
+		Receipt string
+	}{Receipt: "timeline"})
+	if err != nil {
+		t.Fatalf("compute evidence digest: %v", err)
+	}
+	writeReceipt := func(name string, started, completed time.Time) resources.DeploymentReceipt {
+		receipt := resources.DeploymentReceipt{
+			APIVersion: resources.APIVersion,
+			Kind:       "DeploymentReceipt",
+			Metadata: resources.DeploymentReceiptMetadata{
+				Name: name,
+			},
+			Spec: resources.DeploymentReceiptSpec{
+				Outcome:                "succeeded",
+				StartedAt:              started.Format(time.RFC3339Nano),
+				CompletedAt:            completed.Format(time.RFC3339Nano),
+				ExecutionCorrelationID: testCLIDigest('7'),
+				PlanID:                 bundle.Spec.PlanID,
+				BundleID:               bundle.Metadata.BundleID,
+				PreflightResultID:      preflight.Metadata.ResultID,
+				ChangeSetID:            changeSet.Metadata.ChangeSetID,
+				ApprovalID:             approval.Metadata.ApprovalID,
+				AuthorizationID:        authorization.Metadata.AuthorizationID,
+				ImportReceiptID:        testCLIDigest('8'),
+				Target:                 authorization.Spec.Target,
+				Executor: resources.DeploymentExecutorIdentity{
+					Name:         "yara",
+					Version:      "0.1.0",
+					BinaryDigest: testCLIDigest('9'),
+				},
+				Operations: []resources.DeploymentOperationReceipt{
+					{
+						Resource:    changeSet.Spec.Operations[0].Resource,
+						Action:      "create",
+						Outcome:     "applied",
+						AfterDigest: changeSet.Spec.Operations[0].DesiredDigest,
+					},
+				},
+				Postflight: []resources.DeploymentPostflightCheck{
+					{ID: "workloads.available", Status: "passed", EvidenceDigest: evidenceDigest},
+				},
+				Limitations: []string{"Timeline fixture."},
+			},
+		}
+		receipt, err := receipt.AssignReceiptID()
+		if err != nil {
+			t.Fatalf("assign receipt id for %s: %v", name, err)
+		}
+		path := filepath.Join(workspacePath, name+".yaml")
+		writeYAMLFixture(t, path, receipt)
+		return receipt
+	}
+	first := writeReceipt("reference-receipt-older", time.Date(2026, 7, 20, 12, 4, 0, 0, time.UTC), time.Date(2026, 7, 20, 12, 5, 0, 0, time.UTC))
+	second := writeReceipt("reference-receipt-latest", time.Date(2026, 7, 20, 12, 9, 0, 0, time.UTC), time.Date(2026, 7, 20, 12, 10, 0, 0, time.UTC))
+	return []resources.DeploymentReceipt{first, second}
 }
 
 func serveHandlerFixture(t *testing.T, uiEnabled bool, workspacePath string) http.Handler {

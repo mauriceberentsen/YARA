@@ -1,8 +1,7 @@
 # Cursor handoff
 ## Current repository state
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
-- First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `88dcc81`, `f4bc3fc`, `efd79b3`, `b83483e`, `6e21c5c`.
+- Recent commits (newest first): `3252d0e`, `88dcc81`, `f4bc3fc`, `efd79b3`, `b83483e`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
@@ -54,6 +53,9 @@
   - `POST /api/v1/workflow/evidence-bundle/export` persists a deterministic manifest + mandatory audit output that references plan/bundle/preflight/change-set/approval/authorization and exported runbook/capsule artifacts by immutable IDs and workspace paths;
   - export fails closed when runbook or capsule export artifacts are missing, malformed, unpaired, or bound to a mismatched evidence chain;
   - capsule UI now supports evidence-bundle export actions with fail-closed diagnostics and deterministic artifact path outputs for operator handoff.
+- Interactive workflow cockpit I13 is implemented:
+  - `GET /api/v1/workflow/receipt-timeline` derives deterministic latest/prior deployment receipt chronology from workspace artifacts with explicit authorization and target-digest continuity checks;
+  - `POST /api/v1/workflow/receipt-timeline/export` persists timeline markdown/json + mandatory audit outputs with workspace-bounded no-overwrite enforcement and fail-closed linkage/digest diagnostics surfaced in the capsule UI.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -65,13 +67,12 @@
 ## Current branch and working tree
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `POST /api/v1/workflow/evidence-bundle/export` now writes deterministic workflow evidence-bundle manifest + mandatory audit output to workspace-bounded paths;
-  - evidence-bundle export now fails closed when runbook/capsule exports are absent or not bound to the active workflow evidence chain;
-  - UI capsule panel now supports evidence-bundle export and surfaces manifest/audit paths plus referenced export counts.
+  - `GET /api/v1/workflow/receipt-timeline` now surfaces latest/prior deployment receipt chronology with authorization and target-digest continuity data;
+  - `POST /api/v1/workflow/receipt-timeline/export` now writes deterministic timeline markdown/json plus mandatory audit output to workspace-bounded paths;
+  - UI capsule panel now supports receipt timeline export and surfaces artifact paths/counts with fail-closed diagnostics.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
-  - `npm run check --prefix internal/cli/webui`;
-  - `git diff --check`;
+  - `npm run check --prefix internal/cli/webui` and `git diff --check`;
   - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`;
   - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
@@ -89,17 +90,13 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 - `serve --workspace` + `GET /api/v1/workspace` + UI Pipeline view for deterministic seven-stage discovery/status; no mutation.
 - Status: completed.
 ### I2 — Plan creation form
-- `POST /api/v1/workflow/plan` + Plan create form + deterministic result panel + workspace path bounding.
-- Status: completed.
+- `POST /api/v1/workflow/plan` + deterministic Plan form/result with workspace-bounded outputs. Status: completed.
 ### I3 — Bundle render
-- `POST /api/v1/workflow/render` + Render form + deterministic bundle result panel + workspace path bounding.
-- Status: completed.
+- `POST /api/v1/workflow/render` + deterministic Bundle form/result with workspace-bounded outputs. Status: completed.
 ### I4 — Preflight and change-set observation
-- `POST /api/v1/workflow/preflight` + `POST /api/v1/workflow/changeset` + Preflight/Change-set forms + deterministic result/inspector panels + workspace path bounding.
-- Status: completed.
+- `POST /api/v1/workflow/preflight` + `POST /api/v1/workflow/changeset` + deterministic observation forms/results with workspace-bounded outputs. Status: completed.
 ### I5 — Approval form
-- `POST /api/v1/workflow/approval` + Approval checklist/form + deterministic result panel + workspace path bounding.
-- Status: completed.
+- `POST /api/v1/workflow/approval` + deterministic approval checklist/form/result with workspace-bounded outputs. Status: completed.
 ### I6 — Authorization CLI generator and apply confirmation
 - for authorization, the UI generates and displays the exact `yara authorization issue` CLI command with all workspace-resolved paths — the private key is never sent to the server;
 - once the authorization file appears in the workspace (operator runs the command externally), the UI detects it via `GET /api/v1/workspace` polling and advances to the apply stage;
@@ -129,16 +126,20 @@ Status: completed.
 ### I12 — Workflow evidence bundle export index
 - add `POST /api/v1/workflow/evidence-bundle/export` + capsule UI action to persist deterministic manifest/audit outputs, with fail-closed validation for missing/malformed/mismatched runbook/capsule exports and strict workspace-bounded no-overwrite paths.
 Status: completed.
+### I13 — Execution receipt timeline and closure export
+- add `GET /api/v1/workflow/receipt-timeline` and `POST /api/v1/workflow/receipt-timeline/export` with deterministic latest/prior receipt chronology, mandatory markdown/json/audit outputs, and fail-closed checks for malformed artifacts, target digest divergence, and missing receipt-to-authorization linkage.
+- add capsule UI action to export receipt timeline artifacts and surface closure blockers.
+Status: completed.
 ## Next implementation slice
-Implement **I13 — Execution receipt timeline and closure export**:
-- add `GET /api/v1/workflow/receipt-timeline` that derives deterministic apply receipt chronology (latest receipt + prior receipts in workspace) with immutable IDs, authorization linkage, and target digest continuity checks;
-- add `POST /api/v1/workflow/receipt-timeline/export` to persist timeline markdown/json plus mandatory audit output using workspace-bounded no-overwrite semantics;
-- fail closed when receipt artifacts are malformed, target digests diverge, or receipt-to-authorization bindings are incomplete;
-- extend capsule UI with receipt timeline export action and blocker surfacing for rollout closure handoff.
+Implement **I14 — Rollout closure package export**:
+- add `POST /api/v1/workflow/closure-package/export` to persist one deterministic closure manifest that references evidence-bundle, receipt timeline, capsule export, and runbook export artifacts with immutable digests and workspace paths;
+- require explicit `releaseReadinessReference` and fail closed when closure package inputs are missing, mismatched, or not bound to one authorization + target digest continuity chain;
+- emit mandatory audit output with workspace-bounded no-overwrite semantics and deterministic diagnostic codes for closure blockers;
+- extend capsule UI with closure-package export action and explicit blocker guidance for handoff readiness.
 Acceptance criteria:
-- receipt timeline endpoints/export write deterministic closure artifacts with immutable receipt/authorization linkage;
-- receipt timeline flow fails closed on malformed/mismatched receipt chains and out-of-workspace or duplicate output paths;
-- UI receipt-timeline export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
+- closure-package export writes deterministic manifest + audit artifacts linking evidence-bundle, runbook, capsule, and receipt timeline outputs by immutable digest;
+- closure-package export fails closed on missing/malformed/mismatched input artifacts and on out-of-workspace or duplicate output paths;
+- UI closure-package export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 ## Validation requirements
 Run at minimum for each slice:
