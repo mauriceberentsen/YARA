@@ -208,6 +208,24 @@ type acceptedPublicationChainRenewalReview struct {
 	OccurredAt string
 }
 
+type acceptedArtifactImportReceipt struct {
+	Receipt    resources.ArtifactImportReceipt
+	AuditHead  string
+	OccurredAt string
+}
+
+type acceptedArtifactTransferReceipt struct {
+	Receipt    resources.ArtifactTransferReceipt
+	AuditHead  string
+	OccurredAt string
+}
+
+type acceptedArtifactScanReceipt struct {
+	Receipt    resources.ArtifactScanReceipt
+	AuditHead  string
+	OccurredAt string
+}
+
 type evidenceIndex struct {
 	Contracts                      map[string][]acceptedEvidence
 	ComponentEvidence              map[string][]acceptedIntegrationEvidence
@@ -217,6 +235,9 @@ type evidenceIndex struct {
 	IntegrationAttestations        map[string][]acceptedIntegrationPublicationAttestation
 	PublicationChainRehearsals     map[string][]acceptedPublicationChainRehearsal
 	PublicationChainRenewalReviews map[string][]acceptedPublicationChainRenewalReview
+	ArtifactImportReceipts         map[string][]acceptedArtifactImportReceipt
+	ArtifactTransferReceipts       map[string][]acceptedArtifactTransferReceipt
+	ArtifactScanReceipts           map[string][]acceptedArtifactScanReceipt
 	AcceptedCount                  int
 	VerifiedAuditCount             int
 	IntegrationIdentityCount       int
@@ -261,6 +282,9 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 			evidence.IntegrationAttestations[assertion.ID],
 			evidence.PublicationChainRehearsals[assertion.ID],
 			evidence.PublicationChainRenewalReviews[assertion.ID],
+			evidence.ArtifactImportReceipts[assertion.ID],
+			evidence.ArtifactTransferReceipts[assertion.ID],
+			evidence.ArtifactScanReceipts[assertion.ID],
 			catalogDigest,
 		)
 		report.Spec.Assertions = append(report.Spec.Assertions, coverage)
@@ -273,6 +297,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 			report.Spec.Summary.LifecyclePublicationBlockedAssertions++
 		}
 	}
+	report.Spec.Limitations = append(report.Spec.Limitations, artifactImportChainLimitations(report.Spec.Assertions)...)
 	report.Spec.Limitations = append(report.Spec.Limitations, publicationChainRetentionLimitations(report.Spec.Assertions)...)
 	report.Spec.Limitations = append(report.Spec.Limitations, publicationChainRenewalReviewLimitations(report.Spec.Assertions)...)
 	slices.Sort(report.Spec.Limitations)
@@ -326,6 +351,34 @@ func publicationChainRetentionLimitations(assertions []AssertionCoverage) []stri
 	return records
 }
 
+func artifactImportChainLimitations(assertions []AssertionCoverage) []string {
+	records := []string{}
+	for _, assertion := range assertions {
+		importGate := GateCoverage{}
+		found := false
+		for _, gate := range assertion.Gates {
+			if gate.ID == "artifact-import-chain" {
+				importGate = gate
+				found = true
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+		selected := importGate.SelectedResult
+		if selected == "" {
+			selected = "none"
+		}
+		blocker := importGate.Blocker
+		if blocker == "" {
+			blocker = "none"
+		}
+		records = append(records, fmt.Sprintf("artifact-import-chain:assertion=%s,status=%s,selected-receipt=%s,blocker=%s", assertion.ID, importGate.Status, selected, blocker))
+	}
+	return records
+}
+
 func publicationChainRenewalReviewLimitations(assertions []AssertionCoverage) []string {
 	records := make([]string, 0, len(assertions))
 	for _, assertion := range assertions {
@@ -363,6 +416,9 @@ func assertionCoverage(
 	attestations []acceptedIntegrationPublicationAttestation,
 	rehearsals []acceptedPublicationChainRehearsal,
 	renewalReviews []acceptedPublicationChainRenewalReview,
+	importReceipts []acceptedArtifactImportReceipt,
+	transferReceipts []acceptedArtifactTransferReceipt,
+	scanReceipts []acceptedArtifactScanReceipt,
 	catalogDigest string,
 ) AssertionCoverage {
 	coverage := AssertionCoverage{
@@ -384,6 +440,10 @@ func assertionCoverage(
 	coverage.Gates = append(coverage.Gates, lifecycleGate)
 	integrationGate := integrationPublicationAttestationGate(integrationEvidence, attestations, catalogDigest)
 	coverage.Gates = append(coverage.Gates, integrationGate)
+	if assertion.ArtifactVerified {
+		importGate := artifactImportChainGate(importReceipts, transferReceipts, scanReceipts)
+		coverage.Gates = append(coverage.Gates, importGate)
+	}
 	rehearsalGate := publicationChainRehearsalGate(approvals, attestations, rehearsals, catalogDigest)
 	coverage.Gates = append(coverage.Gates, rehearsalGate)
 	renewalReviewGate := publicationChainRenewalReviewGate(reviews, approvals, attestations, rehearsals, renewalReviews, catalogDigest)
@@ -671,6 +731,108 @@ func integrationPublicationAttestationGate(integrationEvidence []acceptedIntegra
 	}
 	gate.Status = "passed"
 	gate.Blocker = ""
+	return gate
+}
+
+func artifactImportChainGate(importReceipts []acceptedArtifactImportReceipt, transferReceipts []acceptedArtifactTransferReceipt, scanReceipts []acceptedArtifactScanReceipt) GateCoverage {
+	gate := GateCoverage{
+		ID:               "artifact-import-chain",
+		Status:           "missing",
+		ObservedEvidence: []EvidenceBinding{},
+		Blocker:          "artifact-import-receipt-not-recorded",
+	}
+	if len(importReceipts) == 0 {
+		return gate
+	}
+	sortedImports := slices.Clone(importReceipts)
+	slices.SortFunc(sortedImports, func(left, right acceptedArtifactImportReceipt) int {
+		if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Receipt.Metadata.ImportReceiptID, right.Receipt.Metadata.ImportReceiptID)
+	})
+	for _, item := range sortedImports {
+		gate.ObservedEvidence = append(gate.ObservedEvidence, EvidenceBinding{
+			ResultID:  item.Receipt.Metadata.ImportReceiptID,
+			Outcome:   "passed",
+			AuditHead: item.AuditHead,
+		})
+	}
+	selectedImport := sortedImports[len(sortedImports)-1]
+	importID := selectedImport.Receipt.Metadata.ImportReceiptID
+	candidateTransfers := []acceptedArtifactTransferReceipt{}
+	for _, item := range transferReceipts {
+		if slices.Contains(item.Receipt.Spec.PriorReceiptIDs, importID) {
+			candidateTransfers = append(candidateTransfers, item)
+		}
+	}
+	if len(transferReceipts) == 0 {
+		gate.Blocker = "artifact-transfer-receipt-not-recorded"
+		return gate
+	}
+	if len(candidateTransfers) == 0 {
+		gate.Status = "failed"
+		gate.Blocker = "selected-transfer-does-not-bind-import-receipt"
+		return gate
+	}
+	slices.SortFunc(candidateTransfers, func(left, right acceptedArtifactTransferReceipt) int {
+		if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Receipt.Metadata.TransferReceiptID, right.Receipt.Metadata.TransferReceiptID)
+	})
+	for _, item := range candidateTransfers {
+		gate.ObservedEvidence = append(gate.ObservedEvidence, EvidenceBinding{
+			ResultID:  item.Receipt.Metadata.TransferReceiptID,
+			Outcome:   "passed",
+			AuditHead: item.AuditHead,
+		})
+	}
+	selectedTransfer := candidateTransfers[len(candidateTransfers)-1]
+	transferID := selectedTransfer.Receipt.Metadata.TransferReceiptID
+	candidateScans := []acceptedArtifactScanReceipt{}
+	for _, item := range scanReceipts {
+		if slices.Contains(item.Receipt.Spec.PriorReceiptIDs, transferID) {
+			candidateScans = append(candidateScans, item)
+		}
+	}
+	if len(scanReceipts) == 0 {
+		gate.Blocker = "artifact-scan-receipt-not-recorded"
+		return gate
+	}
+	if len(candidateScans) == 0 {
+		gate.Status = "failed"
+		gate.Blocker = "selected-scan-does-not-bind-transfer-receipt"
+		return gate
+	}
+	slices.SortFunc(candidateScans, func(left, right acceptedArtifactScanReceipt) int {
+		if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Receipt.Metadata.ScanReceiptID, right.Receipt.Metadata.ScanReceiptID)
+	})
+	for _, item := range candidateScans {
+		outcome := item.Receipt.Spec.Verdict
+		gate.ObservedEvidence = append(gate.ObservedEvidence, EvidenceBinding{
+			ResultID:  item.Receipt.Metadata.ScanReceiptID,
+			Outcome:   outcome,
+			AuditHead: item.AuditHead,
+		})
+	}
+	selectedScan := candidateScans[len(candidateScans)-1]
+	gate.SelectedResult = selectedScan.Receipt.Metadata.ScanReceiptID
+	gate.SelectedAuditHead = selectedScan.AuditHead
+	switch selectedScan.Receipt.Spec.Verdict {
+	case "passed":
+		gate.Status = "passed"
+		gate.Blocker = ""
+	case "blocked":
+		gate.Status = "blocked"
+		gate.Blocker = "selected-scan-verdict-blocked"
+	default:
+		gate.Status = "failed"
+		gate.Blocker = "selected-scan-verdict-failed"
+	}
 	return gate
 }
 
@@ -1152,11 +1314,20 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		IntegrationAttestations:        make(map[string][]acceptedIntegrationPublicationAttestation),
 		PublicationChainRehearsals:     make(map[string][]acceptedPublicationChainRehearsal),
 		PublicationChainRenewalReviews: make(map[string][]acceptedPublicationChainRenewalReview),
+		ArtifactImportReceipts:         make(map[string][]acceptedArtifactImportReceipt),
+		ArtifactTransferReceipts:       make(map[string][]acceptedArtifactTransferReceipt),
+		ArtifactScanReceipts:           make(map[string][]acceptedArtifactScanReceipt),
 	}
 	assertions := make(map[string]catalog.AssertionDescriptor)
+	assertionModelRefs := make(map[string]string)
 	inventory := snapshot.ManifestInventory()
 	for _, assertion := range inventory.Compatibility {
 		assertions[assertion.ID] = assertion
+		target, ok := snapshot.ContractTarget(assertion.ID)
+		if !ok {
+			return evidenceIndex{}, fmt.Errorf("catalog assertion %s does not resolve to a contract target", assertion.ID)
+		}
+		assertionModelRefs[assertion.ID] = target.ModelArtifact.Ref
 	}
 	components := make(map[string]struct{}, len(inventory.Components))
 	for _, component := range inventory.Components {
@@ -1171,6 +1342,9 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 	pendingIntegrationAttestationPaths := []string{}
 	pendingPublicationChainRehearsalPaths := []string{}
 	pendingPublicationChainRenewalReviewPaths := []string{}
+	pendingArtifactImportReceiptPaths := []string{}
+	pendingArtifactTransferReceiptPaths := []string{}
+	pendingArtifactScanReceiptPaths := []string{}
 	acceptedIntegrationByID := map[string]acceptedIntegrationEvidence{}
 	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -1249,6 +1423,18 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 			pendingPublicationChainRenewalReviewPaths = append(pendingPublicationChainRenewalReviewPaths, path)
 			return nil
 		}
+		if kind == "ArtifactImportReceipt" {
+			pendingArtifactImportReceiptPaths = append(pendingArtifactImportReceiptPaths, path)
+			return nil
+		}
+		if kind == "ArtifactTransferReceipt" {
+			pendingArtifactTransferReceiptPaths = append(pendingArtifactTransferReceiptPaths, path)
+			return nil
+		}
+		if kind == "ArtifactScanReceipt" {
+			pendingArtifactScanReceiptPaths = append(pendingArtifactScanReceiptPaths, path)
+			return nil
+		}
 		if kind != "ContractTestResult" {
 			return fmt.Errorf("evidence %s has unsupported kind %q", filepath.Base(path), kind)
 		}
@@ -1283,6 +1469,136 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 	})
 	if err != nil {
 		return evidenceIndex{}, fmt.Errorf("discover catalog evidence: %w", err)
+	}
+	for _, path := range pendingArtifactImportReceiptPaths {
+		receipt, err := resources.LoadArtifactImportReceipt(path)
+		if err != nil {
+			return evidenceIndex{}, fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if report := receipt.Validate(); !report.Valid {
+			return evidenceIndex{}, fmt.Errorf("evidence %s is invalid", filepath.Base(path))
+		}
+		assertionIDs := assertionIDsForImportedModelRefs(assertionModelRefs, importedModelRefs(receipt.Spec.ModelArtifacts))
+		if len(assertionIDs) == 0 {
+			return evidenceIndex{}, fmt.Errorf("evidence %s does not bind any catalog assertion model artifact", filepath.Base(path))
+		}
+		auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
+		events, head, err := loadVerifiedAudit(auditPath)
+		if err != nil {
+			return evidenceIndex{}, err
+		}
+		if err := verifyArtifactImportReceiptAudit(events, receipt); err != nil {
+			return evidenceIndex{}, fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
+		}
+		terminal := events[len(events)-1]
+		accepted := acceptedArtifactImportReceipt{
+			Receipt:    receipt,
+			AuditHead:  head,
+			OccurredAt: terminal.Metadata.OccurredAt,
+		}
+		for _, assertionID := range assertionIDs {
+			result.ArtifactImportReceipts[assertionID] = append(result.ArtifactImportReceipts[assertionID], accepted)
+		}
+		result.AcceptedCount++
+		result.VerifiedAuditCount++
+	}
+	for _, path := range pendingArtifactTransferReceiptPaths {
+		receipt, err := resources.LoadArtifactTransferReceipt(path)
+		if err != nil {
+			return evidenceIndex{}, fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if report := receipt.Validate(); !report.Valid || receipt.Spec.CatalogDigest != catalogDigest {
+			return evidenceIndex{}, fmt.Errorf("evidence %s is invalid or not bound to this catalog", filepath.Base(path))
+		}
+		assertionIDs := assertionIDsForImportedModelRefs(assertionModelRefs, importedModelRefs(receipt.Spec.ModelArtifacts))
+		if len(assertionIDs) == 0 {
+			return evidenceIndex{}, fmt.Errorf("evidence %s does not bind any catalog assertion model artifact", filepath.Base(path))
+		}
+		for _, assertionID := range assertionIDs {
+			importBound := false
+			for _, prior := range receipt.Spec.PriorReceiptIDs {
+				for _, importReceipt := range result.ArtifactImportReceipts[assertionID] {
+					if importReceipt.Receipt.Metadata.ImportReceiptID == prior {
+						importBound = true
+						break
+					}
+				}
+				if importBound {
+					break
+				}
+			}
+			if !importBound {
+				return evidenceIndex{}, fmt.Errorf("evidence %s does not reference accepted import receipt identity for assertion %s", filepath.Base(path), assertionID)
+			}
+		}
+		auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
+		events, head, err := loadVerifiedAudit(auditPath)
+		if err != nil {
+			return evidenceIndex{}, err
+		}
+		if err := verifyArtifactTransferReceiptAudit(events, receipt); err != nil {
+			return evidenceIndex{}, fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
+		}
+		terminal := events[len(events)-1]
+		accepted := acceptedArtifactTransferReceipt{
+			Receipt:    receipt,
+			AuditHead:  head,
+			OccurredAt: terminal.Metadata.OccurredAt,
+		}
+		for _, assertionID := range assertionIDs {
+			result.ArtifactTransferReceipts[assertionID] = append(result.ArtifactTransferReceipts[assertionID], accepted)
+		}
+		result.AcceptedCount++
+		result.VerifiedAuditCount++
+	}
+	for _, path := range pendingArtifactScanReceiptPaths {
+		receipt, err := resources.LoadArtifactScanReceipt(path)
+		if err != nil {
+			return evidenceIndex{}, fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if report := receipt.Validate(); !report.Valid || receipt.Spec.CatalogDigest != catalogDigest {
+			return evidenceIndex{}, fmt.Errorf("evidence %s is invalid or not bound to this catalog", filepath.Base(path))
+		}
+		assertionIDs := assertionIDsForImportedModelRefs(assertionModelRefs, importedModelRefs(receipt.Spec.ModelArtifacts))
+		if len(assertionIDs) == 0 {
+			return evidenceIndex{}, fmt.Errorf("evidence %s does not bind any catalog assertion model artifact", filepath.Base(path))
+		}
+		for _, assertionID := range assertionIDs {
+			transferBound := false
+			for _, prior := range receipt.Spec.PriorReceiptIDs {
+				for _, transferReceipt := range result.ArtifactTransferReceipts[assertionID] {
+					if transferReceipt.Receipt.Metadata.TransferReceiptID == prior {
+						transferBound = true
+						break
+					}
+				}
+				if transferBound {
+					break
+				}
+			}
+			if !transferBound {
+				return evidenceIndex{}, fmt.Errorf("evidence %s does not reference accepted transfer receipt identity for assertion %s", filepath.Base(path), assertionID)
+			}
+		}
+		auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
+		events, head, err := loadVerifiedAudit(auditPath)
+		if err != nil {
+			return evidenceIndex{}, err
+		}
+		if err := verifyArtifactScanReceiptAudit(events, receipt); err != nil {
+			return evidenceIndex{}, fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
+		}
+		terminal := events[len(events)-1]
+		accepted := acceptedArtifactScanReceipt{
+			Receipt:    receipt,
+			AuditHead:  head,
+			OccurredAt: terminal.Metadata.OccurredAt,
+		}
+		for _, assertionID := range assertionIDs {
+			result.ArtifactScanReceipts[assertionID] = append(result.ArtifactScanReceipts[assertionID], accepted)
+		}
+		result.AcceptedCount++
+		result.VerifiedAuditCount++
 	}
 	for _, path := range pendingPromotionReviewPaths {
 		review, err := resources.LoadPromotionReview(path)
@@ -1705,6 +2021,79 @@ func verifyPublicationChainRenewalReviewAudit(events []audit.Event, review resou
 		return errors.New("terminal event does not bind publication-chain renewal review evidence identities")
 	}
 	return nil
+}
+
+func verifyArtifactImportReceiptAudit(events []audit.Event, receipt resources.ArtifactImportReceipt) error {
+	if len(events) != 2 {
+		return fmt.Errorf("expected two events, found %d", len(events))
+	}
+	terminal := events[len(events)-1]
+	expectedTarget := "kubernetes:" + receipt.Spec.Target.ReferenceDigest
+	if terminal.Spec.Action != "artifact.import.record.completed" || terminal.Spec.Outcome != "success" || terminal.Spec.Target != expectedTarget {
+		return errors.New("terminal action, outcome or target does not match artifact import receipt")
+	}
+	if !hasSubject(terminal.Spec.Subjects, "ArtifactImportReceipt", receipt.Metadata.ImportReceiptID) {
+		return errors.New("terminal event does not bind artifact import receipt identity")
+	}
+	return nil
+}
+
+func verifyArtifactTransferReceiptAudit(events []audit.Event, receipt resources.ArtifactTransferReceipt) error {
+	if len(events) != 2 {
+		return fmt.Errorf("expected two events, found %d", len(events))
+	}
+	terminal := events[len(events)-1]
+	expectedTarget := "kubernetes:" + receipt.Spec.Target.ReferenceDigest
+	if terminal.Spec.Action != "artifact.transfer.record.completed" || terminal.Spec.Outcome != "success" || terminal.Spec.Target != expectedTarget {
+		return errors.New("terminal action, outcome or target does not match artifact transfer receipt")
+	}
+	if !hasSubject(terminal.Spec.Subjects, "ArtifactTransferReceipt", receipt.Metadata.TransferReceiptID) {
+		return errors.New("terminal event does not bind artifact transfer receipt identity")
+	}
+	return nil
+}
+
+func verifyArtifactScanReceiptAudit(events []audit.Event, receipt resources.ArtifactScanReceipt) error {
+	if len(events) != 2 {
+		return fmt.Errorf("expected two events, found %d", len(events))
+	}
+	terminal := events[len(events)-1]
+	expectedTarget := "kubernetes:" + receipt.Spec.Target.ReferenceDigest
+	if terminal.Spec.Action != "artifact.scan.record.completed" || terminal.Spec.Outcome != "success" || terminal.Spec.Target != expectedTarget {
+		return errors.New("terminal action, outcome or target does not match artifact scan receipt")
+	}
+	if !hasSubject(terminal.Spec.Subjects, "ArtifactScanReceipt", receipt.Metadata.ScanReceiptID) {
+		return errors.New("terminal event does not bind artifact scan receipt identity")
+	}
+	return nil
+}
+
+func importedModelRefs(artifacts []resources.ImportedModelArtifact) []string {
+	set := map[string]struct{}{}
+	for _, artifact := range artifacts {
+		set[artifact.Ref] = struct{}{}
+	}
+	refs := make([]string, 0, len(set))
+	for ref := range set {
+		refs = append(refs, ref)
+	}
+	slices.Sort(refs)
+	return refs
+}
+
+func assertionIDsForImportedModelRefs(assertionModelRefs map[string]string, importedRefs []string) []string {
+	byRef := map[string]struct{}{}
+	for _, ref := range importedRefs {
+		byRef[ref] = struct{}{}
+	}
+	assertionIDs := []string{}
+	for assertionID, modelRef := range assertionModelRefs {
+		if _, ok := byRef[modelRef]; ok {
+			assertionIDs = append(assertionIDs, assertionID)
+		}
+	}
+	slices.Sort(assertionIDs)
+	return assertionIDs
 }
 
 func hasSubject(subjects []audit.Subject, kind, digest string) bool {

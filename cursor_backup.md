@@ -82,8 +82,11 @@
 - lifecycle publication readiness now requires the full four-pillar publication chain for integration-required assertion scopes: lifecycle-proof approval, integration publication attestation, publication-chain rehearsal, and publication-chain renewal-review.
 - lifecycle publication readiness now has deterministic acceptance/matrix proof coverage: full four-pillar fixture yields ready=true, and each omitted pillar yields its expected taxonomy-coded blocker.
 - Air-gap provenance:
+  - `artifact import record` emits immutable `ArtifactImportReceipt` evidence from exact bundle/preflight model identities with deterministic internal model-file placement bindings;
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
+  - `catalog coverage create` now accepts audited import/transfer/scan receipt evidence and emits assertion-scoped import-chain posture (`status`, `selectedReceipt`, `blocker`) via deterministic report limitation records;
+  - `catalog coverage lifecycle-publication-policy` now surfaces the same assertion-scoped import-chain posture and fails closed on malformed, duplicated, or inconsistent import-chain limitation records;
   - `airgap provenance-gate evaluate` now emits a signed `AirgapProvenanceGateResult` (Ed25519 signer identity, key digest, expiry, detached signature) over exact import/transfer/scan bindings;
   - `airgap gate-trust-policy record` now emits immutable `AirgapGateTrustPolicy` resources from explicit signer inputs and dedicated audit chains;
   - `airgap gate-trust-policy diff` now emits immutable `AirgapGateTrustPolicyDiff` transition evidence with signer change classification/impact and one-step active-signer replacement safety checks;
@@ -97,6 +100,7 @@
 
 - **Implemented + locally validated in repository tests/schemas/docs:**
   - content-addressed resources and schema/Go validation for apply/import/transfer/scan/air-gap gate/retire/rollback/integration/promotion review;
+  - catalog coverage now loads and audit-verifies `ArtifactImportReceipt`, `ArtifactTransferReceipt`, and `ArtifactScanReceipt` evidence and binds assertion-scoped import-chain diagnostics deterministically;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
   - air-gap gate results bind exact plan/bundle/catalog/target/import identities, transfer/scan receipt sets, deterministic gate status, signer identity, trust-key digest, signature, and expiry;
@@ -177,9 +181,9 @@
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `846cf28`, `6003e27`, `144309d`, `fe12a5c`, `991a865`.
+- Recent commits before this slice (newest first): `f3b9f6e`, `846cf28`, `6003e27`, `144309d`, `fe12a5c`.
 - M1 (Publication gating closure) is complete.
-- This slice starts M2 and completes M2 slice 1 by adding immutable `artifact import record` evidence emission and audit chaining.
+- This slice completes M2 slice 3 by adding assertion-scoped artifact import-chain diagnostics and fail-closed limitation parity checks in catalog coverage create/policy outputs.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -209,7 +213,7 @@ Exit: the full publication-chain governance loop is closed and locally validated
 Slices:
 1. Completed: `artifact import record` command now emits immutable `ArtifactImportReceipt` evidence from exact bundle + preflight bindings, deterministic model-file internal paths, and dedicated audit chain output.
 2. Completed: `ArtifactImportReceipt` schema + Go validation + decoder + validate command are present and exercised in tests.
-3. Remaining: catalog coverage gates air-gap completeness claims on accepted import receipts and surfaces deterministic import-chain diagnostics in publication-facing outputs.
+3. Completed: catalog coverage now accepts audited import/transfer/scan receipts, binds assertion-scoped import-chain posture, and fails closed on malformed/inconsistent import-chain diagnostics.
 
 Exit: the acquisition-to-deployment artifact chain has immutable receipts at every handoff stage.
 
@@ -279,19 +283,19 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **M2 slice 3: catalog-coverage import-chain gating and diagnostics**:
+Implement **M3 slice 1: bounded bootstrap command and immutable bootstrap receipt**:
 
-- require import-chain completeness posture in `catalog coverage create` for assertions depending on air-gap execution evidence;
-- gate publication-facing readiness output on accepted import receipts bound to selected bundle/target identities and prior transfer/scan chain state;
-- emit deterministic explainability diagnostics for missing, foreign, stale, or mismatched import-chain evidence without broadening mutation authority.
+- add `deployment bootstrap kubernetes` command that creates only a YARA-owned namespace and model PVC via explicit confirmed inputs with no implicit prune/delete/adoption behavior;
+- emit immutable `BootstrapReceipt` and fail-closed audit chain for started/completed bootstrap operations, including deterministic identity binding to target, namespace, and storage configuration;
+- keep mutation authority narrow: bootstrap only, no import, no apply, no retirement/rollback side effects.
 
 Acceptance criteria:
 
-- `catalog coverage create` fails closed when required import-chain evidence is missing, malformed, foreign, stale, or unbound to selected transfer/scan evidence;
-- `catalog coverage lifecycle-publication-policy` exposes stable import-chain posture diagnostics for blocked assertion scopes;
-- taxonomy/remediation strings remain deterministic and parity-tested between create and policy command surfaces;
-- no mutation command gains implicit delete/adopt/prune/rollback behavior;
-- existing apply-time provenance enforcement remains unchanged and passing.
+- bootstrap command requires explicit `--name`, `--namespace`, `--model-pvc`, `--storage-class`, `--size`, `--target` confirmation inputs and rejects unsafe/malformed values fail-closed;
+- `BootstrapReceipt` resource + schema + validation + loader/validate command are deterministic and content-addressed;
+- bootstrap execution writes started + terminal audits and rolls back durable output when terminal audit persistence fails;
+- command remains bounded to namespace/PVC creation only and does not mutate deployment/apply/import/retire/rollback state paths;
+- focused CLI/resource tests and executor stale-state/order checks pass with required validation commands.
 
 ## Validation requirements
 

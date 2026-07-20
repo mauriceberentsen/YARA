@@ -81,6 +81,13 @@ type publicationChainRenewalReviewPosture struct {
 	SelectedRenewalReview string `json:"selectedRenewalReview,omitempty"`
 }
 
+type artifactImportChainPosture struct {
+	Assertion       string `json:"assertion"`
+	Status          string `json:"status"`
+	Blocker         string `json:"blocker,omitempty"`
+	SelectedReceipt string `json:"selectedReceipt,omitempty"`
+}
+
 func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 	options, ok := parseCatalogCoverageOptions(args, stderr)
 	if !ok {
@@ -134,6 +141,11 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 		_ = os.Remove(options.outputPath)
 		return writeCatalogCoverageFailure(stdout, options, []audit.Subject{catalogSubject, reportSubject}, "YARA-COV-500", err, ExitInternal)
 	}
+	importChainDiagnostics, err := artifactImportChainFromReport(report)
+	if err != nil {
+		_ = os.Remove(options.outputPath)
+		return writeCatalogCoverageFailure(stdout, options, []audit.Subject{catalogSubject, reportSubject}, "YARA-COV-500", err, ExitInternal)
+	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(map[string]any{
@@ -145,6 +157,7 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 		"signingAuthorityBoundary":              signingBoundary,
 		"publicationChainRetention":             retentionDiagnostics,
 		"publicationChainRenewalReview":         renewalDiagnostics,
+		"artifactImportChain":                   importChainDiagnostics,
 	}); err != nil {
 		return ExitInternal
 	}
@@ -186,10 +199,15 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 	if err != nil {
 		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
 	}
+	importChainDiagnostics, err := artifactImportChainFromReport(report)
+	if err != nil {
+		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
+	}
 	blocked := []map[string]string{}
 	rehearsalDiagnostics := []publicationChainRehearsalDiagnostics{}
 	filteredRetentionDiagnostics := []publicationChainRetentionPosture{}
 	filteredRenewalDiagnostics := []publicationChainRenewalReviewPosture{}
+	filteredImportChainDiagnostics := []artifactImportChainPosture{}
 	for _, assertion := range filtered {
 		rehearsalGate, found := findAssertionGate(assertion, "publication-chain-rehearsal")
 		if !found {
@@ -211,6 +229,13 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 			return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", fmt.Errorf("assertion %s does not include publication-chain renewal-review diagnostics", assertion.ID), ExitInternal)
 		}
 		filteredRenewalDiagnostics = append(filteredRenewalDiagnostics, renewalDiagnostic)
+		importChainDiagnostic, found := findArtifactImportChainDiagnostic(importChainDiagnostics, assertion.ID)
+		if found {
+			filteredImportChainDiagnostics = append(filteredImportChainDiagnostics, importChainDiagnostic)
+			if options.assertion != "" && importChainDiagnostic.Status != "passed" {
+				return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-013", fmt.Errorf("assertion %s artifact import chain is not ready: %s", assertion.ID, importChainDiagnostic.Blocker), ExitInfeasible)
+			}
+		}
 		if options.assertion != "" && rehearsalGate.Status != "passed" {
 			return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-012", fmt.Errorf("assertion %s publication-chain rehearsal is not ready: %s", assertion.ID, rehearsalGate.Blocker), ExitInfeasible)
 		}
@@ -236,6 +261,9 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 	sort.Slice(filteredRenewalDiagnostics, func(i, j int) bool {
 		return filteredRenewalDiagnostics[i].Assertion < filteredRenewalDiagnostics[j].Assertion
 	})
+	sort.Slice(filteredImportChainDiagnostics, func(i, j int) bool {
+		return filteredImportChainDiagnostics[i].Assertion < filteredImportChainDiagnostics[j].Assertion
+	})
 	if err := persistOperationAudit(options.auditPath, "catalog.coverage.lifecycle-publication-policy", "completed", "success", []audit.Subject{subject}, nil); err != nil {
 		return writeLoadError(stdout, "YARA-AUD-005", err)
 	}
@@ -253,6 +281,7 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		"publicationChainRehearsal":             rehearsalDiagnostics,
 		"publicationChainRetention":             filteredRetentionDiagnostics,
 		"publicationChainRenewalReview":         filteredRenewalDiagnostics,
+		"artifactImportChain":                   filteredImportChainDiagnostics,
 		"blockedAssertions":                     blocked,
 		"taxonomy":                              catalogcoverage.LifecyclePublicationBlockerTaxonomy(),
 		"auditOutput":                           options.auditPath,
@@ -741,6 +770,113 @@ func findPublicationChainRenewalReviewDiagnostic(diagnostics []publicationChainR
 		}
 	}
 	return publicationChainRenewalReviewPosture{}, false
+}
+
+func artifactImportChainFromReport(report catalogcoverage.Report) ([]artifactImportChainPosture, error) {
+	const prefix = "artifact-import-chain:"
+	byAssertion := map[string]artifactImportChainPosture{}
+	for _, limitation := range report.Spec.Limitations {
+		if !strings.HasPrefix(limitation, prefix) {
+			continue
+		}
+		body := strings.TrimPrefix(limitation, prefix)
+		parts := strings.Split(body, ",")
+		if len(parts) != 4 {
+			return nil, errors.New("artifact import-chain limitation record is malformed")
+		}
+		values := map[string]string{}
+		for _, part := range parts {
+			keyValue := strings.SplitN(strings.TrimSpace(part), "=", 2)
+			if len(keyValue) != 2 {
+				return nil, errors.New("artifact import-chain limitation record contains invalid key-value pairs")
+			}
+			key := strings.TrimSpace(keyValue[0])
+			if _, exists := values[key]; exists {
+				return nil, errors.New("artifact import-chain limitation record contains duplicate keys")
+			}
+			values[key] = strings.TrimSpace(keyValue[1])
+		}
+		assertionID, ok := values["assertion"]
+		if !ok || assertionID == "" {
+			return nil, errors.New("artifact import-chain limitation record omits assertion")
+		}
+		status, ok := values["status"]
+		if !ok || (status != "missing" && status != "failed" && status != "blocked" && status != "passed") {
+			return nil, errors.New("artifact import-chain limitation record has unsupported status")
+		}
+		selectedReceipt, ok := values["selected-receipt"]
+		if !ok || selectedReceipt == "" {
+			return nil, errors.New("artifact import-chain limitation record omits selected-receipt")
+		}
+		if selectedReceipt != "none" && (!strings.HasPrefix(selectedReceipt, "sha256:") || len(selectedReceipt) != 71) {
+			return nil, errors.New("artifact import-chain limitation record contains invalid selected-receipt identity")
+		}
+		blocker, ok := values["blocker"]
+		if !ok || blocker == "" {
+			return nil, errors.New("artifact import-chain limitation record omits blocker")
+		}
+		if _, exists := byAssertion[assertionID]; exists {
+			return nil, errors.New("catalog coverage report contains duplicate artifact import-chain limitation records for one assertion")
+		}
+		diagnostic := artifactImportChainPosture{
+			Assertion: assertionID,
+			Status:    status,
+		}
+		if blocker != "none" {
+			diagnostic.Blocker = blocker
+		}
+		if selectedReceipt != "none" {
+			diagnostic.SelectedReceipt = selectedReceipt
+		}
+		byAssertion[assertionID] = diagnostic
+	}
+	result := []artifactImportChainPosture{}
+	for _, assertion := range report.Spec.Assertions {
+		importGate, found := findAssertionGate(assertion, "artifact-import-chain")
+		if !found {
+			continue
+		}
+		importDiagnostic, ok := byAssertion[assertion.ID]
+		if !ok {
+			return nil, errors.New("catalog coverage report is missing artifact import-chain limitation for assertion")
+		}
+		if importDiagnostic.Status != importGate.Status {
+			return nil, errors.New("artifact import-chain limitation status is inconsistent with import-chain gate status")
+		}
+		expectedSelected := importGate.SelectedResult
+		if expectedSelected == "" {
+			expectedSelected = "none"
+		}
+		actualSelected := importDiagnostic.SelectedReceipt
+		if actualSelected == "" {
+			actualSelected = "none"
+		}
+		if actualSelected != expectedSelected {
+			return nil, errors.New("artifact import-chain limitation selected-receipt is inconsistent with import-chain gate selection")
+		}
+		expectedBlocker := importGate.Blocker
+		if expectedBlocker == "" {
+			expectedBlocker = "none"
+		}
+		actualBlocker := importDiagnostic.Blocker
+		if actualBlocker == "" {
+			actualBlocker = "none"
+		}
+		if actualBlocker != expectedBlocker {
+			return nil, errors.New("artifact import-chain limitation blocker is inconsistent with import-chain gate blocker")
+		}
+		result = append(result, importDiagnostic)
+	}
+	return result, nil
+}
+
+func findArtifactImportChainDiagnostic(diagnostics []artifactImportChainPosture, assertionID string) (artifactImportChainPosture, bool) {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Assertion == assertionID {
+			return diagnostic, true
+		}
+	}
+	return artifactImportChainPosture{}, false
 }
 
 func writeCatalogCoveragePolicyFailure(output io.Writer, auditPath string, subjects []audit.Subject, code string, err error, exitCode int) int {

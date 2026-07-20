@@ -54,6 +54,12 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 			Blocker               string `json:"blocker"`
 			SelectedRenewalReview string `json:"selectedRenewalReview"`
 		} `json:"publicationChainRenewalReview"`
+		ArtifactImportChain []struct {
+			Assertion       string `json:"assertion"`
+			Status          string `json:"status"`
+			Blocker         string `json:"blocker"`
+			SelectedReceipt string `json:"selectedReceipt"`
+		} `json:"artifactImportChain"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -72,6 +78,9 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 	}
 	if len(response.PublicationChainRenewalReview) == 0 || response.PublicationChainRenewalReview[0].Status != "missing" {
 		t.Fatalf("expected publication-chain renewal-review diagnostics in create response: %#v", response.PublicationChainRenewalReview)
+	}
+	if len(response.ArtifactImportChain) == 0 || response.ArtifactImportChain[0].Status != "missing" {
+		t.Fatalf("expected artifact import-chain diagnostics in create response: %#v", response.ArtifactImportChain)
 	}
 	report, err := catalogcoverage.Load(outputPath)
 	if err != nil {
@@ -196,6 +205,12 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 			Blocker               string `json:"blocker"`
 			SelectedRenewalReview string `json:"selectedRenewalReview"`
 		} `json:"publicationChainRenewalReview"`
+		ArtifactImportChain []struct {
+			Assertion       string `json:"assertion"`
+			Status          string `json:"status"`
+			Blocker         string `json:"blocker"`
+			SelectedReceipt string `json:"selectedReceipt"`
+		} `json:"artifactImportChain"`
 		Taxonomy []catalogcoverage.LifecyclePublicationBlockerDefinition `json:"taxonomy"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
@@ -230,6 +245,9 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 	}
 	if len(response.PublicationChainRenewalReview) == 0 || response.PublicationChainRenewalReview[0].Status != "missing" {
 		t.Fatalf("expected publication-chain renewal-review diagnostics in policy response: %#v", response.PublicationChainRenewalReview)
+	}
+	if len(response.ArtifactImportChain) == 0 || response.ArtifactImportChain[0].Status != "missing" {
+		t.Fatalf("expected artifact import-chain diagnostics in policy response: %#v", response.ArtifactImportChain)
 	}
 	events, err := audit.LoadJSONL(policyAuditPath)
 	if err != nil {
@@ -557,6 +575,86 @@ func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnInconsistentPubli
 	var stdout, stderr bytes.Buffer
 	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
 		t.Fatalf("expected internal error for inconsistent publication-chain renewal-review limitation record, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnMalformedArtifactImportChainLimitation(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	report, err := catalogcoverage.Load(outputPath)
+	if err != nil {
+		t.Fatalf("load report: %v", err)
+	}
+	filtered := make([]string, 0, len(report.Spec.Limitations))
+	for _, limitation := range report.Spec.Limitations {
+		if strings.HasPrefix(limitation, "artifact-import-chain:") {
+			filtered = append(filtered, "artifact-import-chain:assertion=compat.vllm-qwen-coder-7b-awq-gb10,status=missing,selected-receipt=none")
+			continue
+		}
+		filtered = append(filtered, limitation)
+	}
+	report.Spec.Limitations = filtered
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	reportData, err := yaml.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(outputPath, reportData, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
+		t.Fatalf("expected internal error for malformed artifact import-chain limitation record, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnInconsistentArtifactImportChainLimitation(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	report, err := catalogcoverage.Load(outputPath)
+	if err != nil {
+		t.Fatalf("load report: %v", err)
+	}
+	replaced := false
+	filtered := make([]string, 0, len(report.Spec.Limitations))
+	for _, limitation := range report.Spec.Limitations {
+		if strings.HasPrefix(limitation, "artifact-import-chain:") && !replaced {
+			filtered = append(filtered, strings.Replace(limitation, "status=missing", "status=passed", 1))
+			replaced = true
+			continue
+		}
+		filtered = append(filtered, limitation)
+	}
+	report.Spec.Limitations = filtered
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	reportData, err := yaml.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(outputPath, reportData, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
+		t.Fatalf("expected internal error for inconsistent artifact import-chain limitation record, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
 	}
 }
 

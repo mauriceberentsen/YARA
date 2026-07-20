@@ -164,6 +164,125 @@ func TestBuildRejectsEvidenceWithoutAdjacentAudit(t *testing.T) {
 	}
 }
 
+func TestBuildBindsArtifactImportChainGateFromAcceptedReceipts(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	directory := t.TempDir()
+	modelRef := "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ"
+	now := time.Now().UTC()
+	importReceipt := resources.ArtifactImportReceipt{
+		APIVersion: resources.APIVersion,
+		Kind:       "ArtifactImportReceipt",
+		Metadata:   resources.ArtifactImportReceiptMetadata{Name: "import"},
+		Spec: resources.ArtifactImportReceiptSpec{
+			RecordedAt: now.Add(-3 * time.Minute).Format(time.RFC3339Nano),
+			PlanID:     "sha256:" + strings.Repeat("1", 64),
+			BundleID:   "sha256:" + strings.Repeat("2", 64),
+			Target: resources.TargetIdentity{
+				Type:            "kubernetes",
+				ReferenceDigest: "sha256:" + strings.Repeat("3", 64),
+				ServerVersion:   "v1.35.6",
+			},
+			Importer: resources.ImporterIdentity{
+				Name:    "yara-importer",
+				Version: "0.1.0",
+			},
+			Verification: resources.ImportVerificationStatus{
+				DigestVerified: true,
+				SizeVerified:   true,
+				CompleteSet:    true,
+			},
+			ModelArtifacts: []resources.ImportedModelArtifact{{
+				Ref:      modelRef,
+				Revision: "8e8ed24",
+				Files: []resources.ImportedModelArtifactBinding{{
+					Path:         "model-00001-of-00002.safetensors",
+					Digest:       "sha256:" + strings.Repeat("4", 64),
+					SizeBytes:    1024,
+					InternalPath: "model/model-00001-of-00002.safetensors",
+				}},
+			}},
+			Limitations: []string{
+				"Import receipt proves exact model-file placement only for this run.",
+			},
+		},
+	}
+	importReceipt, err = importReceipt.AssignImportReceiptID()
+	if err != nil {
+		t.Fatalf("assign import receipt id: %v", err)
+	}
+	writeYAML(t, filepath.Join(directory, "import.yaml"), importReceipt)
+	writeArtifactImportAudit(t, filepath.Join(directory, "import.audit.jsonl"), importReceipt, now.Add(-3*time.Minute).Format(time.RFC3339Nano))
+	transferReceipt := resources.ArtifactTransferReceipt{
+		APIVersion: resources.APIVersion,
+		Kind:       "ArtifactTransferReceipt",
+		Metadata:   resources.ArtifactTransferReceiptMetadata{Name: "transfer"},
+		Spec: resources.ArtifactTransferReceiptSpec{
+			RecordedAt:                now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+			PlanID:                    importReceipt.Spec.PlanID,
+			BundleID:                  importReceipt.Spec.BundleID,
+			CatalogDigest:             catalogDigest,
+			Target:                    importReceipt.Spec.Target,
+			Stage:                     "vault-to-registry",
+			SourceAttestationRef:      "ticket-src",
+			DestinationAttestationRef: "ticket-dst",
+			PriorReceiptIDs:           []string{importReceipt.Metadata.ImportReceiptID},
+			ModelArtifacts:            importReceipt.Spec.ModelArtifacts,
+			Limitations: []string{
+				"Transfer receipt does not mutate bundle, import or deployment state.",
+			},
+		},
+	}
+	transferReceipt, err = transferReceipt.AssignTransferReceiptID()
+	if err != nil {
+		t.Fatalf("assign transfer receipt id: %v", err)
+	}
+	writeYAML(t, filepath.Join(directory, "transfer.yaml"), transferReceipt)
+	writeArtifactTransferAudit(t, filepath.Join(directory, "transfer.audit.jsonl"), transferReceipt, now.Add(-2*time.Minute).Format(time.RFC3339Nano))
+	scanReceipt := resources.ArtifactScanReceipt{
+		APIVersion: resources.APIVersion,
+		Kind:       "ArtifactScanReceipt",
+		Metadata:   resources.ArtifactScanReceiptMetadata{Name: "scan"},
+		Spec: resources.ArtifactScanReceiptSpec{
+			RecordedAt:      now.Add(-time.Minute).Format(time.RFC3339Nano),
+			PlanID:          importReceipt.Spec.PlanID,
+			BundleID:        importReceipt.Spec.BundleID,
+			CatalogDigest:   catalogDigest,
+			Target:          importReceipt.Spec.Target,
+			Scanner:         resources.ScanToolIdentity{Name: "trivy", Version: "0.53.0", Profile: "offline-policy-default", PolicyDigest: "sha256:" + strings.Repeat("5", 64)},
+			Verdict:         "passed",
+			ReasonReference: "ticket-scan",
+			PriorReceiptIDs: []string{transferReceipt.Metadata.TransferReceiptID},
+			ModelArtifacts:  importReceipt.Spec.ModelArtifacts,
+			Limitations: []string{
+				"Scan receipt excludes raw scanner output, findings payloads and secret-bearing metadata.",
+			},
+		},
+	}
+	scanReceipt, err = scanReceipt.AssignScanReceiptID()
+	if err != nil {
+		t.Fatalf("assign scan receipt id: %v", err)
+	}
+	writeYAML(t, filepath.Join(directory, "scan.yaml"), scanReceipt)
+	writeArtifactScanAudit(t, filepath.Join(directory, "scan.audit.jsonl"), scanReceipt, now.Add(-time.Minute).Format(time.RFC3339Nano))
+	report, err := Build("coverage", snapshot, directory)
+	if err != nil {
+		t.Fatalf("build coverage with artifact import chain: %v", err)
+	}
+	assertion := findAssertion(t, report, "compat.vllm-qwen-coder-7b-awq-gb10")
+	gate := findGate(t, assertion, "artifact-import-chain")
+	if gate.Status != "passed" || gate.SelectedResult != scanReceipt.Metadata.ScanReceiptID {
+		t.Fatalf("artifact import-chain gate was not bound to scan receipt: %#v", gate)
+	}
+}
+
 func TestBuildBindsPromotionReviewGateFromAcceptedReview(t *testing.T) {
 	root := filepath.Join("..", "..")
 	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
@@ -1763,5 +1882,155 @@ func writeIntegrationExecutionAudit(t *testing.T, path, catalogDigest, resultID,
 	}
 	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
 		t.Fatalf("write integration audit: %v", err)
+	}
+}
+
+func writeArtifactImportAudit(t *testing.T, path string, receipt resources.ArtifactImportReceipt, occurredAt string) {
+	t.Helper()
+	chain := audit.NewChain()
+	started, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "artifact-import-started", OccurredAt: occurredAt},
+		Spec: audit.Spec{
+			CorrelationID: "artifact-import",
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "artifact.import.record.started",
+			Subjects: []audit.Subject{
+				{Kind: "DeploymentBundle", Digest: receipt.Spec.BundleID},
+				{Kind: "TargetPreflightResult", Digest: "sha256:" + strings.Repeat("a", 64)},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "kubernetes:" + receipt.Spec.Target.ReferenceDigest,
+			Outcome: "started",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append started artifact import audit: %v", err)
+	}
+	terminal, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "artifact-import-terminal", OccurredAt: occurredAt},
+		Spec: audit.Spec{
+			CorrelationID: "artifact-import",
+			CausationID:   started.Metadata.ID,
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "artifact.import.record.completed",
+			Subjects: []audit.Subject{
+				{Kind: "DeploymentBundle", Digest: receipt.Spec.BundleID},
+				{Kind: "TargetPreflightResult", Digest: "sha256:" + strings.Repeat("a", 64)},
+				{Kind: "ArtifactImportReceipt", Digest: receipt.Metadata.ImportReceiptID},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "kubernetes:" + receipt.Spec.Target.ReferenceDigest,
+			Outcome: "success",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append terminal artifact import audit: %v", err)
+	}
+	var buffer bytes.Buffer
+	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, terminal}); err != nil {
+		t.Fatalf("encode artifact import audit: %v", err)
+	}
+	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
+		t.Fatalf("write artifact import audit: %v", err)
+	}
+}
+
+func writeArtifactTransferAudit(t *testing.T, path string, receipt resources.ArtifactTransferReceipt, occurredAt string) {
+	t.Helper()
+	chain := audit.NewChain()
+	started, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "artifact-transfer-started", OccurredAt: occurredAt},
+		Spec: audit.Spec{
+			CorrelationID: "artifact-transfer",
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "artifact.transfer.record.started",
+			Subjects: []audit.Subject{
+				{Kind: "DeploymentBundle", Digest: receipt.Spec.BundleID},
+				{Kind: "ArtifactImportReceipt", Digest: receipt.Spec.PriorReceiptIDs[0]},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "kubernetes:" + receipt.Spec.Target.ReferenceDigest,
+			Outcome: "started",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append started artifact transfer audit: %v", err)
+	}
+	terminal, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "artifact-transfer-terminal", OccurredAt: occurredAt},
+		Spec: audit.Spec{
+			CorrelationID: "artifact-transfer",
+			CausationID:   started.Metadata.ID,
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "artifact.transfer.record.completed",
+			Subjects: []audit.Subject{
+				{Kind: "DeploymentBundle", Digest: receipt.Spec.BundleID},
+				{Kind: "ArtifactImportReceipt", Digest: receipt.Spec.PriorReceiptIDs[0]},
+				{Kind: "ArtifactTransferReceipt", Digest: receipt.Metadata.TransferReceiptID},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "kubernetes:" + receipt.Spec.Target.ReferenceDigest,
+			Outcome: "success",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append terminal artifact transfer audit: %v", err)
+	}
+	var buffer bytes.Buffer
+	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, terminal}); err != nil {
+		t.Fatalf("encode artifact transfer audit: %v", err)
+	}
+	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
+		t.Fatalf("write artifact transfer audit: %v", err)
+	}
+}
+
+func writeArtifactScanAudit(t *testing.T, path string, receipt resources.ArtifactScanReceipt, occurredAt string) {
+	t.Helper()
+	chain := audit.NewChain()
+	started, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "artifact-scan-started", OccurredAt: occurredAt},
+		Spec: audit.Spec{
+			CorrelationID: "artifact-scan",
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "artifact.scan.record.started",
+			Subjects: []audit.Subject{
+				{Kind: "DeploymentBundle", Digest: receipt.Spec.BundleID},
+				{Kind: "ArtifactTransferReceipt", Digest: receipt.Spec.PriorReceiptIDs[0]},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "kubernetes:" + receipt.Spec.Target.ReferenceDigest,
+			Outcome: "started",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append started artifact scan audit: %v", err)
+	}
+	terminal, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "artifact-scan-terminal", OccurredAt: occurredAt},
+		Spec: audit.Spec{
+			CorrelationID: "artifact-scan",
+			CausationID:   started.Metadata.ID,
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "artifact.scan.record.completed",
+			Subjects: []audit.Subject{
+				{Kind: "DeploymentBundle", Digest: receipt.Spec.BundleID},
+				{Kind: "ArtifactTransferReceipt", Digest: receipt.Spec.PriorReceiptIDs[0]},
+				{Kind: "ArtifactScanReceipt", Digest: receipt.Metadata.ScanReceiptID},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "kubernetes:" + receipt.Spec.Target.ReferenceDigest,
+			Outcome: "success",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append terminal artifact scan audit: %v", err)
+	}
+	var buffer bytes.Buffer
+	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, terminal}); err != nil {
+		t.Fatalf("encode artifact scan audit: %v", err)
+	}
+	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
+		t.Fatalf("write artifact scan audit: %v", err)
 	}
 }

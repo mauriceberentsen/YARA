@@ -239,10 +239,11 @@ go run ./cmd/yara publication chain renewal-review \
 - signing-authority boundary report-limitation state (`status`, `overlapCount`, `ambiguityCount`, `evaluated`).
 - publication-chain retention posture (`assertion`, `status`, `selectedRehearsal`, `blocker`) derived from assertion-scoped rehearsal identity selection.
 - publication-chain renewal-review posture (`assertion`, `status`, `selectedRenewalReview`, `blocker`) derived from assertion-scoped renewal-review evidence selection.
+- artifact import-chain posture (`assertion`, `status`, `selectedReceipt`, `blocker`) derived from immutable import -> transfer -> scan receipt-chain evidence.
 
 For assertions that require integration publication evidence, lifecycle publication readiness now requires all four passing bound publication pillars: lifecycle-proof approval, integration publication attestation, publication-chain rehearsal, and publication-chain renewal review.
 
-Both commands fail closed when signing-authority boundary, publication-chain retention, or publication-chain renewal-review limitation records are missing, duplicated, malformed, or internally inconsistent.
+Both commands fail closed when signing-authority boundary, publication-chain retention, publication-chain renewal-review, or artifact import-chain limitation records are missing, duplicated, malformed, or internally inconsistent.
 
 Phase 5 kickoff adds a bounded non-mutating publication-chain rehearsal:
 
