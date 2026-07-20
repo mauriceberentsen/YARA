@@ -76,6 +76,24 @@ dt {
   margin-bottom: 12px;
 }
 
+form {
+  display: grid;
+  gap: 10px;
+}
+
+.formRow {
+  display: grid;
+  gap: 6px;
+}
+
+input {
+  background: #111827;
+  color: #e5e7eb;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
 select {
   background: #111827;
   color: #e5e7eb;

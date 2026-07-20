@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -145,6 +146,70 @@ func TestServeWorkspaceRejectsUnknownArtifact(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "YARA-SRV-010") {
 		t.Fatalf("expected structured workspace artifact error, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowPlanCreateRejectsInvalidRequest(t *testing.T) {
+	workspacePath := t.TempDir()
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/plan", strings.NewReader(`{"requestPath":"docs/examples/v0.2-platform-request.yaml"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid workflow request, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-SRV-011") {
+		t.Fatalf("expected structured invalid request error, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowPlanCreateWritesPlanAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{
+		"requestPath": "%s",
+		"inventoryPath": "%s",
+		"catalogPath": "%s",
+		"outputPath": "%s",
+		"auditPath": "%s"
+	}`,
+		filepath.Join("..", "..", "docs", "examples", "v0.2-platform-request.yaml"),
+		filepath.Join("..", "..", "docs", "examples", "v0.2-inventory.yaml"),
+		filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		filepath.Join(workspacePath, "reference-stack.plan.yaml"),
+		filepath.Join(workspacePath, "reference-stack.plan.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/plan", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected workflow plan creation success, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode workflow plan response: %v", err)
+	}
+	plan, _ := payload["plan"].(map[string]any)
+	if plan["planId"] == "" || plan["planPath"] == "" || plan["auditPath"] == "" {
+		t.Fatalf("workflow plan response omitted expected fields: %#v", plan)
+	}
+	workspaceRequest := httptest.NewRequest(http.MethodGet, "/api/v1/workspace", nil)
+	workspaceRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(workspaceRecorder, workspaceRequest)
+	if workspaceRecorder.Code != http.StatusOK {
+		t.Fatalf("expected workspace success after plan creation, got %d: %s", workspaceRecorder.Code, workspaceRecorder.Body.String())
+	}
+	var workspacePayload map[string]any
+	if err := json.Unmarshal(workspaceRecorder.Body.Bytes(), &workspacePayload); err != nil {
+		t.Fatalf("decode workspace response: %v", err)
+	}
+	workspace, _ := workspacePayload["workspace"].(map[string]any)
+	stages, _ := workspace["stages"].([]any)
+	first, _ := stages[0].(map[string]any)
+	if first["status"] != "complete" {
+		t.Fatalf("expected plan stage complete after workflow creation, got %#v", first)
 	}
 }
 

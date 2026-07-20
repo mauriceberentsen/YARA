@@ -5,12 +5,42 @@ import { App } from "./App";
 
 describe("App", () => {
   beforeEach(() => {
-    global.fetch = vi.fn((input) => {
+    global.fetch = vi.fn((input, init = {}) => {
       const parsed = new URL(String(input), "http://localhost");
       const endpoint = parsed.pathname + (parsed.search || "");
+      if (parsed.pathname === "/api/v1/workflow/plan" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          plan: {
+            planId: "sha256:plan",
+            planPath: ".yara/workspaces/default/reference-stack.plan.yaml",
+            auditPath: ".yara/workspaces/default/reference-stack.plan.audit.jsonl",
+            confidence: "medium",
+            decisions: 4,
+            instances: 2,
+            components: 2,
+            diagnostics: 0,
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
-        "/api/v1/workspace": {
+        "/api/v1/workspace?refresh=0": {
+          valid: true,
+          workspace: {
+            path: ".yara/workspaces/default",
+            stages: [
+              { id: "plan", label: "Plan", status: "ready" },
+              { id: "bundle", label: "Bundle", status: "not-started" },
+              { id: "preflight", label: "Preflight", status: "not-started" },
+              { id: "changeset", label: "Change-set", status: "not-started" },
+              { id: "approval", label: "Approval", status: "not-started" },
+              { id: "authorization", label: "Authorization", status: "not-started" },
+              { id: "receipt", label: "Apply receipt", status: "not-started" },
+            ],
+          },
+        },
+        "/api/v1/workspace?refresh=1": {
           valid: true,
           workspace: {
             path: ".yara/workspaces/default",
@@ -95,7 +125,11 @@ describe("App", () => {
     render(<App />);
     expect(screen.getByText("YARA Web UI (Read-only)")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Plan")).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/reference-stack.plan.yaml")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Plan create" }));
+    await waitFor(() => expect(screen.getByText("Workspace: .yara/workspaces/default")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Create plan" }));
+    await waitFor(() => expect(screen.getByText("sha256:plan")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -158,7 +192,7 @@ describe("App", () => {
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
-      if (endpoint === "/api/v1/workspace") {
+      if (endpoint === "/api/v1/workspace?refresh=0") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, workspace: { path: ".yara", stages: [{ id: "plan", label: "Plan", status: "invalid" }] } }), { status: 200 }));
       }
       return Promise.resolve(new Response(JSON.stringify({ valid: true }), { status: 200 }));

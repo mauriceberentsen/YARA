@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `a16f6e2`, `7d0528d`, `8bba86a`, `534f10e`, `9d2c86a`.
+- Recent commits (newest first): `1c0d65d`, `a16f6e2`, `7d0528d`, `8bba86a`, `534f10e`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
@@ -30,9 +30,11 @@
 - Interactive workflow cockpit I1 is implemented:
   - `yara serve --workspace <dir>` and `GET /api/v1/workspace` provide deterministic stage discovery (plan/bundle/preflight/change-set/approval/authorization/receipt);
   - Pipeline view now renders stage status and artifact paths using fail-closed workspace payload validation.
-- Bootstrap + first-use path is implemented:
-  - `deployment bootstrap kubernetes` (bounded namespace/PVC provisioning with `BootstrapReceipt`);
-  - `deployment import kubernetes` (bounded single-model local staging into bootstrap PVC with `ArtifactImportReceipt`).
+- Interactive workflow cockpit I2 is implemented:
+  - `POST /api/v1/workflow/plan` executes bounded `plan create` using explicit request/inventory/catalog/output/audit paths;
+  - output and audit artifacts are restricted to the configured workspace and fail closed on invalid or out-of-workspace paths;
+  - Plan create UI form now writes plan artifacts and renders deterministic summary metadata in-session.
+- Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
   - release builds `linux/amd64`, `linux/arm64`, `darwin/arm64` binaries, publishes `checksums.txt`, and attaches deterministic `yara-schemas-v1alpha1.tar.gz`.
@@ -48,11 +50,11 @@
 
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `serve --workspace` now validates existing workspace directories at startup;
-  - `/api/v1/workspace` now scans workspace YAML artifacts, validates known stage resources, and fails closed on malformed/unknown files;
-  - UI now includes a Pipeline view with deterministic seven-stage status rendering and strict workspace payload validation.
+  - `POST /api/v1/workflow/plan` endpoint implemented with strict JSON decoding, structured failure responses, and exit-code aware HTTP status mapping;
+  - workspace-bounded plan/audit output paths now enforced fail-closed for workflow plan creation;
+  - Plan create UI form implemented with no-reload result panel and automatic Pipeline refresh after successful plan creation.
 - Validation (simulated/local) passed:
-  - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
+  - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go internal/cli/run.go`;
   - `npm run check --prefix internal/cli/webui`;
   - `git diff --check`, `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`, and `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
@@ -84,10 +86,8 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 
 ### I2 — Plan creation form
 
-- new `POST /api/v1/workflow/plan` endpoint invokes `plan create` with operator-supplied inputs and writes outputs to the workspace;
-- UI exposes a form: model/hardware assertion selector (populated from `/api/v1/assertions`), request name, request and inventory file paths;
-- result shows plan summary (selected components, confidence, top decision factors) inline;
-- fail closed: endpoint returns structured diagnostics on non-zero exit; no partial outputs are accepted.
+- `POST /api/v1/workflow/plan` + Plan create form + deterministic result panel + workspace path bounding.
+- Status: completed.
 
 ### I3 — Bundle render
 
@@ -117,18 +117,18 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 
 ## Next implementation slice
 
-Implement **I2 — Plan creation form**:
+Implement **I3 — Bundle render**:
 
-- add a bounded `POST /api/v1/workflow/plan` endpoint that executes `plan create` into the selected workspace;
-- accept explicit request/inventory/catalog input paths and output plan/audit paths (no implicit defaults);
-- return deterministic response metadata: plan path, plan ID, audit path, and summary fields needed by the UI;
-- extend the UI with a Plan form and result panel, reusing existing diagnostics rendering and fail-closed behavior.
+- add bounded `POST /api/v1/workflow/render` endpoint that executes `render kubernetes-gitops` or `render docker-compose` into workspace-managed output paths;
+- accept explicit `planPath`, `catalogPath`, `target`, `bundleName`, `outputPath`, and `auditPath` fields; fail closed when paths are outside workspace;
+- return deterministic response metadata: bundle path, bundle ID, audit path, renderer target, and summary counts;
+- extend UI with Render form + result panel and trigger Pipeline refresh on success.
 
 Acceptance criteria:
 
-- plan endpoint rejects missing/invalid file paths with structured diagnostics and non-zero-equivalent response status;
-- successful plan creation writes both plan and audit artifacts inside workspace and appears as complete in Pipeline view;
-- UI form can create a plan and then render resulting plan summary without page reload;
+- render endpoint rejects unsupported targets and invalid paths with structured diagnostics;
+- successful render writes bundle and audit artifacts in workspace and Pipeline shows Bundle stage as complete;
+- UI render flow completes without page reload and shows bundle identity + summary metadata;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 
 ## Validation requirements

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -284,6 +285,87 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 			},
 		})
 	})
+	apiMux.HandleFunc("/api/v1/workflow/plan", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow plan creation requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowPlanCreateRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-011", err.Error())
+			return
+		}
+		outputPath, err := ensureWorkspaceFilePath(workspacePath, payload.OutputPath, "outputPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-011", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-011", err.Error())
+			return
+		}
+		if strings.EqualFold(outputPath, auditPath) {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-011", "outputPath and auditPath must be different files")
+			return
+		}
+		var commandStdout bytes.Buffer
+		var commandStderr bytes.Buffer
+		exitCode := createPlan([]string{
+			"--request", payload.RequestPath,
+			"--inventory", payload.InventoryPath,
+			"--catalog", payload.CatalogPath,
+			"--output", outputPath,
+			"--audit-output", auditPath,
+		}, &commandStdout, &commandStderr)
+		if exitCode != ExitSuccess {
+			var failurePayload any
+			if err := json.Unmarshal(commandStdout.Bytes(), &failurePayload); err == nil {
+				writeServeJSON(writer, workflowPlanCreateStatus(exitCode), failurePayload)
+				return
+			}
+			writeServeError(writer, workflowPlanCreateStatus(exitCode), "YARA-SRV-012", strings.TrimSpace(commandStderr.String()))
+			return
+		}
+		var planCommandResult struct {
+			Valid       bool   `json:"valid"`
+			PlanID      string `json:"planId"`
+			Output      string `json:"output"`
+			AuditOutput string `json:"auditOutput"`
+		}
+		if err := json.Unmarshal(commandStdout.Bytes(), &planCommandResult); err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("decode plan workflow output: %v", err))
+			return
+		}
+		plan, err := resources.LoadPlatformPlan(planCommandResult.Output)
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("load generated plan: %v", err))
+			return
+		}
+		report := plan.Validate()
+		if !report.Valid {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("generated plan failed validation: %s", report.Diagnostics[0].Code))
+			return
+		}
+		componentReferences := make(map[string]struct{})
+		for _, instance := range plan.Spec.Topology.Instances {
+			componentReferences[instance.ComponentRef] = struct{}{}
+		}
+		response := workflowPlanCreateResponse{Valid: true}
+		response.Plan.PlanID = plan.Metadata.PlanID
+		response.Plan.PlanPath = planCommandResult.Output
+		response.Plan.AuditPath = planCommandResult.AuditOutput
+		response.Plan.Confidence = plan.Spec.Confidence.Level
+		response.Plan.Decisions = len(plan.Spec.Decisions)
+		response.Plan.Instances = len(plan.Spec.Topology.Instances)
+		response.Plan.Components = len(componentReferences)
+		response.Plan.Diagnostics = len(plan.Spec.Diagnostics)
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -332,6 +414,28 @@ type workspaceStageStatus struct {
 	Label        string `json:"label"`
 	Status       string `json:"status"`
 	ArtifactPath string `json:"artifactPath,omitempty"`
+}
+
+type workflowPlanCreateRequest struct {
+	RequestPath   string `json:"requestPath"`
+	InventoryPath string `json:"inventoryPath"`
+	CatalogPath   string `json:"catalogPath"`
+	OutputPath    string `json:"outputPath"`
+	AuditPath     string `json:"auditPath"`
+}
+
+type workflowPlanCreateResponse struct {
+	Valid bool `json:"valid"`
+	Plan  struct {
+		PlanID      string `json:"planId"`
+		PlanPath    string `json:"planPath"`
+		AuditPath   string `json:"auditPath"`
+		Confidence  string `json:"confidence"`
+		Decisions   int    `json:"decisions"`
+		Instances   int    `json:"instances"`
+		Components  int    `json:"components"`
+		Diagnostics int    `json:"diagnostics"`
+	} `json:"plan"`
 }
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
@@ -429,6 +533,56 @@ func classifyWorkspaceArtifact(path string) (string, error) {
 		return "receipt", nil
 	}
 	return "", fmt.Errorf("workspace artifact %s is unknown or unsupported", filepath.Base(path))
+}
+
+func decodeWorkflowPlanCreateRequest(request *http.Request) (workflowPlanCreateRequest, error) {
+	var payload workflowPlanCreateRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.RequestPath) == "" || strings.TrimSpace(payload.InventoryPath) == "" || strings.TrimSpace(payload.CatalogPath) == "" || strings.TrimSpace(payload.OutputPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("requestPath, inventoryPath, catalogPath, outputPath and auditPath are required")
+	}
+	if payload.OutputPath == payload.AuditPath {
+		return payload, errors.New("outputPath and auditPath must be different files")
+	}
+	return payload, nil
+}
+
+func ensureWorkspaceFilePath(workspacePath, candidatePath, label string) (string, error) {
+	workspaceAbsolute, err := filepath.Abs(workspacePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace path: %w", err)
+	}
+	candidateAbsolute, err := filepath.Abs(candidatePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s path: %w", label, err)
+	}
+	relative, err := filepath.Rel(workspaceAbsolute, candidateAbsolute)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s relative path: %w", label, err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%s must be inside workspace directory", label)
+	}
+	return candidateAbsolute, nil
+}
+
+func workflowPlanCreateStatus(exitCode int) int {
+	switch exitCode {
+	case ExitInvalidInput:
+		return http.StatusBadRequest
+	case ExitInfeasible:
+		return http.StatusUnprocessableEntity
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 func serveUIIndex(writer http.ResponseWriter, uiFileSystem fs.FS) {

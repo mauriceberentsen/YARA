@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 const views = [
   { id: "pipeline", label: "Pipeline", endpoint: "/api/v1/workspace" },
+  { id: "plan-create", label: "Plan create", endpoint: "/api/v1/workspace" },
   { id: "catalog", label: "Catalog", endpoint: "/api/v1/catalog" },
   { id: "coverage", label: "Coverage", endpoint: "/api/v1/coverage" },
   { id: "drift", label: "Drift", endpoint: "/api/v1/drift-posture" },
@@ -265,9 +266,108 @@ function PipelineView({ payload }) {
   );
 }
 
+function PlanCreateView({ workspacePayload, onPlanCreated }) {
+  const workspacePath = workspacePayload?.workspace?.path || "";
+  const [form, setForm] = useState(() => ({
+    requestPath: "docs/examples/v0.2-platform-request.yaml",
+    inventoryPath: "docs/examples/v0.2-inventory.yaml",
+    catalogPath: "catalog/v0.2/snapshot.yaml",
+    outputPath: workspacePath ? `${workspacePath}/reference-stack.plan.yaml` : "",
+    auditPath: workspacePath ? `${workspacePath}/reference-stack.plan.audit.jsonl` : "",
+  }));
+  const [submitState, setSubmitState] = useState({ loading: false, error: "", result: null });
+
+  useEffect(() => {
+    if (!workspacePath) {
+      return;
+    }
+    setForm((previous) => {
+      const next = { ...previous };
+      if (!previous.outputPath) {
+        next.outputPath = `${workspacePath}/reference-stack.plan.yaml`;
+      }
+      if (!previous.auditPath) {
+        next.auditPath = `${workspacePath}/reference-stack.plan.audit.jsonl`;
+      }
+      return next;
+    });
+  }, [workspacePath]);
+
+  const update = (key) => (event) => {
+    setForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.diagnostics?.[0]?.message || "Plan creation failed");
+      }
+      setSubmitState({ loading: false, error: "", result: payload.plan || null });
+      onPlanCreated();
+    } catch (error) {
+      setSubmitState({ loading: false, error: error.message || "Plan creation failed", result: null });
+    }
+  };
+
+  return (
+    <>
+      <p>Workspace: {workspacePath || "unknown"}</p>
+      <form onSubmit={submit}>
+        <div className="formRow">
+          <label htmlFor="plan-request-path">Request path</label>
+          <input id="plan-request-path" value={form.requestPath} onChange={update("requestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="plan-inventory-path">Inventory path</label>
+          <input id="plan-inventory-path" value={form.inventoryPath} onChange={update("inventoryPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="plan-catalog-path">Catalog path</label>
+          <input id="plan-catalog-path" value={form.catalogPath} onChange={update("catalogPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="plan-output-path">Plan output path</label>
+          <input id="plan-output-path" value={form.outputPath} onChange={update("outputPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="plan-audit-path">Audit output path</label>
+          <input id="plan-audit-path" value={form.auditPath} onChange={update("auditPath")} />
+        </div>
+        <button type="submit" disabled={submitState.loading}>
+          {submitState.loading ? "Creating plan..." : "Create plan"}
+        </button>
+      </form>
+      {submitState.error && <p className="error">Error: {submitState.error}</p>}
+      {submitState.result && (
+        <dl className="grid">
+          <div><dt>Plan ID</dt><dd>{submitState.result.planId || "n/a"}</dd></div>
+          <div><dt>Confidence</dt><dd>{submitState.result.confidence || "n/a"}</dd></div>
+          <div><dt>Plan path</dt><dd>{submitState.result.planPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{submitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Decisions</dt><dd>{String(submitState.result.decisions ?? 0)}</dd></div>
+          <div><dt>Instances</dt><dd>{String(submitState.result.instances ?? 0)}</dd></div>
+          <div><dt>Components</dt><dd>{String(submitState.result.components ?? 0)}</dd></div>
+          <div><dt>Diagnostics</dt><dd>{String(submitState.result.diagnostics ?? 0)}</dd></div>
+        </dl>
+      )}
+    </>
+  );
+}
+
 function renderView(viewID, payload, extra = {}) {
   if (viewID === "pipeline") {
     return <PipelineView payload={payload} />;
+  }
+  if (viewID === "plan-create") {
+    return <PlanCreateView workspacePayload={payload} onPlanCreated={extra.onPlanCreated || (() => {})} />;
   }
   if (viewID === "catalog") {
     return (
@@ -300,17 +400,19 @@ export function App() {
   const [activeViewID, setActiveViewID] = useState(views[0].id);
   const [driftAssertion, setDriftAssertion] = useState("");
   const [lifecycleAssertion, setLifecycleAssertion] = useState("");
+  const [workspaceRefresh, setWorkspaceRefresh] = useState(0);
   const assertionEndpoint = "/api/v1/assertions";
+  const workspaceEndpoint = `/api/v1/workspace?refresh=${workspaceRefresh}`;
   const driftEndpoint = driftAssertion ? `/api/v1/drift-posture?assertion=${encodeURIComponent(driftAssertion)}` : "/api/v1/drift-posture";
   const lifecycleEndpoint = lifecycleAssertion ? `/api/v1/lifecycle-policy?assertion=${encodeURIComponent(lifecycleAssertion)}` : "/api/v1/lifecycle-policy";
   const activeView = useMemo(() => views.find((view) => view.id === activeViewID) || views[0], [activeViewID]);
-  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.endpoint;
+  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.id === "pipeline" || activeView.id === "plan-create" ? workspaceEndpoint : activeView.endpoint;
   const decoder =
     activeView.id === "drift"
       ? decodeDriftPayload
       : activeView.id === "lifecycle"
         ? decodeLifecyclePayload
-        : activeView.id === "pipeline"
+        : activeView.id === "pipeline" || activeView.id === "plan-create"
           ? decodeWorkspacePayload
           : undefined;
   const { loading, payload, error } = useEndpoint(endpoint, decoder);
@@ -348,6 +450,7 @@ export function App() {
             lifecycleAssertion,
             setLifecycleAssertion,
             assertions: assertionIDs,
+            onPlanCreated: () => setWorkspaceRefresh((value) => value + 1),
           })}
       </section>
     </main>
