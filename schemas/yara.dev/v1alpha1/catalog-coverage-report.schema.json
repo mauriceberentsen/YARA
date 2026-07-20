@@ -77,7 +77,7 @@
         "hardwareProfileRef": { "type": "string", "minLength": 1 },
         "promotionEligible": { "type": "boolean" },
         "lifecyclePublicationReady": { "type": "boolean" },
-        "lifecyclePublicationBlocker": { "type": "string", "minLength": 1 },
+        "lifecyclePublicationBlocker": { "type": "string", "pattern": "^[a-z0-9-]+\\|remediation:[a-z0-9-]+$" },
         "gates": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/gate" } },
         "blockers": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
       }

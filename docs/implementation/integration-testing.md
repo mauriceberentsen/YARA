@@ -80,3 +80,13 @@ Each assertion also carries:
 - `lifecyclePublicationBlocker`
 
 `lifecyclePublicationBlocker` is deterministic and remediation-oriented (for example `lifecycle-proof-approval-not-recorded|remediation:record-lifecycle-proof-approval` or `selected-approval-expired-for-lifecycle-evidence|remediation:renew-lifecycle-proof-approval`). This keeps publication policy diagnostics operator-actionable without exposing secret material.
+
+To inspect lifecycle publication policy diagnostics from one immutable report identity:
+
+```bash
+go run ./cmd/yara catalog coverage lifecycle-publication-policy \
+  --report catalog-v0.2-coverage.yaml \
+  --audit-output catalog-v0.2-coverage.lifecycle-publication-policy.audit.jsonl
+```
+
+The command does not mutate manifests or execution evidence. It emits bounded diagnostics only, and fails closed when report structure, lifecycle blocker encoding, or summary counts drift from deterministic coverage semantics.

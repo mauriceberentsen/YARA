@@ -2,10 +2,13 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
@@ -19,6 +22,12 @@ type catalogCoverageOptions struct {
 	name        string
 	outputPath  string
 	auditPath   string
+}
+
+type lifecyclePublicationPolicyOptions struct {
+	reportPath string
+	assertion  string
+	auditPath  string
 }
 
 func catalogCoverage(args []string, stdout, stderr io.Writer) int {
@@ -59,10 +68,93 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 	if err := encoder.Encode(map[string]any{
 		"valid": true, "complete": report.Spec.Complete, "reportId": report.Metadata.ReportID,
 		"output": options.outputPath, "auditOutput": options.auditPath, "summary": report.Spec.Summary,
+		"lifecyclePublicationReadyAssertions":   report.Spec.Summary.LifecyclePublicationReadyAssertions,
+		"lifecyclePublicationBlockedAssertions": report.Spec.Summary.LifecyclePublicationBlockedAssertions,
 	}); err != nil {
 		return ExitInternal
 	}
 	return ExitSuccess
+}
+
+func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) int {
+	options, ok := parseLifecyclePublicationPolicyOptions(args, stderr)
+	if !ok {
+		return ExitInvalidInput
+	}
+	report, err := catalogcoverage.Load(options.reportPath)
+	if err != nil {
+		return writeAuditedLoadError(stdout, options.auditPath, "catalog.coverage.lifecycle-publication-policy", catalogcoverage.Kind, options.reportPath, "YARA-COV-004", err, nil)
+	}
+	subject := audit.Subject{Kind: catalogcoverage.Kind, Digest: report.Metadata.ReportID}
+	filtered := make([]catalogcoverage.AssertionCoverage, 0, len(report.Spec.Assertions))
+	for _, assertion := range report.Spec.Assertions {
+		if options.assertion == "" || assertion.ID == options.assertion {
+			filtered = append(filtered, assertion)
+		}
+	}
+	if options.assertion != "" && len(filtered) == 0 {
+		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-007", errors.New("assertion is not present in catalog coverage report"), ExitInvalidInput)
+	}
+	blocked := []map[string]string{}
+	for _, assertion := range filtered {
+		if assertion.LifecyclePublicationReady {
+			continue
+		}
+		blocked = append(blocked, map[string]string{
+			"assertion":   assertion.ID,
+			"blocker":     assertion.LifecyclePublicationBlocker,
+			"remediation": lifecyclePublicationRemediation(assertion.LifecyclePublicationBlocker),
+		})
+	}
+	sort.Slice(blocked, func(i, j int) bool { return blocked[i]["assertion"] < blocked[j]["assertion"] })
+	if err := persistOperationAudit(options.auditPath, "catalog.coverage.lifecycle-publication-policy", "completed", "success", []audit.Subject{subject}, nil); err != nil {
+		return writeLoadError(stdout, "YARA-AUD-005", err)
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(map[string]any{
+		"valid":                                 true,
+		"reportId":                              report.Metadata.ReportID,
+		"lifecyclePublicationReadyAssertions":   report.Spec.Summary.LifecyclePublicationReadyAssertions,
+		"lifecyclePublicationBlockedAssertions": report.Spec.Summary.LifecyclePublicationBlockedAssertions,
+		"blockedAssertions":                     blocked,
+		"auditOutput":                           options.auditPath,
+	}); err != nil {
+		return ExitInternal
+	}
+	return ExitSuccess
+}
+
+func parseLifecyclePublicationPolicyOptions(args []string, stderr io.Writer) (lifecyclePublicationPolicyOptions, bool) {
+	var options lifecyclePublicationPolicyOptions
+	flags := flag.NewFlagSet("catalog coverage lifecycle-publication-policy", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&options.reportPath, "report", "", "CatalogCoverageReport YAML file")
+	flags.StringVar(&options.assertion, "assertion", "", "Optional exact assertion ID to inspect")
+	flags.StringVar(&options.auditPath, "audit-output", "", "Generated lifecycle publication policy audit JSONL file")
+	if err := flags.Parse(args); err != nil {
+		return options, false
+	}
+	if flags.NArg() != 0 || options.reportPath == "" || options.auditPath == "" {
+		fmt.Fprintln(stderr, "catalog coverage lifecycle-publication-policy requires --report and --audit-output")
+		return options, false
+	}
+	return options, true
+}
+
+func lifecyclePublicationRemediation(blocker string) string {
+	parts := strings.Split(blocker, "|remediation:")
+	if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
+		return "unknown"
+	}
+	return parts[1]
+}
+
+func writeCatalogCoveragePolicyFailure(output io.Writer, auditPath string, subjects []audit.Subject, code string, err error, exitCode int) int {
+	if auditErr := persistOperationAudit(auditPath, "catalog.coverage.lifecycle-publication-policy", "failed", "failed", subjects, []string{code}); auditErr != nil {
+		return writeLoadError(output, "YARA-AUD-005", auditErr)
+	}
+	return writeLoadErrorWithExit(output, code, err, exitCode)
 }
 
 func validateCatalogCoverage(args []string, stdout, stderr io.Writer) int {

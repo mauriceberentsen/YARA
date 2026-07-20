@@ -169,6 +169,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 3 && args[0] == "catalog" && args[1] == "coverage" && args[2] == "validate" {
 		return validateCatalogCoverage(args[3:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "catalog" && args[1] == "coverage" && args[2] == "lifecycle-publication-policy" {
+		return explainLifecyclePublicationPolicy(args[3:], stdout, stderr)
+	}
 	if len(args) < 2 || args[1] != "validate" {
 		writeUsage(stderr)
 		return ExitInvalidInput
@@ -553,6 +556,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara catalog validate <snapshot-file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara catalog coverage create --catalog <file> --evidence-dir <directory> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara catalog coverage validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara catalog coverage lifecycle-publication-policy --report <file> [--assertion <id>] --audit-output <file>")
 	fmt.Fprintln(output, "  yara plan create --request <file> --inventory <file> --catalog <file> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara plan validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara plan explain <file> [--decision <id>] [--audit-output <file>]")

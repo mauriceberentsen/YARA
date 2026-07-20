@@ -101,6 +101,9 @@ yara catalog coverage create --catalog catalog/v0.2/snapshot.yaml \
   --evidence-dir catalog/v0.2/evidence --name catalog-v0.2-coverage \
   --output catalog-v0.2-coverage.yaml --audit-output catalog-v0.2-coverage.audit.jsonl
 yara catalog coverage validate catalog-v0.2-coverage.yaml
+yara catalog coverage lifecycle-publication-policy \
+  --report catalog-v0.2-coverage.yaml \
+  --audit-output catalog-v0.2-coverage.lifecycle-publication-policy.audit.jsonl
 yara plan create --request request.yaml --inventory inventory.yaml \
   --catalog catalog/ --output plan.yaml --audit-output audit.jsonl
 yara plan validate plan.yaml --audit-output plan-validation.audit.jsonl

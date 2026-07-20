@@ -481,6 +481,47 @@ func TestBuildRejectsLifecycleProofApprovalWithLedgerSubjectDrift(t *testing.T) 
 	}
 }
 
+func TestCatalogCoverageValidationRejectsMalformedLifecyclePublicationBlockerEncoding(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	report, err := Build("coverage", snapshot, filepath.Join(root, "catalog", "v0.2", "evidence"))
+	if err != nil {
+		t.Fatalf("build coverage: %v", err)
+	}
+	report.Spec.Assertions[0].LifecyclePublicationReady = false
+	report.Spec.Assertions[0].LifecyclePublicationBlocker = "malformed-blocker"
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	if err := report.Validate(); err == nil {
+		t.Fatal("malformed lifecycle publication blocker encoding was accepted")
+	}
+}
+
+func TestCatalogCoverageValidationRejectsLifecyclePublicationSummaryDrift(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	report, err := Build("coverage", snapshot, filepath.Join(root, "catalog", "v0.2", "evidence"))
+	if err != nil {
+		t.Fatalf("build coverage: %v", err)
+	}
+	report.Spec.Summary.LifecyclePublicationBlockedAssertions++
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	if err := report.Validate(); err == nil {
+		t.Fatal("lifecycle publication summary drift was accepted")
+	}
+}
+
 func findAssertion(t *testing.T, report Report, id string) AssertionCoverage {
 	t.Helper()
 	for _, item := range report.Spec.Assertions {

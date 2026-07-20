@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
@@ -36,6 +37,9 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 	}
 	if report.Metadata.ReportID != response.ReportID || report.Spec.Summary.AcceptedEvidenceCount != 14 || report.Spec.Summary.PromotionEligibleAssertions != 0 {
 		t.Fatalf("unexpected report: %#v", report.Spec.Summary)
+	}
+	if report.Spec.Summary.LifecyclePublicationBlockedAssertions != report.Spec.Summary.AssertionCount || report.Spec.Summary.LifecyclePublicationReadyAssertions != 0 {
+		t.Fatalf("unexpected lifecycle publication summary: %#v", report.Spec.Summary)
 	}
 	events, err := audit.LoadJSONL(auditPath)
 	if err != nil {
@@ -90,6 +94,48 @@ func TestCatalogCoverageValidateBindsReportIdentity(t *testing.T) {
 	terminal := events[len(events)-1]
 	if terminal.Spec.Action != "catalog.coverage.validate.completed" || len(terminal.Spec.Subjects) != 1 || terminal.Spec.Subjects[0].Digest != report.Metadata.ReportID {
 		t.Fatalf("validation audit omitted report identity: %#v", terminal.Spec)
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitSuccess {
+		t.Fatalf("lifecycle publication policy failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	var response struct {
+		Valid                                 bool `json:"valid"`
+		LifecyclePublicationReadyAssertions   int  `json:"lifecyclePublicationReadyAssertions"`
+		LifecyclePublicationBlockedAssertions int  `json:"lifecyclePublicationBlockedAssertions"`
+		BlockedAssertions                     []struct {
+			Assertion   string `json:"assertion"`
+			Blocker     string `json:"blocker"`
+			Remediation string `json:"remediation"`
+		} `json:"blockedAssertions"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode policy response: %v", err)
+	}
+	if !response.Valid || response.LifecyclePublicationReadyAssertions != 0 || response.LifecyclePublicationBlockedAssertions == 0 || len(response.BlockedAssertions) == 0 {
+		t.Fatalf("unexpected lifecycle publication policy response: %#v", response)
+	}
+	if !strings.Contains(response.BlockedAssertions[0].Blocker, "|remediation:") || response.BlockedAssertions[0].Remediation == "unknown" {
+		t.Fatalf("blocked assertion remediation is not surfaced: %#v", response.BlockedAssertions[0])
+	}
+	events, err := audit.LoadJSONL(policyAuditPath)
+	if err != nil {
+		t.Fatalf("load policy audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "catalog.coverage.lifecycle-publication-policy.completed" {
+		t.Fatalf("unexpected policy audit terminal event: %#v", terminal.Spec)
 	}
 }
 

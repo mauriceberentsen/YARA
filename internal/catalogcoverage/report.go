@@ -35,8 +35,9 @@ var requiredContractModes = []string{
 }
 
 var (
-	sha256Pattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
-	namePattern   = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
+	sha256Pattern                      = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+	namePattern                        = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
+	lifecyclePublicationBlockerPattern = regexp.MustCompile(`^[a-z0-9-]+\|remediation:[a-z0-9-]+$`)
 )
 
 type Report struct {
@@ -961,7 +962,7 @@ func (r Report) Validate() error {
 		if item.LifecyclePublicationReady && item.LifecyclePublicationBlocker != "" {
 			return errors.New("lifecycle publication blocker must be empty when lifecycle publication is ready")
 		}
-		if !item.LifecyclePublicationReady && strings.TrimSpace(item.LifecyclePublicationBlocker) == "" {
+		if !item.LifecyclePublicationReady && (strings.TrimSpace(item.LifecyclePublicationBlocker) == "" || !lifecyclePublicationBlockerPattern.MatchString(item.LifecyclePublicationBlocker)) {
 			return errors.New("lifecycle publication blocker is required when lifecycle publication is not ready")
 		}
 		previousGate := ""
