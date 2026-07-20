@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `d9b12f8` (`Rewrite README as an honest pre-alpha announcement.`).
+- Branch baseline before this slice: `main` at `6c5fe38` (`Add visitor-oriented pre-alpha quickstart documentation.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `BootstrapReceipt` (`schemas/yara.dev/v1alpha1/bootstrap-receipt.schema.json`);
@@ -106,6 +106,7 @@
 - release workflow now executes snapshot dry-runs on manual dispatch and publish mode only on version tags, and workflow actions are upgraded to Node-24-compatible majors (`actions/checkout@v7`, `actions/setup-go@v7`, `goreleaser/goreleaser-action@v7`).
 - `README.md` user-facing sections now present an explicit pre-alpha announcement with implemented capabilities, hard support boundary, deferred features, and contribution policy.
 - `docs/quickstart.md` now provides a concise visitor-oriented pre-alpha entry path with minimum prerequisites, expected time, supported workflow boundaries, and explicit link to the full implementation quickstart.
+- `docs/reference/commands.md` now provides a one-line, implemented-command-only CLI reference aligned to current `yara` usage output and linked from top-level docs entry points.
 
 ## Verified capabilities
 
@@ -120,6 +121,7 @@
   - release workflow manual validation now passes in snapshot mode without requiring git tags, while tag pushes retain publish-only behavior.
   - README pre-alpha messaging now separates implemented behavior from deferred roadmap scope and aligns support boundary statements with current verified capabilities.
   - visitor-facing quickstart documentation now exists at `docs/quickstart.md` and is linked from both top-level `README.md` and `docs/README.md` without changing execution contracts.
+  - `docs/reference/commands.md` now documents implemented command surfaces and representative key flags aligned with current CLI usage output.
   - catalog coverage now loads and audit-verifies `ArtifactImportReceipt`, `ArtifactTransferReceipt`, and `ArtifactScanReceipt` evidence and binds assertion-scoped import-chain diagnostics deterministically;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
@@ -202,9 +204,9 @@
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `d9b12f8`, `9a4e005`, `8026278`, `293c4b0`, `5d3bb2f`.
+- Recent commits before this slice (newest first): `6c5fe38`, `d9b12f8`, `9a4e005`, `8026278`, `293c4b0`.
 - M1 (Publication gating closure) is complete.
-- This slice completes M5 slice 2 by adding `docs/quickstart.md` as a concise visitor-oriented quickstart that references the full implementation walkthrough and explicit pre-alpha boundaries.
+- This slice completes M5 slice 3 by adding `docs/reference/commands.md` as an implemented-command-only one-line CLI reference aligned to current usage output and linked for first-time readers.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -273,7 +275,7 @@ Exit: `gh release download` produces a working binary; CI blocks merges that bre
 Slices:
 1. Completed: `README.md` user-facing sections now present an honest pre-alpha announcement with implemented capabilities, hard support boundary, deferred roadmap scope, and contribution policy.
 2. Completed: `docs/quickstart.md` now provides a concise first-time visitor path with prerequisites, expected time, supported boundaries, and a direct link to `docs/implementation/quickstart.md`.
-3. `docs/reference/commands.md` — one-liner per command with flag summary; generated or manually maintained; must match CLI `--help` output.
+3. Completed: `docs/reference/commands.md` now provides one-liner command summaries with representative key flags aligned to current CLI usage output.
 4. `docs/architecture/README.md` updated to link implemented vs. future subsystems clearly, distinguishing what is built from what is planned per the architecture docs.
 
 Exit: an informed reader can answer "what does YARA do today" without reading source code; deferred items are clearly labelled.
@@ -304,17 +306,17 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **M5 slice 3: command reference document aligned to CLI help**:
+Implement **M5 slice 4: architecture index clarity for implemented vs planned subsystems**:
 
-- add `docs/reference/commands.md` with one-line command descriptions and key flags for currently implemented CLI surfaces;
-- ensure command names and flag summaries stay aligned with actual `yara --help` / subcommand help outputs;
-- keep the reference bounded to implemented commands only and explicitly avoid documenting deferred/unimplemented paths as available.
+- update `docs/architecture/README.md` so implemented subsystems are clearly separated from planned/future subsystems;
+- add explicit status markers or sections that prevent readers from mistaking planned architecture for shipped behavior;
+- keep links consistent with existing architecture docs while preserving honesty boundary from README/handoff.
 
 Acceptance criteria:
 
-- `docs/reference/commands.md` exists with clear one-liner entries for implemented commands and representative key flags;
-- documented command names/flags align with current CLI help output;
-- deferred/unimplemented commands are not presented as available;
+- architecture index clearly distinguishes implemented vs planned areas for first-time readers;
+- architecture links remain valid and organized by current versus future scope;
+- no planned subsystem is phrased as currently shipped behavior;
 - local validation of documentation changes passes existing repository checks.
 
 ## Validation requirements
