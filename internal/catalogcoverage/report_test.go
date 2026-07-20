@@ -898,6 +898,100 @@ func TestBuildLifecyclePublicationReadinessRequiresRenewalReviewAfterRehearsalPa
 	}
 }
 
+func TestBuildLifecyclePublicationReadinessPassesWithAllFourPublicationPillars(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	directory := t.TempDir()
+	assertionID := writePublicationReadinessFixture(t, directory, catalogDigest, true, true, true, true)
+	report, err := Build("coverage", snapshot, directory)
+	if err != nil {
+		t.Fatalf("build coverage with full publication pillars: %v", err)
+	}
+	assertion := findAssertion(t, report, assertionID)
+	if !assertion.LifecyclePublicationReady || assertion.LifecyclePublicationBlocker != "" {
+		t.Fatalf("expected lifecycle publication readiness to pass with all four pillars: %#v", assertion)
+	}
+}
+
+func TestBuildLifecyclePublicationReadinessBlockerMatrixForMissingPublicationPillars(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	type matrixCase struct {
+		name               string
+		includeLifecycle   bool
+		includeIntegration bool
+		includeRehearsal   bool
+		includeRenewal     bool
+		expectedBlocker    string
+	}
+	cases := []matrixCase{
+		{
+			name:               "missing lifecycle approval",
+			includeLifecycle:   false,
+			includeIntegration: true,
+			includeRehearsal:   false,
+			includeRenewal:     false,
+			expectedBlocker:    "lifecycle-proof-approval-not-recorded|remediation:record-lifecycle-proof-approval",
+		},
+		{
+			name:               "missing integration attestation",
+			includeLifecycle:   true,
+			includeIntegration: false,
+			includeRehearsal:   false,
+			includeRenewal:     false,
+			expectedBlocker:    "integration-publication-attestation-not-recorded|remediation:record-integration-publication-attestation",
+		},
+		{
+			name:               "missing rehearsal",
+			includeLifecycle:   true,
+			includeIntegration: true,
+			includeRehearsal:   false,
+			includeRenewal:     false,
+			expectedBlocker:    "publication-chain-rehearsal-not-recorded|remediation:record-publication-chain-rehearsal",
+		},
+		{
+			name:               "missing renewal review",
+			includeLifecycle:   true,
+			includeIntegration: true,
+			includeRehearsal:   true,
+			includeRenewal:     false,
+			expectedBlocker:    "publication-chain-renewal-review-not-recorded|remediation:record-publication-chain-renewal-review",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			directory := t.TempDir()
+			assertionID := writePublicationReadinessFixture(t, directory, catalogDigest, tc.includeLifecycle, tc.includeIntegration, tc.includeRehearsal, tc.includeRenewal)
+			report, err := Build("coverage", snapshot, directory)
+			if err != nil {
+				t.Fatalf("build coverage for matrix case: %v", err)
+			}
+			assertion := findAssertion(t, report, assertionID)
+			if assertion.LifecyclePublicationReady {
+				t.Fatalf("expected lifecycle publication readiness to fail closed when pillar missing: %#v", assertion)
+			}
+			if assertion.LifecyclePublicationBlocker != tc.expectedBlocker {
+				t.Fatalf("unexpected blocker for case %q: got %q want %q", tc.name, assertion.LifecyclePublicationBlocker, tc.expectedBlocker)
+			}
+		})
+	}
+}
+
 func TestBuildRejectsIntegrationPublicationAttestationWithMalformedAuditAction(t *testing.T) {
 	root := filepath.Join("..", "..")
 	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
@@ -1049,6 +1143,237 @@ func contains(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func writePublicationReadinessFixture(t *testing.T, directory, catalogDigest string, includeLifecycle, includeIntegration, includeRehearsal, includeRenewal bool) string {
+	t.Helper()
+	root := filepath.Join("..", "..")
+	sourceResult := filepath.Join(root, "catalog", "v0.2", "evidence", "gb10", "qwen-coder-lifecycle-passed.yaml")
+	sourceAudit := filepath.Join(root, "catalog", "v0.2", "evidence", "gb10", "qwen-coder-lifecycle-passed.audit.jsonl")
+	resultData, err := os.ReadFile(sourceResult)
+	if err != nil {
+		t.Fatalf("read source lifecycle evidence: %v", err)
+	}
+	auditData, err := os.ReadFile(sourceAudit)
+	if err != nil {
+		t.Fatalf("read source lifecycle audit: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "lifecycle-contract.yaml"), resultData, 0o600); err != nil {
+		t.Fatalf("write lifecycle evidence: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "lifecycle-contract.audit.jsonl"), auditData, 0o600); err != nil {
+		t.Fatalf("write lifecycle audit: %v", err)
+	}
+	lifecycleResult, err := resources.LoadContractTestResult(sourceResult)
+	if err != nil {
+		t.Fatalf("load source lifecycle result: %v", err)
+	}
+	assertionID := lifecycleResult.Spec.AssertionRef
+	integrationResult := deterministicIntegrationResultForAssertion(t, catalogDigest, "core.vllm@0.25.1")
+	writeYAML(t, filepath.Join(directory, "integration.yaml"), integrationResult)
+	writeIntegrationExecutionAudit(t, filepath.Join(directory, "integration.audit.jsonl"), catalogDigest, integrationResult.Metadata.ResultID, integrationResult.Spec.Environment.ReferenceDigest, "2026-07-20T12:15:00Z")
+	promotionReview := resources.PromotionReview{
+		APIVersion: resources.APIVersion,
+		Kind:       "PromotionReview",
+		Metadata: resources.PromotionReviewMetadata{
+			Name: "promotion-review-for-publication-readiness",
+		},
+		Spec: resources.PromotionReviewSpec{
+			CatalogDigest:    catalogDigest,
+			AssertionRef:     assertionID,
+			SelectedEvidence: []string{lifecycleResult.Metadata.ResultID},
+			Reviewer:         resources.ReviewerRecord{Identity: "local:reviewer", Role: "release-manager", Assurance: "self-asserted-local"},
+			ReviewedAt:       time.Now().UTC().Format(time.RFC3339Nano),
+			Decision:         resources.PromotionDecisionApproved,
+			ReasonReference:  "ticket-promotion-review-publication-readiness-123",
+			Limitations: []string{
+				"Promotion review remains bounded to immutable evidence identities.",
+			},
+		},
+	}
+	promotionReview, err = promotionReview.AssignReviewID()
+	if err != nil {
+		t.Fatalf("assign promotion review id: %v", err)
+	}
+	writeYAML(t, filepath.Join(directory, "promotion-review.yaml"), promotionReview)
+	writePromotionReviewAudit(t, filepath.Join(directory, "promotion-review.audit.jsonl"), catalogDigest, promotionReview.Metadata.ReviewID)
+	var approval resources.LifecycleProofApproval
+	if includeLifecycle {
+		ledger := resources.LifecycleProofLedger{
+			APIVersion: resources.APIVersion,
+			Kind:       "LifecycleProofLedger",
+			Metadata:   resources.LifecycleProofLedgerMeta{Name: "lifecycle-proof-for-publication-readiness"},
+			Spec: resources.LifecycleProofLedgerSpec{
+				RecordedAt:            time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339Nano),
+				PlanID:                "sha256:" + strings.Repeat("a", 64),
+				BundleID:              "sha256:" + strings.Repeat("b", 64),
+				TargetReferenceDigest: "sha256:" + strings.Repeat("c", 64),
+				Reviewer:              resources.ReviewerRecord{Identity: "local:reviewer", Role: "platform-security", Assurance: "self-asserted-local"},
+				Decision:              resources.PromotionDecisionApproved,
+				ReasonReference:       "ticket-lifecycle-proof-publication-readiness-123",
+				Stages: []resources.LifecycleProofLedgerStage{
+					{Stage: resources.LifecycleStageApply, ReceiptID: "sha256:" + strings.Repeat("d", 64), ExecutionCorrelationID: "apply", Outcome: "succeeded", CompletedAt: time.Now().UTC().Add(-100 * time.Minute).Format(time.RFC3339Nano)},
+					{Stage: resources.LifecycleStageRetire, ReceiptID: "sha256:" + strings.Repeat("e", 64), ExecutionCorrelationID: "retire", Outcome: "succeeded", CompletedAt: time.Now().UTC().Add(-90 * time.Minute).Format(time.RFC3339Nano)},
+					{Stage: resources.LifecycleStageRollback, ReceiptID: "sha256:" + strings.Repeat("f", 64), ExecutionCorrelationID: "rollback", Outcome: "succeeded", CompletedAt: time.Now().UTC().Add(-80 * time.Minute).Format(time.RFC3339Nano)},
+				},
+				Limitations: []string{
+					"Lifecycle proof ledger does not execute mutations.",
+					"Lifecycle proof ledger links immutable receipt identities only.",
+				},
+			},
+		}
+		ledger, err = ledger.AssignLedgerID()
+		if err != nil {
+			t.Fatalf("assign lifecycle ledger id: %v", err)
+		}
+		approval = resources.LifecycleProofApproval{
+			APIVersion: resources.APIVersion,
+			Kind:       "LifecycleProofApproval",
+			Metadata:   resources.LifecycleProofApprovalMeta{Name: "lifecycle-proof-approval-for-publication-readiness"},
+			Spec: resources.LifecycleProofApprovalSpec{
+				ReviewedAt:       time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano),
+				ExpiresAt:        time.Now().UTC().Add(6 * time.Hour).Format(time.RFC3339Nano),
+				CatalogDigest:    catalogDigest,
+				AssertionRef:     assertionID,
+				LedgerID:         ledger.Metadata.LedgerID,
+				SelectedEvidence: []string{lifecycleResult.Metadata.ResultID},
+				Reviewer:         resources.ReviewerRecord{Identity: "local:reviewer", Role: "release-manager", Assurance: "self-asserted-local"},
+				Decision:         resources.PromotionDecisionApproved,
+				ReasonReference:  "ticket-lifecycle-approval-publication-readiness-123",
+				MaxLedgerAge:     "720h",
+				Limitations: []string{
+					"Lifecycle-proof approval binds one immutable lifecycle proof ledger identity.",
+					"Lifecycle-proof approval records review metadata only and does not mutate catalog state.",
+				},
+			},
+		}
+		approval, err = approval.AssignApprovalID()
+		if err != nil {
+			t.Fatalf("assign lifecycle approval id: %v", err)
+		}
+		writeYAML(t, filepath.Join(directory, "lifecycle-proof-approval.yaml"), approval)
+		writeLifecycleProofApprovalAudit(t, filepath.Join(directory, "lifecycle-proof-approval.audit.jsonl"), catalogDigest, ledger.Metadata.LedgerID, approval.Metadata.ApprovalID)
+	}
+	var attestation resources.IntegrationPublicationAttestation
+	if includeIntegration {
+		attestation = resources.IntegrationPublicationAttestation{
+			APIVersion: resources.APIVersion,
+			Kind:       "IntegrationPublicationAttestation",
+			Metadata: resources.IntegrationPublicationAttestationMeta{
+				Name: "integration-publication-attestation-for-publication-readiness",
+			},
+			Spec: resources.IntegrationPublicationAttestationSpec{
+				ReviewedAt:       time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano),
+				ExpiresAt:        time.Now().UTC().Add(6 * time.Hour).Format(time.RFC3339Nano),
+				CatalogDigest:    catalogDigest,
+				AssertionRef:     assertionID,
+				SelectedEvidence: []string{integrationResult.Metadata.ResultID},
+				Reviewer:         resources.ReviewerRecord{Identity: "local:reviewer", Role: "release-manager", Assurance: "self-asserted-local"},
+				Decision:         resources.PromotionDecisionApproved,
+				ReasonReference:  "ticket-integration-publication-publication-readiness-123",
+				MaxEvidenceAge:   "720h",
+				Limitations: []string{
+					"Integration publication attestation binds one assertion to immutable integration evidence identities only.",
+					"Integration publication attestation records reviewer intent without mutating catalog manifests.",
+				},
+			},
+		}
+		attestation, err = attestation.AssignAttestationID()
+		if err != nil {
+			t.Fatalf("assign integration publication attestation id: %v", err)
+		}
+		writeYAML(t, filepath.Join(directory, "integration-publication-attestation.yaml"), attestation)
+		writeIntegrationPublicationAttestationAudit(t, filepath.Join(directory, "integration-publication-attestation.audit.jsonl"), catalogDigest, attestation.Metadata.AttestationID, attestation.Spec.SelectedEvidence)
+	}
+	var rehearsal resources.PublicationChainRehearsal
+	if includeRehearsal {
+		if !includeLifecycle || !includeIntegration {
+			t.Fatal("invalid fixture: rehearsal requires lifecycle approval and integration attestation")
+		}
+		rehearsal = resources.PublicationChainRehearsal{
+			APIVersion: resources.APIVersion,
+			Kind:       "PublicationChainRehearsal",
+			Metadata:   resources.PublicationChainRehearsalMeta{Name: "publication-chain-rehearsal-for-publication-readiness"},
+			Spec: resources.PublicationChainRehearsalSpec{
+				RehearsedAt:                         time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano),
+				CatalogDigest:                       catalogDigest,
+				AssertionRef:                        assertionID,
+				LifecycleProofApprovalID:            approval.Metadata.ApprovalID,
+				IntegrationPublicationAttestationID: attestation.Metadata.AttestationID,
+				CoverageReportID:                    "sha256:" + strings.Repeat("7", 64),
+				TrustPolicyID:                       "sha256:" + strings.Repeat("8", 64),
+				BoundaryAuditHead:                   "sha256:" + strings.Repeat("9", 64),
+				AuthorizationIDs: []string{
+					"sha256:" + strings.Repeat("1", 64),
+					"sha256:" + strings.Repeat("2", 64),
+				},
+				Reviewer:        resources.ReviewerRecord{Identity: "local:reviewer", Role: "release-manager", Assurance: "self-asserted-local"},
+				Decision:        resources.PromotionDecisionApproved,
+				ReasonReference: "ticket-publication-chain-rehearsal-publication-readiness-123",
+				MaxEvidenceAge:  "720h",
+				Limitations: []string{
+					"Publication-chain rehearsal is non-mutating.",
+					"Publication-chain rehearsal binds immutable publication evidence identities only.",
+				},
+			},
+		}
+		slices.Sort(rehearsal.Spec.AuthorizationIDs)
+		slices.Sort(rehearsal.Spec.Limitations)
+		rehearsal, err = rehearsal.AssignRehearsalID()
+		if err != nil {
+			t.Fatalf("assign publication-chain rehearsal id: %v", err)
+		}
+		writeYAML(t, filepath.Join(directory, "publication-chain-rehearsal.yaml"), rehearsal)
+		writePublicationChainRehearsalAudit(t, filepath.Join(directory, "publication-chain-rehearsal.audit.jsonl"), catalogDigest, rehearsal.Metadata.RehearsalID, approval.Metadata.ApprovalID, attestation.Metadata.AttestationID, rehearsal.Spec.CoverageReportID, rehearsal.Spec.TrustPolicyID, rehearsal.Spec.AuthorizationIDs)
+	}
+	if includeRenewal {
+		if !includeLifecycle || !includeIntegration || !includeRehearsal {
+			t.Fatal("invalid fixture: renewal review requires lifecycle approval, integration attestation, and rehearsal")
+		}
+		retentionAuditHead := "sha256:" + strings.Repeat("5", 64)
+		renewal := resources.PublicationChainRenewalReview{
+			APIVersion: resources.APIVersion,
+			Kind:       "PublicationChainRenewalReview",
+			Metadata: resources.PublicationChainRenewalReviewMeta{
+				Name: "publication-chain-renewal-review-for-publication-readiness",
+			},
+			Spec: resources.PublicationChainRenewalReviewSpec{
+				ReviewedAt:                          time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano),
+				ExpiresAt:                           time.Now().UTC().Add(6 * time.Hour).Format(time.RFC3339Nano),
+				CatalogDigest:                       catalogDigest,
+				AssertionRef:                        assertionID,
+				PublicationChainRehearsalID:         rehearsal.Metadata.RehearsalID,
+				PublicationChainRetentionAuditHead:  retentionAuditHead,
+				PromotionReviewID:                   promotionReview.Metadata.ReviewID,
+				LifecycleProofApprovalID:            approval.Metadata.ApprovalID,
+				IntegrationPublicationAttestationID: attestation.Metadata.AttestationID,
+				SelectedEvidence: []string{
+					rehearsal.Metadata.RehearsalID,
+					retentionAuditHead,
+					promotionReview.Metadata.ReviewID,
+					approval.Metadata.ApprovalID,
+					attestation.Metadata.AttestationID,
+				},
+				Reviewer:        resources.ReviewerRecord{Identity: "local:reviewer", Role: "release-manager", Assurance: "self-asserted-local"},
+				Decision:        resources.PromotionDecisionApproved,
+				ReasonReference: "ticket-publication-chain-renewal-review-publication-readiness-123",
+				MaxEvidenceAge:  "720h",
+				Limitations: []string{
+					"Publication-chain renewal review is non-mutating.",
+					"Publication-chain renewal review binds immutable publication evidence identities only.",
+				},
+			},
+		}
+		slices.Sort(renewal.Spec.SelectedEvidence)
+		slices.Sort(renewal.Spec.Limitations)
+		renewal, err = renewal.AssignReviewID()
+		if err != nil {
+			t.Fatalf("assign publication-chain renewal review id: %v", err)
+		}
+		writeYAML(t, filepath.Join(directory, "publication-chain-renewal-review.yaml"), renewal)
+		writePublicationChainRenewalReviewAudit(t, filepath.Join(directory, "publication-chain-renewal-review.audit.jsonl"), catalogDigest, renewal.Metadata.ReviewID, rehearsal.Metadata.RehearsalID, retentionAuditHead, promotionReview.Metadata.ReviewID, approval.Metadata.ApprovalID, attestation.Metadata.AttestationID)
+	}
+	return assertionID
 }
 
 func deterministicIntegrationResultFixture(t *testing.T, catalogDigest string) resources.IntegrationTestResult {
@@ -1333,6 +1658,65 @@ func writePublicationChainRehearsalAudit(t *testing.T, path, catalogDigest, rehe
 	}
 	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
 		t.Fatalf("write publication-chain rehearsal audit: %v", err)
+	}
+}
+
+func writePublicationChainRenewalReviewAudit(t *testing.T, path, catalogDigest, renewalReviewID, rehearsalID, retentionAuditHead, promotionReviewID, approvalID, attestationID string) {
+	t.Helper()
+	chain := audit.NewChain()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	started, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "publication-chain-renewal-review-started", OccurredAt: now},
+		Spec: audit.Spec{
+			CorrelationID: "publication-chain-renewal-review",
+			Actor:         audit.Actor{ID: "local:reviewer", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "publication.chain.renewal-review.started",
+			Subjects:      []audit.Subject{{Kind: "CatalogSnapshot", Digest: catalogDigest}},
+			Reason:        audit.Reason{Type: "user-request", Reference: "test"},
+			Target:        "catalog:" + catalogDigest,
+			Outcome:       "started",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append started publication-chain renewal-review audit: %v", err)
+	}
+	subjects := []audit.Subject{
+		{Kind: "CatalogSnapshot", Digest: catalogDigest},
+		{Kind: "PublicationChainRenewalReview", Digest: renewalReviewID},
+		{Kind: "PublicationChainRehearsal", Digest: rehearsalID},
+		{Kind: "PublicationChainRetentionDiagnosticsAudit", Digest: retentionAuditHead},
+		{Kind: "PromotionReview", Digest: promotionReviewID},
+		{Kind: "LifecycleProofApproval", Digest: approvalID},
+		{Kind: "IntegrationPublicationAttestation", Digest: attestationID},
+	}
+	slices.SortFunc(subjects, func(left, right audit.Subject) int {
+		if cmp := strings.Compare(left.Kind, right.Kind); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(left.Digest, right.Digest)
+	})
+	terminal, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "publication-chain-renewal-review-terminal", OccurredAt: now},
+		Spec: audit.Spec{
+			CorrelationID: "publication-chain-renewal-review",
+			CausationID:   started.Metadata.ID,
+			Actor:         audit.Actor{ID: "local:reviewer", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "publication.chain.renewal-review.completed",
+			Subjects:      subjects,
+			Reason:        audit.Reason{Type: "user-request", Reference: "test"},
+			Target:        "catalog:" + catalogDigest,
+			Outcome:       "success",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append terminal publication-chain renewal-review audit: %v", err)
+	}
+	var buffer bytes.Buffer
+	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, terminal}); err != nil {
+		t.Fatalf("encode publication-chain renewal-review audit: %v", err)
+	}
+	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
+		t.Fatalf("write publication-chain renewal-review audit: %v", err)
 	}
 }
 

@@ -80,6 +80,7 @@
 - publication-policy diagnostics now fail closed when publication-chain renewal-review explainability records are missing, duplicated, malformed, or inconsistent with selected lifecycle/integration/rehearsal evidence identities.
 - lifecycle publication readiness now requires passing renewal-review evidence for assertion scopes that require integration publication evidence, with deterministic remediation-coded blockers.
 - lifecycle publication readiness now requires the full four-pillar publication chain for integration-required assertion scopes: lifecycle-proof approval, integration publication attestation, publication-chain rehearsal, and publication-chain renewal-review.
+- lifecycle publication readiness now has deterministic acceptance/matrix proof coverage: full four-pillar fixture yields ready=true, and each omitted pillar yields its expected taxonomy-coded blocker.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -134,6 +135,7 @@
   - lifecycle publication policy diagnostics now fail closed when renewal-review explainability records drift from selected gate evidence state or use malformed limitation encoding;
   - lifecycle publication gating now fails closed when integration-required assertions lack passing bound renewal-review evidence, and taxonomy-coded remediation stays deterministic across create/policy command paths;
   - lifecycle publication gating now also fails closed when integration-required assertions lack passing publication-chain rehearsal evidence, using deterministic rehearsal remediation taxonomy shared across create and policy diagnostics;
+  - deterministic matrix tests now prove publication readiness and blocker precedence across all four publication pillars (lifecycle approval, integration attestation, rehearsal, renewal review);
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -174,12 +176,12 @@
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `144309d`, `fe12a5c`, `991a865`, `86aca55`, `499df6d`.
-- This slice closes **Phase 8 slice 2** for full four-pillar publication-readiness gating.
+- Recent commits before this slice (newest first): `6003e27`, `144309d`, `fe12a5c`, `991a865`, `86aca55`.
+- This slice closes **Phase 8 slice 3** for publication-readiness acceptance/matrix proof coverage.
 - M1 (Publication gating closure / Phase 8) status:
   - slice 1 completed: lifecycle publication readiness requires passing renewal-review evidence for integration-required assertion scopes with deterministic taxonomy-coded blockers/remediation;
-  - slice 2 completed in this run: lifecycle publication readiness now requires passing publication-chain rehearsal plus renewal review for integration-required assertion scopes (full four-pillar gating);
-  - slice 3 pending: acceptance proof fixture with all four pillars passing and deterministic blocker checks for each missing pillar.
+  - slice 2 completed: lifecycle publication readiness requires passing publication-chain rehearsal plus renewal review for integration-required assertion scopes (full four-pillar gating);
+  - slice 3 completed in this run: acceptance fixture + blocker matrix tests now prove full four-pillar readiness and deterministic missing-pillar blocker mapping.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -196,7 +198,7 @@ The following ordered milestones define the shortest honest path from the curren
 Slices:
 1. Completed: wired `publication-chain-renewal-review` into `LifecyclePublicationReady` for integration-required assertion scopes, including deterministic renewal-review blocker taxonomy/remediation.
 2. Completed: `LifecyclePublicationReady` now requires passing lifecycle-proof approval + integration publication attestation + rehearsal + renewal-review gates simultaneously for integration-required assertions.
-3. Pending: acceptance proof fixture where all four gates pass, and where each omitted pillar yields deterministic taxonomy-coded blockers.
+3. Completed: acceptance fixture where all four gates pass plus deterministic blocker matrix tests for each omitted publication pillar.
 
 Exit: the full publication-chain governance loop is closed and locally validated.
 
@@ -279,18 +281,18 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **Phase 8 slice 3: publication readiness acceptance-proof fixture and blocker matrix tests**:
+Implement **M2 slice 1: artifact import receipt command and immutable evidence model**:
 
-- add an explicit acceptance fixture where all four publication pillars are present and passing for one integration-required assertion, producing `lifecyclePublicationReady=true`;
-- add deterministic blocker-matrix tests proving each missing pillar (lifecycle approval, integration attestation, rehearsal, renewal review) independently yields the expected taxonomy-coded blocker;
-- preserve read-only fail-closed gating and explainability parity between `catalog coverage create` and `catalog coverage lifecycle-publication-policy`.
+- add `artifact import record` command to emit immutable `ArtifactImportReceipt` bound to exact bundle artifact digests and prior transfer/scan receipt identities;
+- add schema, resource validation, loader/validate command, and fail-closed audit binding for import receipts;
+- keep the command non-mutating and deterministic from an evidence perspective (no secret or raw payload persistence) while preserving existing apply/receipt behavior.
 
 Acceptance criteria:
 
-- one deterministic acceptance fixture yields `lifecyclePublicationReady=true` only when all four publication pillars are passing for an integration-required assertion;
-- blocker matrix tests prove each omitted publication pillar yields its own deterministic taxonomy-coded blocker and remediation;
-- report create and policy diagnostics preserve deterministic non-secret parity for lifecycle/integration/rehearsal/renewal publication gating;
-- durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval, integration attestation, rehearsal, renewal review, and publication outputs;
+- `artifact import record` writes a valid immutable `ArtifactImportReceipt` for one assertion-scoped import chain and persists a valid audit chain;
+- import receipt validation fails closed on foreign catalog/bundle bindings, confirmation mismatches, malformed or missing transfer/scan dependencies, stale evidence, and selected-evidence drift;
+- deterministic identity tests prove equivalent import inputs produce the same receipt ID and any material mutation changes the ID;
+- downstream evidence consumers can load and validate the new receipt without changing mutation authority;
 - apply-side provenance remains fail-closed and unaffected by publication-gating changes;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 
