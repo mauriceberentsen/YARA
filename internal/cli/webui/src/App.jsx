@@ -1376,6 +1376,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.package.export.audit.jsonl` : "",
   }));
   const [publicationPackageSubmitState, setPublicationPackageSubmitState] = useState({ loading: false, error: "", result: null });
+  const [publicationEnvelopeForm, setPublicationEnvelopeForm] = useState(() => ({
+    deliveryReference: "",
+    destinationReference: "",
+    operatorReference: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.release-publication.envelope.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.envelope.export.audit.jsonl` : "",
+  }));
+  const [publicationEnvelopeSubmitState, setPublicationEnvelopeSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1428,6 +1436,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.release-publication.package.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.package.export.audit.jsonl`,
+    }));
+    setPublicationEnvelopeForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.release-publication.envelope.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.envelope.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1701,6 +1714,36 @@ function CapsuleView({ payload }) {
       setPublicationPackageSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setPublicationPackageSubmitState({ loading: false, error: error.message || "Release publication package export failed", result: null });
+    }
+  };
+  const updatePublicationEnvelope = (key) => (event) => {
+    setPublicationEnvelopeForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportPublicationEnvelope = publicationEnvelopeForm.deliveryReference.trim() !== "" &&
+    publicationEnvelopeForm.destinationReference.trim() !== "" &&
+    publicationEnvelopeForm.operatorReference.trim() !== "" &&
+    publicationEnvelopeForm.manifestPath !== "" &&
+    publicationEnvelopeForm.auditPath !== "" &&
+    publicationEnvelopeForm.manifestPath !== publicationEnvelopeForm.auditPath;
+  const submitPublicationEnvelope = async (event) => {
+    event.preventDefault();
+    if (!canExportPublicationEnvelope) {
+      return;
+    }
+    setPublicationEnvelopeSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/release-publication/envelope/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(publicationEnvelopeForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Release publication envelope export failed");
+      }
+      setPublicationEnvelopeSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setPublicationEnvelopeSubmitState({ loading: false, error: error.message || "Release publication envelope export failed", result: null });
     }
   };
   return (
@@ -2070,6 +2113,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{publicationPackageSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Package readiness</dt><dd>{publicationPackageSubmitState.result.packageState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{publicationPackageSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export release publication delivery envelope</h3>
+      <form onSubmit={submitPublicationEnvelope}>
+        <div className="formRow">
+          <label htmlFor="publication-envelope-delivery-reference">Delivery reference</label>
+          <input id="publication-envelope-delivery-reference" value={publicationEnvelopeForm.deliveryReference} onChange={updatePublicationEnvelope("deliveryReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-envelope-destination-reference">Destination reference</label>
+          <input id="publication-envelope-destination-reference" value={publicationEnvelopeForm.destinationReference} onChange={updatePublicationEnvelope("destinationReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-envelope-operator-reference">Delivery envelope operator reference</label>
+          <input id="publication-envelope-operator-reference" value={publicationEnvelopeForm.operatorReference} onChange={updatePublicationEnvelope("operatorReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-envelope-manifest-path">Manifest output path</label>
+          <input id="publication-envelope-manifest-path" value={publicationEnvelopeForm.manifestPath} onChange={updatePublicationEnvelope("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-envelope-audit-path">Audit output path</label>
+          <input id="publication-envelope-audit-path" value={publicationEnvelopeForm.auditPath} onChange={updatePublicationEnvelope("auditPath")} />
+        </div>
+        <button type="submit" disabled={publicationEnvelopeSubmitState.loading || !canExportPublicationEnvelope}>
+          {publicationEnvelopeSubmitState.loading ? "Exporting delivery envelope..." : "Export delivery envelope"}
+        </button>
+      </form>
+      {!canExportPublicationEnvelope && <p className="error">Delivery envelope export requires delivery reference, destination reference, operator reference, and distinct manifest/audit paths.</p>}
+      {publicationEnvelopeSubmitState.error && <p className="error">Delivery readiness: blocked ({publicationEnvelopeSubmitState.error})</p>}
+      {publicationEnvelopeSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{publicationEnvelopeSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{publicationEnvelopeSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Delivery readiness</dt><dd>{publicationEnvelopeSubmitState.result.deliveryState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{publicationEnvelopeSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>

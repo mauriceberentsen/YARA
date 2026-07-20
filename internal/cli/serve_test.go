@@ -2128,6 +2128,130 @@ func TestServeWorkflowReleasePublicationPackageExportRejectsDigestMismatch(t *te
 	}
 }
 
+func TestServeWorkflowReleasePublicationEnvelopeExportWritesManifestAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	manifestPath := filepath.Join(workspacePath, "workflow.release-publication.envelope.json")
+	auditPath := filepath.Join(workspacePath, "workflow.release-publication.envelope.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"deliveryReference":"delivery-2026-07-21","destinationReference":"release-ops://handoff","operatorReference":"operator-5","manifestPath":%q,"auditPath":%q}`, manifestPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-publication/envelope/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for release publication envelope export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read release publication envelope manifest: %v", err)
+	}
+	manifest := workflowReleasePublicationEnvelopeManifest{}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode release publication envelope manifest: %v", err)
+	}
+	if manifest.Envelope.DeliveryState != "delivery-ready" {
+		t.Fatalf("expected delivery-ready state, got %#v", manifest.Envelope)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load release publication envelope audit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected audit events for release publication envelope export")
+	}
+}
+
+func TestServeWorkflowReleasePublicationEnvelopeExportRejectsBlockedPackage(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	packagePath := writeReleasePublicationPackageFixture(t, workspacePath)
+	manifest := workflowReleasePublicationPackageManifest{}
+	manifestBytes, err := os.ReadFile(packagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Package.PackageState = "blocked"
+	manifest.Package.BlockerCode = "YARA-RPK-003"
+	corrupted, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted = append(corrupted, '\n')
+	if err := os.WriteFile(packagePath, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"deliveryReference":"delivery-2026-07-21","destinationReference":"release-ops://handoff","operatorReference":"operator-5","manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.release-publication.envelope.json"),
+		filepath.Join(workspacePath, "workflow.release-publication.envelope.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-publication/envelope/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for blocked release publication package, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RPE-003") {
+		t.Fatalf("expected release publication envelope blocker code, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowReleasePublicationEnvelopeExportRejectsDigestMismatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	packagePath := writeReleasePublicationPackageFixture(t, workspacePath)
+	manifest := workflowReleasePublicationPackageManifest{}
+	manifestBytes, err := os.ReadFile(packagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Package.ReleasePublicationIndex.Digest = testCLIDigest('b')
+	corrupted, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted = append(corrupted, '\n')
+	if err := os.WriteFile(packagePath, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"deliveryReference":"delivery-2026-07-21","destinationReference":"release-ops://handoff","operatorReference":"operator-5","manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.release-publication.envelope.mismatch.json"),
+		filepath.Join(workspacePath, "workflow.release-publication.envelope.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-publication/envelope/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for release publication envelope digest mismatch, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RPE-005") {
+		t.Fatalf("expected release publication envelope digest blocker code, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
@@ -2527,6 +2651,30 @@ func writeReleasePublicationIndexFixture(t *testing.T, workspacePath string) str
 	manifestBytes = append(manifestBytes, '\n')
 	if err := os.WriteFile(manifestPath, manifestBytes, 0o600); err != nil {
 		t.Fatalf("write release publication index fixture: %v", err)
+	}
+	return manifestPath
+}
+
+func writeReleasePublicationPackageFixture(t *testing.T, workspacePath string) string {
+	t.Helper()
+	manifest, _, err := buildWorkflowReleasePublicationPackageManifest(workspacePath, workflowReleasePublicationPackageExportRequest{
+		PackageReference:           "package-2026-07-21",
+		PublicationWindowReference: "window-2026w30",
+		OperatorReference:          "operator-4",
+		ManifestPath:               filepath.Join(workspacePath, "workflow.release-publication.package.json"),
+		AuditPath:                  filepath.Join(workspacePath, "workflow.release-publication.package.export.audit.jsonl"),
+	})
+	if err != nil {
+		t.Fatalf("build release publication package fixture: %v", err)
+	}
+	manifestPath := filepath.Join(workspacePath, "workflow.release-publication.package.json")
+	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal release publication package fixture: %v", err)
+	}
+	manifestBytes = append(manifestBytes, '\n')
+	if err := os.WriteFile(manifestPath, manifestBytes, 0o600); err != nil {
+		t.Fatalf("write release publication package fixture: %v", err)
 	}
 	return manifestPath
 }

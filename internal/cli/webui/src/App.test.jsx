@@ -326,6 +326,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/release-publication/envelope/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            manifestPath: requestPayload.manifestPath,
+            auditPath: requestPayload.auditPath,
+            deliveryState: "delivery-ready",
+            blockerCode: "",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -584,6 +596,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Publication package operator reference"), { target: { value: "operator-4" } });
     fireEvent.click(screen.getByRole("button", { name: "Export publication package" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.release-publication.package.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Delivery reference"), { target: { value: "delivery-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Destination reference"), { target: { value: "release-ops://handoff" } });
+    fireEvent.change(screen.getByLabelText("Delivery envelope operator reference"), { target: { value: "operator-5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export delivery envelope" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.release-publication.envelope.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -689,6 +706,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-037", message: "YARA-RPK-003: latest release publication index is blocked", severity: "error" }],
         }), { status: 422 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/release-publication/envelope/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-038", message: "YARA-RPE-003: latest release publication package is blocked", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -754,6 +777,12 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export publication package" }));
     await waitFor(() => expect(screen.getByText(/Package readiness: blocked/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText(/YARA-RPK-003/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Delivery reference"), { target: { value: "delivery-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Destination reference"), { target: { value: "release-ops://handoff" } });
+    fireEvent.change(screen.getByLabelText("Delivery envelope operator reference"), { target: { value: "operator-5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export delivery envelope" }));
+    await waitFor(() => expect(screen.getByText(/Delivery readiness: blocked/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/YARA-RPE-003/)).toBeInTheDocument());
   });
 
   it("fails closed on malformed drift payload", async () => {
