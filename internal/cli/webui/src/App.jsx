@@ -1400,6 +1400,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.acknowledgment.export.audit.jsonl` : "",
   }));
   const [acknowledgmentSubmitState, setAcknowledgmentSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureSummaryForm, setClosureSummaryForm] = useState(() => ({
+    summaryReference: "",
+    operatorReference: "",
+    summaryTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-summary.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-summary.export.audit.jsonl` : "",
+  }));
+  const [closureSummarySubmitState, setClosureSummarySubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1467,6 +1475,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.release-publication.acknowledgment.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.acknowledgment.export.audit.jsonl`,
+    }));
+    setClosureSummaryForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-summary.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-summary.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1830,6 +1843,36 @@ function CapsuleView({ payload }) {
       setAcknowledgmentSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setAcknowledgmentSubmitState({ loading: false, error: error.message || "Release publication acknowledgment export failed", result: null });
+    }
+  };
+  const updateClosureSummary = (key) => (event) => {
+    setClosureSummaryForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureSummary = closureSummaryForm.summaryReference.trim() !== "" &&
+    closureSummaryForm.operatorReference.trim() !== "" &&
+    closureSummaryForm.summaryTimestamp.trim() !== "" &&
+    closureSummaryForm.manifestPath !== "" &&
+    closureSummaryForm.auditPath !== "" &&
+    closureSummaryForm.manifestPath !== closureSummaryForm.auditPath;
+  const submitClosureSummary = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureSummary) {
+      return;
+    }
+    setClosureSummarySubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure-summary/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureSummaryForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure summary export failed");
+      }
+      setClosureSummarySubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureSummarySubmitState({ loading: false, error: error.message || "Rollout closure summary export failed", result: null });
     }
   };
   return (
@@ -2307,6 +2350,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{acknowledgmentSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Acknowledgment readiness</dt><dd>{acknowledgmentSubmitState.result.acknowledgmentState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{acknowledgmentSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export rollout closure summary</h3>
+      <form onSubmit={submitClosureSummary}>
+        <div className="formRow">
+          <label htmlFor="closure-summary-reference">Summary reference</label>
+          <input id="closure-summary-reference" value={closureSummaryForm.summaryReference} onChange={updateClosureSummary("summaryReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-summary-operator-reference">Summary operator reference</label>
+          <input id="closure-summary-operator-reference" value={closureSummaryForm.operatorReference} onChange={updateClosureSummary("operatorReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-summary-timestamp">Summary timestamp (RFC3339)</label>
+          <input id="closure-summary-timestamp" value={closureSummaryForm.summaryTimestamp} onChange={updateClosureSummary("summaryTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-summary-manifest-path">Manifest output path</label>
+          <input id="closure-summary-manifest-path" value={closureSummaryForm.manifestPath} onChange={updateClosureSummary("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-summary-audit-path">Audit output path</label>
+          <input id="closure-summary-audit-path" value={closureSummaryForm.auditPath} onChange={updateClosureSummary("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureSummarySubmitState.loading || !canExportClosureSummary}>
+          {closureSummarySubmitState.loading ? "Exporting closure summary..." : "Export closure summary"}
+        </button>
+      </form>
+      {!canExportClosureSummary && <p className="error">Closure summary export requires summary reference, operator reference, timestamp, and distinct manifest/audit paths.</p>}
+      {closureSummarySubmitState.error && <p className="error">Summary readiness: blocked ({closureSummarySubmitState.error})</p>}
+      {closureSummarySubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureSummarySubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureSummarySubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Summary readiness</dt><dd>{closureSummarySubmitState.result.summaryState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureSummarySubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>
