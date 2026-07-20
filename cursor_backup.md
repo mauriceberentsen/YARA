@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `c96f21b`, `3695a18`, `88a4f9b`, `0118b61`, `6c5fe38`.
+- Recent commits (newest first): `0359114`, `c96f21b`, `3695a18`, `88a4f9b`, `0118b61`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
@@ -41,11 +41,12 @@
 
 - Branch: `main` tracking `origin/main`.
 - Tag: `v0.1.0-alpha.1` exists on origin and release workflow succeeded.
-- Working tree currently contains this slice changes:
+- This slice completed:
   - new `RuntimeDriftSignal` resource + schema + validators/tests;
   - new `runtime drift-signal record` command and `runtime-drift-signal validate` path;
   - catalog coverage runtime drift posture diagnostics wiring and tests;
-  - command reference and handoff updates.
+  - command reference updates.
+- Working tree should be clean after committing this slice.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## MVP milestone path
