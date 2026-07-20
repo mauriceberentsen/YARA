@@ -129,15 +129,19 @@ go run ./cmd/yara receipt validate receipt.yaml
 
 It binds plan, bundle, preflight, change set, approval, signed authorization, target, exact executor binary, execution correlation, per-object before/after evidence and postflight checks. Its overall outcome is derived from operation and postflight results.
 
-`ArtifactImportReceipt` is a separate public contract for pre-apply model import evidence and internal non-secret file locations. Record it through:
+`ArtifactImportReceipt` is a separate public contract for pre-apply model import evidence and internal non-secret file locations. For bounded bootstrap PVC ingestion, record it through:
 
 ```bash
-go run ./cmd/yara artifact import record \
+go run ./cmd/yara deployment import kubernetes \
   --bundle reference-stack.kubernetes.bundle.yaml \
+  --confirm-bundle sha256:<bundle-id> \
   --preflight reference-stack.preflight.yaml \
-  --importer-name yara-importer \
-  --importer-version 0.1.0 \
+  --target sha256:<target-reference-digest> \
+  --artifact-ref Qwen/Qwen2.5-Coder-7B-Instruct-AWQ \
+  --source-dir ./offline-model \
   --internal-root model \
+  --namespace reference-stack \
+  --model-pvc yara-model \
   --name reference-stack-import \
   --output reference-stack.import-receipt.yaml \
   --audit-output reference-stack.import-receipt.audit.jsonl
@@ -149,7 +153,7 @@ Validate it through:
 go run ./cmd/yara import-receipt validate reference-stack.import-receipt.yaml
 ```
 
-`deployment apply kubernetes` now requires this receipt and rejects mutation when its plan/bundle/target or file bindings drift from the reviewed bundle.
+The import command verifies local file digests/sizes against exact bundle model identities before mutation, stages only the selected artifact into the existing YARA-owned PVC, and fails closed on target/ownership/path drift. `deployment apply kubernetes` requires this receipt and rejects mutation when its plan/bundle/target or file bindings drift from the reviewed bundle.
 
 `BootstrapReceipt` is a separate immutable contract for first-use namespace and model PVC provisioning. Record it through:
 

@@ -7,8 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
+	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -106,6 +109,24 @@ type BootstrapResult struct {
 	Target          resources.TargetIdentity
 	MutationStarted bool
 	Operations      []resources.BootstrapOperationReceipt
+	Limitations     []string
+}
+
+type ImportConfig struct {
+	Namespace             string
+	ModelPVC              string
+	TargetReferenceDigest string
+	SourceRoot            string
+	ImporterImage         string
+	Artifact              resources.ImportedModelArtifact
+}
+
+type ImportResult struct {
+	StartedAt       time.Time
+	CompletedAt     time.Time
+	Target          resources.TargetIdentity
+	MutationStarted bool
+	Artifact        resources.ImportedModelArtifact
 	Limitations     []string
 }
 
@@ -277,6 +298,87 @@ func (k Kubernetes) Bootstrap(ctx context.Context, config BootstrapConfig, start
 	pvcOperation.Outcome, pvcOperation.AfterDigest = "created", digest
 	result.Operations = append(result.Operations, pvcOperation)
 	completeBootstrapResult(&result)
+	return result, nil
+}
+
+func (k Kubernetes) Import(ctx context.Context, config ImportConfig, startedAt time.Time) (result ImportResult, err error) {
+	result.StartedAt = startedAt.UTC()
+	result.Artifact = config.Artifact
+	if k.Executable == "" || k.Runner == nil {
+		return result, errors.New("Kubernetes executor is incomplete")
+	}
+	target, err := k.identify(ctx)
+	if err != nil {
+		return result, err
+	}
+	result.Target = target
+	if target.ReferenceDigest != config.TargetReferenceDigest {
+		return result, errors.New("target identity does not match explicit import confirmation")
+	}
+	namespaceRef := resources.KubernetesObjectReference{APIVersion: "v1", Kind: "Namespace", Name: config.Namespace}
+	namespaceObject, namespaceExists, err := k.fetchObject(ctx, namespaceRef)
+	if err != nil {
+		return result, err
+	}
+	if !namespaceExists || !ownedByYARA(namespaceObject) {
+		return result, errors.New("import namespace is absent or not YARA-owned")
+	}
+	pvcRef := resources.KubernetesObjectReference{APIVersion: "v1", Kind: "PersistentVolumeClaim", Namespace: config.Namespace, Name: config.ModelPVC}
+	pvcObject, pvcExists, err := k.fetchObject(ctx, pvcRef)
+	if err != nil {
+		return result, err
+	}
+	if !pvcExists || !ownedByYARA(pvcObject) {
+		return result, errors.New("import PVC is absent or not YARA-owned")
+	}
+	importerName := "yara-import-" + strings.TrimPrefix(config.TargetReferenceDigest, "sha256:")[:12]
+	importerPod := importerPodManifest(config.Namespace, importerName, config.ModelPVC, config.ImporterImage)
+	podData, _ := yaml.Marshal(importerPod)
+	if _, err := k.run(ctx, podData, "create", "-f", "-"); err != nil {
+		return result, errors.New("import helper pod could not be created")
+	}
+	result.MutationStarted = true
+	defer func() {
+		if cleanupErr := k.cleanupImporterPod(context.WithoutCancel(ctx), config.Namespace, importerName); cleanupErr != nil && err == nil {
+			err = cleanupErr
+		}
+		if result.MutationStarted {
+			completeImportResult(&result)
+		}
+	}()
+	if _, err := k.run(ctx, nil, "wait", "--for=condition=Ready", "pod/"+importerName, "-n", config.Namespace, "--timeout=2m"); err != nil {
+		return result, errors.New("import helper pod did not become ready")
+	}
+	expectedBindings := make([]resources.ImportedModelArtifactBinding, 0, len(config.Artifact.Files))
+	for _, file := range config.Artifact.Files {
+		localPath := filepath.Clean(filepath.Join(config.SourceRoot, filepath.FromSlash(file.Path)))
+		if _, err := k.run(ctx, nil, "exec", importerName, "-n", config.Namespace, "--", "mkdir", "-p", path.Dir("/models/import-root/"+file.InternalPath)); err != nil {
+			return result, errors.New("import helper could not create destination path")
+		}
+		if _, err := k.run(ctx, nil, "cp", localPath, fmt.Sprintf("%s/%s:/models/import-root/%s", config.Namespace, importerName, file.InternalPath), "-c", "importer"); err != nil {
+			return result, errors.New("artifact file copy into PVC failed")
+		}
+		expectedBindings = append(expectedBindings, resources.ImportedModelArtifactBinding{
+			Path:         file.Path,
+			Digest:       file.Digest,
+			SizeBytes:    file.SizeBytes,
+			InternalPath: file.InternalPath,
+		})
+	}
+	expectedData, _ := json.Marshal(expectedBindings)
+	verifyScript := `import hashlib,json,os,sys
+files=json.loads(sys.argv[1])
+for item in files:
+ p=os.path.join('/models/import-root',item['internalPath'])
+ if os.path.getsize(p)!=item['sizeBytes']: raise SystemExit(11)
+ h=hashlib.sha256()
+ with open(p,'rb') as f:
+  for chunk in iter(lambda:f.read(1048576),b''): h.update(chunk)
+ if 'sha256:'+h.hexdigest()!=item['digest']: raise SystemExit(12)
+`
+	if _, err := k.run(ctx, nil, "exec", importerName, "-n", config.Namespace, "--", "/usr/bin/python3", "-c", verifyScript, string(expectedData)); err != nil {
+		return result, errors.New("import helper pod verification failed")
+	}
 	return result, nil
 }
 
@@ -738,6 +840,19 @@ func completeBootstrapResult(result *BootstrapResult) {
 	result.CompletedAt = time.Now().UTC()
 }
 
+func completeImportResult(result *ImportResult) {
+	slices.SortFunc(result.Artifact.Files, func(left, right resources.ImportedModelArtifactBinding) int {
+		return strings.Compare(left.Path, right.Path)
+	})
+	result.Limitations = []string{
+		"Import command stages only one explicitly selected model artifact into an existing YARA-owned PVC.",
+		"Import command does not create, delete, prune or adopt Kubernetes resources.",
+		"Import command does not execute deployment, retirement or rollback workflows.",
+	}
+	slices.Sort(result.Limitations)
+	result.CompletedAt = time.Now().UTC()
+}
+
 func (k Kubernetes) assertApprovedState(ctx context.Context, desired []changeset.DesiredObject, approved resources.KubernetesChangeSet, planID string) error {
 	approvedByKey := map[string]resources.KubernetesChangeOperation{}
 	for _, operation := range approved.Spec.Operations {
@@ -825,6 +940,74 @@ func bootstrapObjectDigest(object map[string]any) (string, error) {
 		normalized["spec"] = spec
 	}
 	return canonical.Digest(normalized)
+}
+
+func importerPodManifest(namespace, name, pvcName, image string) map[string]any {
+	return map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata": map[string]any{
+			"name":      name,
+			"namespace": namespace,
+			"labels": map[string]any{
+				"app.kubernetes.io/managed-by": "yara",
+				"yara.dev/role":                "importer",
+			},
+		},
+		"spec": map[string]any{
+			"restartPolicy":                 "Never",
+			"automountServiceAccountToken":  false,
+			"terminationGracePeriodSeconds": 0,
+			"containers": []any{
+				map[string]any{
+					"name":            "importer",
+					"image":           image,
+					"imagePullPolicy": "IfNotPresent",
+					"command":         []any{"/usr/bin/python3", "-c", "import time; time.sleep(600)"},
+					"securityContext": map[string]any{
+						"allowPrivilegeEscalation": false,
+						"readOnlyRootFilesystem":   true,
+						"capabilities": map[string]any{
+							"drop": []any{"ALL"},
+						},
+					},
+					"volumeMounts": []any{
+						map[string]any{
+							"name":      "model",
+							"mountPath": "/models/import-root",
+						},
+					},
+				},
+			},
+			"volumes": []any{
+				map[string]any{
+					"name": "model",
+					"persistentVolumeClaim": map[string]any{
+						"claimName": pvcName,
+					},
+				},
+			},
+		},
+	}
+}
+
+func (k Kubernetes) cleanupImporterPod(ctx context.Context, namespace, podName string) error {
+	observed, err := k.run(ctx, nil, "get", "pod", podName, "-n", namespace, "-o", "json")
+	if err != nil {
+		return errors.New("import helper pod could not be read before cleanup")
+	}
+	var identity struct {
+		Metadata struct {
+			Labels map[string]string `json:"labels"`
+		} `json:"metadata"`
+	}
+	if json.Unmarshal(observed, &identity) != nil || identity.Metadata.Labels["app.kubernetes.io/managed-by"] != "yara" || identity.Metadata.Labels["yara.dev/role"] != "importer" {
+		return errors.New("import helper pod ownership changed before cleanup")
+	}
+	if _, err := k.run(ctx, nil, "delete", "pod", podName, "-n", namespace, "--wait=true", "--timeout=30s"); err != nil {
+		return errors.New("import helper pod cleanup failed")
+	}
+	return nil
 }
 
 func ownedByYARA(object map[string]any) bool {

@@ -106,7 +106,7 @@ Kubernetes RBAC cannot restrict `create` by resource name and does not prove adm
 ## Explicitly unsupported
 
 - implicit namespace or PVC provisioning during apply;
-- connected/offline artifact acquisition or import execution workflows;
+- connected/offline artifact acquisition workflows (artifact staging into PVC is handled separately by `deployment import kubernetes`);
 - Secret creation or secret-value handling;
 - deletion, pruning, adoption and rollback;
 - changing a renderer decision during apply;

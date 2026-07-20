@@ -26,7 +26,9 @@ type fakeKubectl struct {
 	objects          map[string]map[string]any
 	calls            []string
 	podCommands      [][]string
+	copyCommands     []string
 	verifierFailure  bool
+	importFailure    bool
 	holder           string
 	authorizationID  string
 	foreignNamespace bool
@@ -94,11 +96,17 @@ func (f *fakeKubectl) Run(_ context.Context, _ string, stdin []byte, args ...str
 		return nil, nil
 	case strings.HasPrefix(command, "wait --for=jsonpath={.status.phase}=Succeeded pod/"):
 		return nil, nil
+	case strings.HasPrefix(command, "wait --for=condition=Ready pod/"):
+		return nil, nil
 	case strings.HasPrefix(command, "get pod "):
 		name := args[2]
 		authorizationID := testDigest('b')
+		role := "verifier"
 		if strings.Contains(name, strings.TrimPrefix(testDigest('d'), "sha256:")[:12]) {
 			authorizationID = testDigest('d')
+		}
+		if strings.HasPrefix(name, "yara-import-") {
+			role = "importer"
 		}
 		phase := "Succeeded"
 		containerStatuses := []any{}
@@ -106,7 +114,18 @@ func (f *fakeKubectl) Run(_ context.Context, _ string, stdin []byte, args ...str
 			phase = "Failed"
 			containerStatuses = []any{map[string]any{"state": map[string]any{"waiting": map[string]any{"reason": "ContainerCannotRun"}}}}
 		}
-		return json.Marshal(map[string]any{"metadata": map[string]any{"labels": map[string]any{"app.kubernetes.io/managed-by": "yara", "yara.dev/role": "verifier"}, "annotations": map[string]any{"yara.dev/authorization-id": authorizationID}}, "status": map[string]any{"phase": phase, "containerStatuses": containerStatuses}})
+		return json.Marshal(map[string]any{"metadata": map[string]any{"labels": map[string]any{"app.kubernetes.io/managed-by": "yara", "yara.dev/role": role}, "annotations": map[string]any{"yara.dev/authorization-id": authorizationID}}, "status": map[string]any{"phase": phase, "containerStatuses": containerStatuses}})
+	case strings.HasPrefix(command, "cp "):
+		f.copyCommands = append(f.copyCommands, command)
+		if f.importFailure {
+			return nil, errors.New("copy failed")
+		}
+		return nil, nil
+	case strings.HasPrefix(command, "exec "):
+		if f.importFailure {
+			return nil, errors.New("exec failed")
+		}
+		return nil, nil
 	case strings.HasPrefix(command, "delete pod ") || strings.HasPrefix(command, "rollout status deployment/"):
 		return nil, nil
 	case strings.HasPrefix(command, "delete ") && !strings.HasPrefix(command, "delete lease ") && !strings.HasPrefix(command, "delete pod "):
@@ -348,6 +367,123 @@ func TestKubernetesBootstrapRejectsTargetConfirmationMismatch(t *testing.T) {
 	}
 	if countCalls(fake.calls, "create -f -") != 0 {
 		t.Fatalf("bootstrap mutated resources with mismatched target confirmation: %#v", fake.calls)
+	}
+}
+
+func TestKubernetesImportCopiesArtifactIntoOwnedPVC(t *testing.T) {
+	namespace := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Namespace",
+		"metadata": map[string]any{
+			"name": "yara-bootstrap",
+			"labels": map[string]any{
+				"app.kubernetes.io/managed-by": "yara",
+			},
+		},
+	}
+	pvc := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "PersistentVolumeClaim",
+		"metadata": map[string]any{
+			"name":      "yara-model",
+			"namespace": "yara-bootstrap",
+			"labels": map[string]any{
+				"app.kubernetes.io/managed-by": "yara",
+			},
+		},
+		"spec": map[string]any{
+			"storageClassName": "local-path",
+			"accessModes":      []any{"ReadWriteOnce"},
+			"resources": map[string]any{
+				"requests": map[string]any{
+					"storage": "200Gi",
+				},
+			},
+		},
+	}
+	fake := &fakeKubectl{
+		objects: map[string]map[string]any{
+			keyOf(resources.KubernetesObjectReference{APIVersion: "v1", Kind: "Namespace", Name: "yara-bootstrap"}):                                      namespace,
+			keyOf(resources.KubernetesObjectReference{APIVersion: "v1", Kind: "PersistentVolumeClaim", Namespace: "yara-bootstrap", Name: "yara-model"}): pvc,
+		},
+	}
+	engine := Kubernetes{Executable: "kubectl", Runner: fake}
+	targetDigest := expectedBootstrapTargetDigest(t)
+	result, err := engine.Import(t.Context(), ImportConfig{
+		Namespace:             "yara-bootstrap",
+		ModelPVC:              "yara-model",
+		TargetReferenceDigest: targetDigest,
+		SourceRoot:            "/tmp/model",
+		ImporterImage:         "vllm@sha256:test",
+		Artifact: resources.ImportedModelArtifact{
+			Ref:      "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ",
+			Revision: "abc123",
+			Files: []resources.ImportedModelArtifactBinding{
+				{Path: "model-00001-of-00002.safetensors", Digest: testDigest('a'), SizeBytes: 1024, InternalPath: "model/model-00001-of-00002.safetensors"},
+				{Path: "model-00002-of-00002.safetensors", Digest: testDigest('b'), SizeBytes: 2048, InternalPath: "model/model-00002-of-00002.safetensors"},
+			},
+		},
+	}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.MutationStarted || len(fake.copyCommands) != 2 {
+		t.Fatalf("import did not copy expected files: result=%#v calls=%#v", result, fake.calls)
+	}
+	createPod, firstCopy, deletePod := callIndex(fake.calls, "create -f -"), callIndex(fake.calls, "cp "), callIndex(fake.calls, "delete pod")
+	if createPod < 0 || firstCopy <= createPod || deletePod <= firstCopy {
+		t.Fatalf("import helper pod lifecycle ordering invalid: %#v", fake.calls)
+	}
+	for _, call := range fake.calls {
+		if strings.HasPrefix(call, "apply --server-side") || (strings.HasPrefix(call, "delete ") && !strings.HasPrefix(call, "delete pod ")) {
+			t.Fatalf("import used forbidden mutation path: %s", call)
+		}
+	}
+}
+
+func TestKubernetesImportRejectsForeignPVCBeforeMutation(t *testing.T) {
+	namespace := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Namespace",
+		"metadata": map[string]any{
+			"name": "yara-bootstrap",
+			"labels": map[string]any{
+				"app.kubernetes.io/managed-by": "yara",
+			},
+		},
+	}
+	pvc := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "PersistentVolumeClaim",
+		"metadata": map[string]any{
+			"name":      "yara-model",
+			"namespace": "yara-bootstrap",
+			"labels": map[string]any{
+				"app.kubernetes.io/managed-by": "foreign",
+			},
+		},
+	}
+	fake := &fakeKubectl{
+		objects: map[string]map[string]any{
+			keyOf(resources.KubernetesObjectReference{APIVersion: "v1", Kind: "Namespace", Name: "yara-bootstrap"}):                                      namespace,
+			keyOf(resources.KubernetesObjectReference{APIVersion: "v1", Kind: "PersistentVolumeClaim", Namespace: "yara-bootstrap", Name: "yara-model"}): pvc,
+		},
+	}
+	engine := Kubernetes{Executable: "kubectl", Runner: fake}
+	targetDigest := expectedBootstrapTargetDigest(t)
+	result, err := engine.Import(t.Context(), ImportConfig{
+		Namespace:             "yara-bootstrap",
+		ModelPVC:              "yara-model",
+		TargetReferenceDigest: targetDigest,
+		SourceRoot:            "/tmp/model",
+		ImporterImage:         "vllm@sha256:test",
+		Artifact:              resources.ImportedModelArtifact{Ref: "model", Revision: "rev", Files: []resources.ImportedModelArtifactBinding{{Path: "a.bin", Digest: testDigest('a'), SizeBytes: 1, InternalPath: "model/a.bin"}}},
+	}, time.Now().UTC())
+	if err == nil || result.MutationStarted {
+		t.Fatalf("foreign pvc should fail before mutation: result=%#v err=%v", result, err)
+	}
+	if countCalls(fake.calls, "cp ") != 0 || callIndex(fake.calls, "create -f -") >= 0 {
+		t.Fatalf("import mutated resources before pvc ownership validation: %#v", fake.calls)
 	}
 }
 

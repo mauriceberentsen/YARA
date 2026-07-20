@@ -20,6 +20,7 @@ import (
 
 type fixedKubernetesExecutor struct {
 	bootstrap func(context.Context, executor.BootstrapConfig, time.Time) (executor.BootstrapResult, error)
+	importFn  func(context.Context, executor.ImportConfig, time.Time) (executor.ImportResult, error)
 	execute   func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
 	retire    func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RetirementResult, error)
 	rollback  func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RollbackResult, error)
@@ -30,6 +31,13 @@ func (f fixedKubernetesExecutor) Bootstrap(ctx context.Context, config executor.
 		return executor.BootstrapResult{}, nil
 	}
 	return f.bootstrap(ctx, config, started)
+}
+
+func (f fixedKubernetesExecutor) Import(ctx context.Context, config executor.ImportConfig, started time.Time) (executor.ImportResult, error) {
+	if f.importFn == nil {
+		return executor.ImportResult{}, nil
+	}
+	return f.importFn(ctx, config, started)
 }
 
 func (f fixedKubernetesExecutor) Execute(ctx context.Context, bundle resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, started time.Time) (executor.ExecutionResult, error) {

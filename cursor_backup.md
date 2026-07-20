@@ -84,6 +84,7 @@
 - lifecycle publication readiness now has deterministic acceptance/matrix proof coverage: full four-pillar fixture yields ready=true, and each omitted pillar yields its expected taxonomy-coded blocker.
 - Air-gap provenance:
   - `artifact import record` emits immutable `ArtifactImportReceipt` evidence from exact bundle/preflight model identities with deterministic internal model-file placement bindings;
+  - `deployment import kubernetes` now stages one explicitly selected model artifact payload into an existing YARA-owned bootstrap PVC from local input, verifies local file size/digest against exact bundle identities, and emits immutable `ArtifactImportReceipt` evidence with started/completed durable audits;
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
   - `catalog coverage create` now accepts audited import/transfer/scan receipt evidence and emits assertion-scoped import-chain posture (`status`, `selectedReceipt`, `blocker`) via deterministic report limitation records;
@@ -104,6 +105,7 @@
 - **Implemented + locally validated in repository tests/schemas/docs:**
   - content-addressed resources and schema/Go validation for apply/import/transfer/scan/air-gap gate/retire/rollback/integration/promotion review;
   - content-addressed `BootstrapReceipt` schema/Go validation + loader + validate command for bounded namespace/PVC provisioning evidence;
+  - bounded Kubernetes deployment import path now fail-closes on bundle/target confirmation drift, unsafe import paths, and local digest/size mismatch before mutation, and preserves deterministic `ArtifactImportReceipt` identity bindings for selected model artifacts;
   - catalog coverage now loads and audit-verifies `ArtifactImportReceipt`, `ArtifactTransferReceipt`, and `ArtifactScanReceipt` evidence and binds assertion-scoped import-chain diagnostics deterministically;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
@@ -148,6 +150,7 @@
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
     - `deployment apply kubernetes`,
+    - `deployment import kubernetes`,
     - `deployment retire kubernetes`,
     - `deployment rollback kubernetes`,
     - `integration component-smoke`,
@@ -189,6 +192,7 @@
 - M1 (Publication gating closure) is complete.
 - This slice completes M2 slice 3 by adding assertion-scoped artifact import-chain diagnostics and fail-closed limitation parity checks in catalog coverage create/policy outputs.
 - This slice completes M3 slice 1 by adding bounded Kubernetes bootstrap execution (`deployment bootstrap kubernetes`) with immutable `BootstrapReceipt` evidence and fail-closed started/terminal audit chaining.
+- This slice completes M3 slice 2 by adding bounded Kubernetes artifact staging (`deployment import kubernetes`) with immutable `ArtifactImportReceipt` evidence and fail-closed started/terminal audit chaining.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -230,7 +234,7 @@ Exit: the acquisition-to-deployment artifact chain has immutable receipts at eve
 
 Slices:
 1. Completed: `deployment bootstrap kubernetes` command now creates/verifies only a YARA-owned namespace plus model PVC from explicit confirmed inputs, emits immutable `BootstrapReceipt` evidence, and fails closed on target/ownership/storage drift.
-2. `deployment import kubernetes` command — stage a model artifact into the declared PVC from a local path or acquisition manifest, verify digest, emit an `ArtifactImportReceipt`.
+2. Completed: `deployment import kubernetes` command now stages one explicit model artifact payload into the declared bootstrap PVC from local input, verifies digest/size against exact bundle identities, and emits immutable `ArtifactImportReceipt` evidence.
 3. End-to-end reference walkthrough documented in `docs/implementation/quickstart.md`: PlatformRequest → plan → render → bootstrap → import → preflight → change-set → approval → apply → contract tests → receipt; every command listed with expected output.
 
 Exit: a new user can reproduce the reference walkthrough on a fresh cluster using only the documented commands.
@@ -288,19 +292,18 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **M3 slice 2: bounded deployment import command into bootstrap PVC**:
+Implement **M3 slice 3: end-to-end first-use walkthrough documentation**:
 
-- add `deployment import kubernetes` command that copies one explicit model artifact payload into the declared bootstrap PVC from explicit local input, verifies SHA-256 digest + size against expected bundle identities, and does not mutate deployment/apply/retire/rollback state;
-- emit immutable `ArtifactImportReceipt` through this command with deterministic per-file identity bindings to the PVC-local internal paths and fail-closed started/completed audit chaining;
-- keep mutation authority narrow: import only (no namespace/PVC create/delete/prune/adopt behavior and no deployment execution side effects).
+- add `docs/implementation/quickstart.md` that provides one reproducible command-by-command first-use path: PlatformRequest -> plan -> render -> bootstrap -> import -> preflight -> change-set -> approval -> apply -> contract tests -> receipt;
+- each step must include the exact command shape, required explicit confirmations, expected durable outputs (resource + audit), and fail-closed checkpoints (what must stop the flow);
+- keep scope honest: document only implemented commands/behaviors, explicitly mark simulated/local vs live execution expectations, and avoid claims of automated acquisition or clean-cluster install.
 
 Acceptance criteria:
 
-- import command requires explicit bundle/import target confirmation inputs, rejects unsafe host/PVC paths, and fails closed on digest/size mismatch before receipt emission;
-- command writes only immutable import receipt + audit evidence and never mutates namespace/PVC/bootstrap/apply/retire/rollback paths;
-- imported file bindings are deterministic, sorted, content-addressed, and match required bundle model-artifact identities exactly;
-- started and terminal import audits persist durably, with output rollback on terminal audit persistence failure;
-- focused CLI/resource tests and executor stale-state/order checks pass with required validation commands.
+- quickstart doc enumerates every currently required command and artifact handoff from first plan generation through apply receipt validation;
+- steps include explicit confirmation flags (`--confirm-*`) and exact artifact dependencies so operators can fail closed when identities drift;
+- document names unsupported/deferred paths clearly (automatic acquisition, clean-cluster install, non-NVIDIA/multi-node/RAG/team API/web UI/etc.);
+- documentation changes pass required validation commands with no CLI/docs drift.
 
 ## Validation requirements
 
