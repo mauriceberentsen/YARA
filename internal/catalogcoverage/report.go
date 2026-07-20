@@ -65,16 +65,18 @@ type ReportSpec struct {
 }
 
 type CoverageSummary struct {
-	ManifestCount               int `json:"manifestCount" yaml:"manifestCount"`
-	CapabilityCount             int `json:"capabilityCount" yaml:"capabilityCount"`
-	ComponentCount              int `json:"componentCount" yaml:"componentCount"`
-	ModelCount                  int `json:"modelCount" yaml:"modelCount"`
-	HardwareProfileCount        int `json:"hardwareProfileCount" yaml:"hardwareProfileCount"`
-	AssertionCount              int `json:"assertionCount" yaml:"assertionCount"`
-	TopologyCount               int `json:"topologyCount" yaml:"topologyCount"`
-	AcceptedEvidenceCount       int `json:"acceptedEvidenceCount" yaml:"acceptedEvidenceCount"`
-	VerifiedAuditChainCount     int `json:"verifiedAuditChainCount" yaml:"verifiedAuditChainCount"`
-	PromotionEligibleAssertions int `json:"promotionEligibleAssertions" yaml:"promotionEligibleAssertions"`
+	ManifestCount                         int `json:"manifestCount" yaml:"manifestCount"`
+	CapabilityCount                       int `json:"capabilityCount" yaml:"capabilityCount"`
+	ComponentCount                        int `json:"componentCount" yaml:"componentCount"`
+	ModelCount                            int `json:"modelCount" yaml:"modelCount"`
+	HardwareProfileCount                  int `json:"hardwareProfileCount" yaml:"hardwareProfileCount"`
+	AssertionCount                        int `json:"assertionCount" yaml:"assertionCount"`
+	TopologyCount                         int `json:"topologyCount" yaml:"topologyCount"`
+	AcceptedEvidenceCount                 int `json:"acceptedEvidenceCount" yaml:"acceptedEvidenceCount"`
+	VerifiedAuditChainCount               int `json:"verifiedAuditChainCount" yaml:"verifiedAuditChainCount"`
+	PromotionEligibleAssertions           int `json:"promotionEligibleAssertions" yaml:"promotionEligibleAssertions"`
+	LifecyclePublicationReadyAssertions   int `json:"lifecyclePublicationReadyAssertions" yaml:"lifecyclePublicationReadyAssertions"`
+	LifecyclePublicationBlockedAssertions int `json:"lifecyclePublicationBlockedAssertions" yaml:"lifecyclePublicationBlockedAssertions"`
 }
 
 type ManifestCoverage struct {
@@ -88,14 +90,16 @@ type ManifestCoverage struct {
 }
 
 type AssertionCoverage struct {
-	ID                 string         `json:"id" yaml:"id"`
-	Status             string         `json:"status" yaml:"status"`
-	RuntimeRef         string         `json:"runtimeRef" yaml:"runtimeRef"`
-	ModelRef           string         `json:"modelRef" yaml:"modelRef"`
-	HardwareProfileRef string         `json:"hardwareProfileRef" yaml:"hardwareProfileRef"`
-	PromotionEligible  bool           `json:"promotionEligible" yaml:"promotionEligible"`
-	Gates              []GateCoverage `json:"gates" yaml:"gates"`
-	Blockers           []string       `json:"blockers" yaml:"blockers"`
+	ID                          string         `json:"id" yaml:"id"`
+	Status                      string         `json:"status" yaml:"status"`
+	RuntimeRef                  string         `json:"runtimeRef" yaml:"runtimeRef"`
+	ModelRef                    string         `json:"modelRef" yaml:"modelRef"`
+	HardwareProfileRef          string         `json:"hardwareProfileRef" yaml:"hardwareProfileRef"`
+	PromotionEligible           bool           `json:"promotionEligible" yaml:"promotionEligible"`
+	LifecyclePublicationReady   bool           `json:"lifecyclePublicationReady" yaml:"lifecyclePublicationReady"`
+	LifecyclePublicationBlocker string         `json:"lifecyclePublicationBlocker,omitempty" yaml:"lifecyclePublicationBlocker,omitempty"`
+	Gates                       []GateCoverage `json:"gates" yaml:"gates"`
+	Blockers                    []string       `json:"blockers" yaml:"blockers"`
 }
 
 type GateCoverage struct {
@@ -179,6 +183,11 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 		if coverage.PromotionEligible {
 			report.Spec.Summary.PromotionEligibleAssertions++
 		}
+		if coverage.LifecyclePublicationReady {
+			report.Spec.Summary.LifecyclePublicationReadyAssertions++
+		} else {
+			report.Spec.Summary.LifecyclePublicationBlockedAssertions++
+		}
 	}
 	report.Spec.Components = componentCoverage(inventory.Components, report.Spec.Assertions, evidence, func(assertion AssertionCoverage, id string) bool { return assertion.RuntimeRef == id })
 	report.Spec.Models = manifestCoverage(inventory.Models, report.Spec.Assertions, evidence.Contracts, func(assertion AssertionCoverage, id string) bool { return assertion.ModelRef == id })
@@ -214,7 +223,8 @@ func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []accepte
 		coverage.Gates = append(coverage.Gates, contractGate(mode, evidence))
 	}
 	coverage.Gates = append(coverage.Gates, promotionReviewGate(reviews))
-	coverage.Gates = append(coverage.Gates, lifecycleProofApprovalGate(evidence, approvals, catalogDigest))
+	lifecycleGate := lifecycleProofApprovalGate(evidence, approvals, catalogDigest)
+	coverage.Gates = append(coverage.Gates, lifecycleGate)
 	slices.SortFunc(coverage.Gates, func(left, right GateCoverage) int { return strings.Compare(left.ID, right.ID) })
 	for _, gate := range coverage.Gates {
 		if gate.Status != "passed" {
@@ -226,6 +236,8 @@ func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []accepte
 	}
 	slices.Sort(coverage.Blockers)
 	coverage.PromotionEligible = slices.Contains([]string{"known", "experimental", "supported"}, assertion.Status) && assertion.Compatibility == "supported" && len(coverage.Blockers) == 0
+	coverage.LifecyclePublicationReady = lifecycleGate.Status == "passed"
+	coverage.LifecyclePublicationBlocker = lifecycleGate.Blocker
 	return coverage
 }
 
@@ -281,7 +293,7 @@ func lifecycleProofApprovalGate(lifecycleEvidence []acceptedEvidence, approvals 
 		ID:               "lifecycle-proof-publication-approval",
 		Status:           "missing",
 		ObservedEvidence: []EvidenceBinding{},
-		Blocker:          "lifecycle-proof-approval-not-recorded",
+		Blocker:          lifecyclePublicationBlocker("lifecycle-proof-approval-not-recorded"),
 	}
 	filteredEvidence := make([]acceptedEvidence, 0)
 	for _, item := range lifecycleEvidence {
@@ -290,7 +302,7 @@ func lifecycleProofApprovalGate(lifecycleEvidence []acceptedEvidence, approvals 
 		}
 	}
 	if len(filteredEvidence) == 0 {
-		gate.Blocker = "no-accepted-lifecycle-contract-evidence"
+		gate.Blocker = lifecyclePublicationBlocker("no-accepted-lifecycle-contract-evidence")
 		return gate
 	}
 	if len(approvals) == 0 {
@@ -329,16 +341,16 @@ func lifecycleProofApprovalGate(lifecycleEvidence []acceptedEvidence, approvals 
 	gate.SelectedAuditHead = selected.AuditHead
 	if selected.Approval.Spec.CatalogDigest != catalogDigest {
 		gate.Status = "failed"
-		gate.Blocker = "selected-approval-catalog-mismatch"
+		gate.Blocker = lifecyclePublicationBlocker("selected-approval-catalog-mismatch")
 		return gate
 	}
 	if selected.Approval.Spec.Decision != resources.PromotionDecisionApproved {
 		if selected.Approval.Spec.Decision == resources.PromotionDecisionAbstained {
 			gate.Status = "blocked"
-			gate.Blocker = "selected-approval-decision-abstained"
+			gate.Blocker = lifecyclePublicationBlocker("selected-approval-decision-abstained")
 		} else {
 			gate.Status = "failed"
-			gate.Blocker = "selected-approval-decision-changes-required"
+			gate.Blocker = lifecyclePublicationBlocker("selected-approval-decision-changes-required")
 		}
 		return gate
 	}
@@ -351,24 +363,42 @@ func lifecycleProofApprovalGate(lifecycleEvidence []acceptedEvidence, approvals 
 	}
 	if !bindsLifecycleEvidence {
 		gate.Status = "failed"
-		gate.Blocker = "selected-approval-does-not-bind-lifecycle-evidence"
+		gate.Blocker = lifecyclePublicationBlocker("selected-approval-does-not-bind-lifecycle-evidence")
 		return gate
 	}
 	expiresAt, err := time.Parse(time.RFC3339Nano, selected.Approval.Spec.ExpiresAt)
 	if err != nil {
 		gate.Status = "failed"
-		gate.Blocker = "selected-approval-expiry-invalid"
+		gate.Blocker = lifecyclePublicationBlocker("selected-approval-expiry-invalid")
 		return gate
 	}
 	latestLifecycleTime, err := time.Parse(time.RFC3339Nano, latestLifecycleOccurredAt)
 	if err != nil || !expiresAt.After(latestLifecycleTime) {
 		gate.Status = "failed"
-		gate.Blocker = "selected-approval-expired-for-lifecycle-evidence"
+		gate.Blocker = lifecyclePublicationBlocker("selected-approval-expired-for-lifecycle-evidence")
 		return gate
 	}
 	gate.Status = "passed"
 	gate.Blocker = ""
 	return gate
+}
+
+func lifecyclePublicationBlocker(code string) string {
+	remediation := map[string]string{
+		"lifecycle-proof-approval-not-recorded":              "record-lifecycle-proof-approval",
+		"no-accepted-lifecycle-contract-evidence":            "run-lifecycle-contract",
+		"selected-approval-catalog-mismatch":                 "reissue-approval-for-catalog",
+		"selected-approval-decision-abstained":               "collect-explicit-approval-decision",
+		"selected-approval-decision-changes-required":        "address-review-feedback-and-reapprove",
+		"selected-approval-does-not-bind-lifecycle-evidence": "reissue-approval-with-lifecycle-evidence",
+		"selected-approval-expiry-invalid":                   "reissue-approval-with-valid-expiry",
+		"selected-approval-expired-for-lifecycle-evidence":   "renew-lifecycle-proof-approval",
+	}
+	step, ok := remediation[code]
+	if !ok {
+		return code
+	}
+	return code + "|remediation:" + step
 }
 
 func contractGate(mode string, evidence []acceptedEvidence) GateCoverage {
@@ -928,6 +958,12 @@ func (r Report) Validate() error {
 		if item.ID <= previousAssertion || len(item.Gates) == 0 || !slices.IsSorted(item.Blockers) {
 			return errors.New("catalog coverage assertions must be sorted and complete")
 		}
+		if item.LifecyclePublicationReady && item.LifecyclePublicationBlocker != "" {
+			return errors.New("lifecycle publication blocker must be empty when lifecycle publication is ready")
+		}
+		if !item.LifecyclePublicationReady && strings.TrimSpace(item.LifecyclePublicationBlocker) == "" {
+			return errors.New("lifecycle publication blocker is required when lifecycle publication is not ready")
+		}
 		previousGate := ""
 		for _, gate := range item.Gates {
 			if gate.ID <= previousGate || !slices.Contains([]string{"passed", "failed", "blocked", "missing", "not-implemented"}, gate.Status) {
@@ -972,7 +1008,15 @@ func (r Report) Validate() error {
 			previous = item.ID
 		}
 	}
-	if r.Spec.Summary.CapabilityCount != len(r.Spec.Capabilities) || r.Spec.Summary.ComponentCount != len(r.Spec.Components) || r.Spec.Summary.ModelCount != len(r.Spec.Models) || r.Spec.Summary.HardwareProfileCount != len(r.Spec.Hardware) || r.Spec.Summary.AssertionCount != len(r.Spec.Assertions) || r.Spec.Summary.TopologyCount != len(r.Spec.Topologies) || r.Spec.Summary.PromotionEligibleAssertions != eligible || !slices.IsSorted(r.Spec.Limitations) {
+	lifecycleReady, lifecycleBlocked := 0, 0
+	for _, assertion := range r.Spec.Assertions {
+		if assertion.LifecyclePublicationReady {
+			lifecycleReady++
+		} else {
+			lifecycleBlocked++
+		}
+	}
+	if r.Spec.Summary.CapabilityCount != len(r.Spec.Capabilities) || r.Spec.Summary.ComponentCount != len(r.Spec.Components) || r.Spec.Summary.ModelCount != len(r.Spec.Models) || r.Spec.Summary.HardwareProfileCount != len(r.Spec.Hardware) || r.Spec.Summary.AssertionCount != len(r.Spec.Assertions) || r.Spec.Summary.TopologyCount != len(r.Spec.Topologies) || r.Spec.Summary.PromotionEligibleAssertions != eligible || r.Spec.Summary.LifecyclePublicationReadyAssertions != lifecycleReady || r.Spec.Summary.LifecyclePublicationBlockedAssertions != lifecycleBlocked || !slices.IsSorted(r.Spec.Limitations) {
 		return errors.New("catalog coverage summary or limitations do not match report contents")
 	}
 	claimed := r.Metadata.ReportID

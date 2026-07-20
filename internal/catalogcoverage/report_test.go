@@ -33,6 +33,9 @@ func TestBuildReportsExactV02EvidenceGaps(t *testing.T) {
 	if report.Spec.Summary.PromotionEligibleAssertions != 0 {
 		t.Fatalf("catalog must not be promotion eligible: %#v", report.Spec.Summary)
 	}
+	if report.Spec.Summary.LifecyclePublicationReadyAssertions != 0 || report.Spec.Summary.LifecyclePublicationBlockedAssertions != report.Spec.Summary.AssertionCount {
+		t.Fatalf("lifecycle publication readiness summary is inconsistent: %#v", report.Spec.Summary)
+	}
 	if len(report.Spec.Capabilities) != 13 || report.Spec.Capabilities[0].Coverage != "complete" || len(report.Spec.Topologies) != 1 || report.Spec.Topologies[0].Coverage != "none" {
 		t.Fatalf("catalog categories are not fully enumerated: capabilities=%#v topologies=%#v", report.Spec.Capabilities, report.Spec.Topologies)
 	}
@@ -347,8 +350,134 @@ func TestBuildRejectsStaleLifecycleProofApproval(t *testing.T) {
 	}
 	assertion := findAssertion(t, report, lifecycleResult.Spec.AssertionRef)
 	gate := findGate(t, assertion, "lifecycle-proof-publication-approval")
-	if gate.Status != "failed" || gate.Blocker != "selected-approval-expired-for-lifecycle-evidence" {
+	if gate.Status != "failed" || gate.Blocker != "selected-approval-expired-for-lifecycle-evidence|remediation:renew-lifecycle-proof-approval" {
 		t.Fatalf("stale lifecycle proof approval was not rejected: %#v", gate)
+	}
+}
+
+func TestBuildRejectsLifecycleProofApprovalWithMalformedAuditAction(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	directory := t.TempDir()
+	sourceResult := filepath.Join(root, "catalog", "v0.2", "evidence", "gb10", "qwen-coder-lifecycle-passed.yaml")
+	sourceAudit := filepath.Join(root, "catalog", "v0.2", "evidence", "gb10", "qwen-coder-lifecycle-passed.audit.jsonl")
+	resultData, err := os.ReadFile(sourceResult)
+	if err != nil {
+		t.Fatalf("read source evidence: %v", err)
+	}
+	auditData, err := os.ReadFile(sourceAudit)
+	if err != nil {
+		t.Fatalf("read source audit: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "lifecycle-contract.yaml"), resultData, 0o600); err != nil {
+		t.Fatalf("write lifecycle evidence: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "lifecycle-contract.audit.jsonl"), auditData, 0o600); err != nil {
+		t.Fatalf("write lifecycle audit: %v", err)
+	}
+	lifecycleResult, err := resources.LoadContractTestResult(sourceResult)
+	if err != nil {
+		t.Fatalf("load source lifecycle result: %v", err)
+	}
+	approval := resources.LifecycleProofApproval{
+		APIVersion: resources.APIVersion,
+		Kind:       "LifecycleProofApproval",
+		Metadata:   resources.LifecycleProofApprovalMeta{Name: "lifecycle-proof-approval-malformed"},
+		Spec: resources.LifecycleProofApprovalSpec{
+			ReviewedAt:       time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano),
+			ExpiresAt:        time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano),
+			CatalogDigest:    catalogDigest,
+			AssertionRef:     lifecycleResult.Spec.AssertionRef,
+			LedgerID:         "sha256:" + strings.Repeat("c", 64),
+			SelectedEvidence: []string{lifecycleResult.Metadata.ResultID},
+			Reviewer:         resources.ReviewerRecord{Identity: "local:reviewer", Role: "release-manager", Assurance: "self-asserted-local"},
+			Decision:         resources.PromotionDecisionApproved,
+			ReasonReference:  "ticket-lifecycle-approval-malformed",
+			MaxLedgerAge:     "720h",
+			Limitations: []string{
+				"Lifecycle-proof approval binds one immutable lifecycle proof ledger identity.",
+				"Lifecycle-proof approval records review metadata only and does not mutate catalog state.",
+			},
+		},
+	}
+	approval, err = approval.AssignApprovalID()
+	if err != nil {
+		t.Fatalf("assign lifecycle approval id: %v", err)
+	}
+	writeYAML(t, filepath.Join(directory, "lifecycle-proof-approval.yaml"), approval)
+	writeLifecycleProofApprovalAuditCustom(t, filepath.Join(directory, "lifecycle-proof-approval.audit.jsonl"), catalogDigest, approval.Spec.LedgerID, approval.Metadata.ApprovalID, "lifecycle.proof.approve-publication.validate", true)
+	if _, err := Build("coverage", snapshot, directory); err == nil {
+		t.Fatal("malformed lifecycle proof approval audit action was accepted")
+	}
+}
+
+func TestBuildRejectsLifecycleProofApprovalWithLedgerSubjectDrift(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	directory := t.TempDir()
+	sourceResult := filepath.Join(root, "catalog", "v0.2", "evidence", "gb10", "qwen-coder-lifecycle-passed.yaml")
+	sourceAudit := filepath.Join(root, "catalog", "v0.2", "evidence", "gb10", "qwen-coder-lifecycle-passed.audit.jsonl")
+	resultData, err := os.ReadFile(sourceResult)
+	if err != nil {
+		t.Fatalf("read source evidence: %v", err)
+	}
+	auditData, err := os.ReadFile(sourceAudit)
+	if err != nil {
+		t.Fatalf("read source audit: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "lifecycle-contract.yaml"), resultData, 0o600); err != nil {
+		t.Fatalf("write lifecycle evidence: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "lifecycle-contract.audit.jsonl"), auditData, 0o600); err != nil {
+		t.Fatalf("write lifecycle audit: %v", err)
+	}
+	lifecycleResult, err := resources.LoadContractTestResult(sourceResult)
+	if err != nil {
+		t.Fatalf("load source lifecycle result: %v", err)
+	}
+	approval := resources.LifecycleProofApproval{
+		APIVersion: resources.APIVersion,
+		Kind:       "LifecycleProofApproval",
+		Metadata:   resources.LifecycleProofApprovalMeta{Name: "lifecycle-proof-approval-subject-drift"},
+		Spec: resources.LifecycleProofApprovalSpec{
+			ReviewedAt:       time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano),
+			ExpiresAt:        time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano),
+			CatalogDigest:    catalogDigest,
+			AssertionRef:     lifecycleResult.Spec.AssertionRef,
+			LedgerID:         "sha256:" + strings.Repeat("d", 64),
+			SelectedEvidence: []string{lifecycleResult.Metadata.ResultID},
+			Reviewer:         resources.ReviewerRecord{Identity: "local:reviewer", Role: "release-manager", Assurance: "self-asserted-local"},
+			Decision:         resources.PromotionDecisionApproved,
+			ReasonReference:  "ticket-lifecycle-approval-drift",
+			MaxLedgerAge:     "720h",
+			Limitations: []string{
+				"Lifecycle-proof approval binds one immutable lifecycle proof ledger identity.",
+				"Lifecycle-proof approval records review metadata only and does not mutate catalog state.",
+			},
+		},
+	}
+	approval, err = approval.AssignApprovalID()
+	if err != nil {
+		t.Fatalf("assign lifecycle approval id: %v", err)
+	}
+	writeYAML(t, filepath.Join(directory, "lifecycle-proof-approval.yaml"), approval)
+	writeLifecycleProofApprovalAuditCustom(t, filepath.Join(directory, "lifecycle-proof-approval.audit.jsonl"), catalogDigest, approval.Spec.LedgerID, approval.Metadata.ApprovalID, "lifecycle.proof.approve-publication.completed", false)
+	if _, err := Build("coverage", snapshot, directory); err == nil {
+		t.Fatal("lifecycle proof approval audit with ledger-subject drift was accepted")
 	}
 }
 
@@ -442,6 +571,10 @@ func writePromotionReviewAudit(t *testing.T, path, catalogDigest, reviewID strin
 }
 
 func writeLifecycleProofApprovalAudit(t *testing.T, path, catalogDigest, ledgerID, approvalID string) {
+	writeLifecycleProofApprovalAuditCustom(t, path, catalogDigest, ledgerID, approvalID, "lifecycle.proof.approve-publication.completed", true)
+}
+
+func writeLifecycleProofApprovalAuditCustom(t *testing.T, path, catalogDigest, ledgerID, approvalID, terminalAction string, includeLedgerSubject bool) {
 	t.Helper()
 	chain := audit.NewChain()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -463,21 +596,22 @@ func writeLifecycleProofApprovalAudit(t *testing.T, path, catalogDigest, ledgerI
 	if err != nil {
 		t.Fatalf("append started lifecycle-proof approval audit: %v", err)
 	}
+	subjects := []audit.Subject{{Kind: "CatalogSnapshot", Digest: catalogDigest}}
+	if includeLedgerSubject {
+		subjects = append(subjects, audit.Subject{Kind: "LifecycleProofLedger", Digest: ledgerID})
+	}
+	subjects = append(subjects, audit.Subject{Kind: "LifecycleProofApproval", Digest: approvalID})
 	terminal, err := chain.Append(audit.Event{
 		Metadata: audit.Metadata{ID: "lifecycle-proof-approval-terminal", OccurredAt: now},
 		Spec: audit.Spec{
 			CorrelationID: "lifecycle-proof-approval",
 			CausationID:   started.Metadata.ID,
 			Actor:         audit.Actor{ID: "local:reviewer", Type: "user", Assurance: "self-asserted-local"},
-			Action:        "lifecycle.proof.approve-publication.completed",
-			Subjects: []audit.Subject{
-				{Kind: "CatalogSnapshot", Digest: catalogDigest},
-				{Kind: "LifecycleProofLedger", Digest: ledgerID},
-				{Kind: "LifecycleProofApproval", Digest: approvalID},
-			},
-			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
-			Target:  "catalog:" + catalogDigest,
-			Outcome: "success",
+			Action:        terminalAction,
+			Subjects:      subjects,
+			Reason:        audit.Reason{Type: "user-request", Reference: "test"},
+			Target:        "catalog:" + catalogDigest,
+			Outcome:       "success",
 		},
 	})
 	if err != nil {

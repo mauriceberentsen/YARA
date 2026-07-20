@@ -68,3 +68,15 @@ A component can be partially covered by compatibility-contract evidence or an ob
 A topology is complete only when the latest accepted end-to-end result for its exact version passed. A failed or blocked observation remains partial coverage with the outcome exposed as a blocker. Missing evidence means `none`; it never means incompatible.
 
 Promotion remains a separate reviewed action. An integration pass cannot edit manifest maturity and cannot substitute for independent review.
+
+Lifecycle claim publication is now surfaced explicitly in catalog coverage summaries:
+
+- `summary.lifecyclePublicationReadyAssertions`
+- `summary.lifecyclePublicationBlockedAssertions`
+
+Each assertion also carries:
+
+- `lifecyclePublicationReady`
+- `lifecyclePublicationBlocker`
+
+`lifecyclePublicationBlocker` is deterministic and remediation-oriented (for example `lifecycle-proof-approval-not-recorded|remediation:record-lifecycle-proof-approval` or `selected-approval-expired-for-lifecycle-evidence|remediation:renew-lifecycle-proof-approval`). This keeps publication policy diagnostics operator-actionable without exposing secret material.

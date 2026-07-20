@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `6528cbc` (`Bind lifecycle contract execution to reviewed lifecycle-proof evidence.`).
+- Branch baseline before this slice: `main` at `1cde58c` (`Add lifecycle-proof publication approvals and coverage gating.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
@@ -34,6 +34,8 @@
   - `contract lifecycle` now requires explicit lifecycle-proof inputs (`--lifecycle-proof-ledger`, linked apply/retire/rollback receipts, explicit ledger ID confirmation, explicit reason-reference confirmation, and bounded max-age policy) and fails closed when ledger identity, stage ordering, receipt bindings, or freshness drift.
   - `lifecycle proof approve-publication` emits immutable `LifecycleProofApproval` evidence that independently reviews one lifecycle ledger identity for one catalog assertion using explicit selected lifecycle evidence IDs and bounded freshness policy;
   - catalog coverage now gates lifecycle publication claims on `lifecycle-proof-publication-approval` and fails closed when lifecycle approvals are missing, unapproved, unbound to lifecycle evidence, catalog-mismatched, or stale relative to selected lifecycle evidence.
+  - catalog coverage summaries now surface lifecycle publication readiness explicitly through `lifecyclePublicationReadyAssertions` and `lifecyclePublicationBlockedAssertions`, and assertion-level diagnostics through `lifecyclePublicationReady` plus deterministic remediation-coded `lifecyclePublicationBlocker` values;
+  - catalog coverage now rejects malformed lifecycle-proof approval audits and ledger/approval subject-binding drift in evidence compilation.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -61,6 +63,7 @@
   - lifecycle proof ledger evidence is content-addressed (`ledgerId`), binds exact apply/retire/rollback receipt IDs plus execution correlations in strict stage order, and records reviewed operator intent without mutation authority;
   - lifecycle contract execution now binds deterministic lifecycle-proof checks (`lifecycle.proof-ledger.binding`, `lifecycle.proof-ledger.freshness-policy`) into `ContractTestResult` evidence and audit subjects, including explicit freshness-policy and reviewed-reason references;
   - lifecycle proof publication approvals are content-addressed (`approvalId`), bind exact `catalogDigest`/`assertionRef`/`ledgerId`/selected evidence IDs with bounded validity and reviewer decision, and are consumed by catalog-coverage lifecycle publication gating;
+  - lifecycle publication diagnostics now provide deterministic operator remediation hints (`...|remediation:<action>`) for missing, stale, unbound, or decision-mismatched lifecycle approvals;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -96,35 +99,35 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by eight committed slices before this uncommitted work).
-- Recent commits before this slice (newest first): `6528cbc`, `cbae37a`, `300717f`, `a092705`, `686920f`.
-- This slice adds lifecycle-proof publication approvals and catalog-coverage lifecycle publication gating with fail-closed missing/unapproved/stale/unbound approval behavior.
+- Branch: `main` tracking `origin/main`.
+- Recent commits before this slice (newest first): `1cde58c`, `6528cbc`, `cbae37a`, `300717f`, `a092705`.
+- This slice closes lifecycle publication semantics in catalog coverage summaries and diagnostics, and adds fail-closed negative checks for malformed approval audits and subject-binding drift.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## Open limitations and unproven claims
 
-- No live validation was executed for rollback, integration execution, promotion-review recording, lifecycle-proof ledger recording/consumption/publication approval, transfer/scan receipt enforcement, trust-policy recording/diffing/review-transition, or trust-policy gate verification/enforcement in this run.
+- No live validation was executed for rollback, integration execution, promotion-review recording, lifecycle-proof ledger recording/consumption/publication approval, catalog-publication gating, transfer/scan receipt enforcement, trust-policy recording/diffing/review-transition, or trust-policy gate verification/enforcement in this run.
 - Air-gap completeness remains unproven end-to-end: acquisition execution, transfer medium attestation trust chain, and scanning attestations remain external.
 - Clean-cluster bootstrap (namespace/PVC/storage provisioning) remains out of scope.
 - Integration execution remains bounded to catalog/target contract checks and does not prove latency, throughput, availability, or production readiness.
 
 ## Next implementation slice
 
-Implement **Phase 3 milestone continuation: lifecycle-proof catalog publication closure in coverage summary and policy docs**:
+Implement **Phase 3 milestone continuation: lifecycle-proof publication policy parity across docs and CLI diagnostics**:
 
-- tighten catalog-coverage summary semantics so lifecycle publication readiness is surfaced explicitly (separate from generic promotion eligibility counts);
-- add explicit publication-policy diagnostics and documentation artifacts for lifecycle claims, including operator-facing remediation paths for missing/stale lifecycle approvals;
-- add negative tests proving lifecycle publication readiness remains blocked when approval audits are malformed or ledger/approval subject bindings drift;
+- add CLI-level diagnostics surfacing lifecycle publication-readiness summary fields after `catalog coverage create` (without weakening fail-closed behavior);
+- add a bounded policy-focused validation command/documentation path that explains lifecycle publication blockers and remediation actions from one coverage report identity;
+- add negative tests for malformed lifecycle publication blocker encodings and summary-count drift to keep policy diagnostics deterministic;
 - keep gate-evaluation signing authority independent from deployment authorization keys while preserving deterministic, content-addressed evidence;
 - preserve non-secret durable evidence boundaries (no raw scanner logs, payloads, secrets, kubeconfig, or host addresses).
 
 Acceptance criteria:
 
-- lifecycle publication readiness is explicitly represented in coverage summaries and diagnostics (not inferred indirectly);
-- lifecycle publication diagnostics provide deterministic, operator-actionable blockers tied to immutable evidence identities;
+- lifecycle publication-readiness summary and blocker diagnostics are exposed consistently through CLI and policy docs;
+- lifecycle publication policy checks remain deterministic, content-addressed and fail closed on malformed diagnostics;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
-- apply-side provenance remains fail-closed and unaffected by lifecycle publication-summary/policy additions;
+- apply-side provenance remains fail-closed and unaffected by lifecycle publication-policy UX additions;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 
 ## Validation requirements
