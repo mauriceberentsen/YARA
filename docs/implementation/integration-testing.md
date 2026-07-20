@@ -72,6 +72,19 @@ go run ./cmd/yara integration execute topology-end-to-end \
 
 The execution path remains bounded: it validates exact catalog references, records pseudonymized local/SSH target facts, emits sorted content-addressed checks, and fails closed on audit persistence errors. `integration execute` dispatches only `component-smoke` and `topology-end-to-end`; unsupported modes and stale topology/component bindings are rejected before executor dispatch.
 
+`integration execute` now emits bounded explainability metadata in CLI output:
+
+- `modePath: integration.execute.component-smoke`
+- `modePath: integration.execute.topology-end-to-end`
+
+Direct mode commands keep `modePath` empty to preserve existing output shape expectations.
+
+Operator remediation guidance for generic execute failures:
+
+- `YARA-INT-111`: unsupported generic mode; remediation is to choose `component-smoke` or `topology-end-to-end`.
+- `YARA-INT-109`: selected topology components are not bound to a supported compatibility runtime assertion; remediation is to include an assertion-bound runtime component.
+- `YARA-INT-110`: selected components do not satisfy every topology role; remediation is to select components that satisfy all topology roles declared in the topology reference.
+
 ## Coverage semantics
 
 A component can be partially covered by compatibility-contract evidence or an observed integration attempt. Complete integration coverage requires the selected component-smoke and topology-end-to-end observations to pass. Related compatibility assertions must also be promotion-eligible before the component can be reported complete.

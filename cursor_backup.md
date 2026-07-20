@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `9da6239` (`Harden lifecycle publication blocker taxonomy diagnostics.`).
+- Branch baseline before this slice: `main` at `f737bfe` (`Add generic integration execute dispatch with fail-closed stale checks.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
@@ -43,6 +43,9 @@
   - lifecycle publication policy diagnostics now emit bounded explainability metadata (`reportSubject`, `assertionScope`) and expose taxonomy definitions with each response for auditable operator interpretation.
   - new `integration execute <component-smoke|topology-end-to-end>` dispatches to the existing bounded integration executors without adding mutation authority;
   - topology `integration execute` now fails closed before executor dispatch when selected components are stale versus assertion/runtime bindings or do not satisfy topology-role coverage.
+  - generic integration executor diagnostics now provide explicit remediation guidance for unsupported mode (`YARA-INT-111`), stale runtime-binding drift (`YARA-INT-109`), and topology-role drift (`YARA-INT-110`);
+  - generic `integration execute` output now includes bounded explainability metadata (`modePath`) while durable `IntegrationTestResult` and audit schemas remain unchanged;
+  - deterministic parity tests now prove `integration execute` preserves sorted/unique component normalization and deterministic result identity parity with direct mode-specific integration commands.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -74,6 +77,7 @@
   - lifecycle publication policy diagnostics are now available via both coverage create output and the dedicated policy command, with fail-closed validation of blocker encoding parity and strict taxonomy matching;
   - generic integration execution dispatch (`integration execute`) now preserves deterministic `IntegrationTestResult` semantics by reusing existing mode-specific bounded executors with unchanged output contracts;
   - integration execution now fails closed on unsupported generic modes and stale topology/component assertion drift prior to executor invocation;
+  - integration execute diagnostics now include deterministic remediation guidance for unsupported mode and stale binding/role drift, and generic execution output includes explicit mode-path explainability metadata;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -110,9 +114,9 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by three commits before this uncommitted work).
-- Recent commits before this slice (newest first): `9da6239`, `ae1c94a`, `3bd2ec3`, `1cde58c`, `6528cbc`.
-- This slice introduces generic integration executor dispatch and fail-closed stale-state checks while preserving bounded integration evidence semantics.
+- Branch: `main` tracking `origin/main` (local ahead by four commits before this uncommitted work).
+- Recent commits before this slice (newest first): `f737bfe`, `9da6239`, `ae1c94a`, `3bd2ec3`, `1cde58c`.
+- This slice closes generic integration executor policy/audit parity with remediation guidance, explainability metadata, and deterministic normalization/identity parity tests.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -125,19 +129,19 @@
 
 ## Next implementation slice
 
-Implement **Phase 3 major milestone continuation: generic integration executor policy and audit parity closure**:
+Implement **Phase 3 major milestone continuation: lifecycle-proof and integration evidence convergence for catalog publication closure**:
 
-- add explicit generic integration executor diagnostics documentation for unsupported mode and stale binding codes (`YARA-INT-109`, `YARA-INT-110`) and wire them into operator remediation guidance;
-- add focused tests proving `integration execute` preserves sorted/unique component normalization and deterministic result identity parity with the direct mode-specific commands;
-- add an auditable CLI explainability field in generic execute output that records the selected bounded mode path without changing durable resource schemas;
+- extend catalog coverage to surface integration execute mode-path explainability for accepted integration evidence without weakening deterministic gate evaluation;
+- add fail-closed coverage tests proving mixed direct/generic integration evidence remains identity-equivalent and does not create duplicate accepted evidence bindings;
+- document publication-readiness implications when integration evidence comes from generic execute dispatch versus direct mode commands;
 - keep gate-evaluation signing authority independent from deployment authorization keys while preserving deterministic, content-addressed evidence;
 - preserve non-secret durable evidence boundaries (no raw scanner logs, payloads, secrets, kubeconfig, or host addresses).
 
 Acceptance criteria:
 
-- generic integration executor emits explicit diagnostics/remediation guidance for unsupported mode and stale binding failures;
-- generic `integration execute` output carries bounded mode-path explainability metadata while keeping immutable result/audit resource contracts unchanged;
-- executor dispatch and normalization remain deterministic and fail closed on stale/foreign/unsupported execution inputs;
+- catalog coverage reports deterministic integration evidence acceptance regardless of whether evidence was produced by direct mode commands or generic execute dispatch;
+- mixed direct/generic integration evidence is deduplicated by immutable result identity and audited binding without coverage inflation;
+- integration explainability metadata remains bounded and non-secret while publication gating semantics stay fail-closed;
 - lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
 - apply-side provenance remains fail-closed and unaffected by lifecycle publication-policy UX additions;

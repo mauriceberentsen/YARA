@@ -39,11 +39,11 @@ type integrationExecuteOptions struct {
 }
 
 func runIntegrationComponentSmoke(args []string, stdout, stderr io.Writer) int {
-	return runIntegrationAt("component-smoke", args, stdout, stderr, time.Now)
+	return runIntegrationAt("component-smoke", args, stdout, stderr, time.Now, "")
 }
 
 func runIntegrationTopologyEndToEnd(args []string, stdout, stderr io.Writer) int {
-	return runIntegrationAt("topology-end-to-end", args, stdout, stderr, time.Now)
+	return runIntegrationAt("topology-end-to-end", args, stdout, stderr, time.Now, "")
 }
 
 func runIntegrationExecute(args []string, stdout, stderr io.Writer) int {
@@ -53,13 +53,12 @@ func runIntegrationExecute(args []string, stdout, stderr io.Writer) int {
 	}
 	mode := strings.TrimSpace(args[0])
 	if mode != "component-smoke" && mode != "topology-end-to-end" {
-		fmt.Fprintln(stderr, "integration execute supports only component-smoke or topology-end-to-end")
-		return ExitInvalidInput
+		return writeLoadErrorWithExit(stdout, "YARA-INT-111", errors.New(integrationDiagnosticMessage("YARA-INT-111", "integration execute supports only component-smoke or topology-end-to-end")), ExitInvalidInput)
 	}
-	return runIntegrationAt(mode, args[1:], stdout, stderr, time.Now)
+	return runIntegrationAt(mode, args[1:], stdout, stderr, time.Now, "integration.execute."+mode)
 }
 
-func runIntegrationAt(mode string, args []string, stdout, stderr io.Writer, now func() time.Time) int {
+func runIntegrationAt(mode string, args []string, stdout, stderr io.Writer, now func() time.Time, explainabilityPath string) int {
 	options, ok := parseIntegrationExecuteOptions(mode, args, stderr)
 	if !ok {
 		return ExitInvalidInput
@@ -170,6 +169,7 @@ func runIntegrationAt(mode string, args []string, stdout, stderr io.Writer, now 
 		"output":        options.outputPath,
 		"auditOutput":   options.auditPath,
 		"catalogDigest": catalogDigest,
+		"modePath":      explainabilityPath,
 	}); err != nil {
 		return ExitInternal
 	}
@@ -503,5 +503,18 @@ func writeIntegrationFailure(output io.Writer, auditPath, mode, target string, s
 	if auditErr := persistOperationAuditForTarget(auditPath, baseAction, "failed", "failed", target, subjects, []string{code}); auditErr != nil {
 		return writeLoadError(output, "YARA-AUD-005", auditErr)
 	}
-	return writeLoadErrorWithExit(output, code, err, exitCode)
+	return writeLoadErrorWithExit(output, code, errors.New(integrationDiagnosticMessage(code, err.Error())), exitCode)
+}
+
+func integrationDiagnosticMessage(code, message string) string {
+	remediation := map[string]string{
+		"YARA-INT-109": "include a component bound to a supported compatibility runtime assertion",
+		"YARA-INT-110": "select components that satisfy every topology role from the catalog topology reference",
+		"YARA-INT-111": "choose integration execute component-smoke or topology-end-to-end",
+	}
+	step, ok := remediation[code]
+	if !ok {
+		return message
+	}
+	return message + " (remediation: " + step + ")"
 }
