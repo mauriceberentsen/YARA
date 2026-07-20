@@ -56,6 +56,9 @@
   - `integration publish attest` now emits immutable `IntegrationPublicationAttestation` evidence that binds one catalog assertion to selected converged integration evidence IDs, reviewer decision, bounded validity, and deterministic fail-closed freshness checks;
   - catalog coverage now gates publication diagnostics on accepted integration publication attestation evidence for assertions requiring integration execution evidence;
   - integration publication attestation audits are now fail-closed on malformed action/subject bindings and require explicit selected integration evidence subject linkage.
+  - `catalog coverage signing-authority-boundary` now emits bounded publication diagnostics proving gate-evaluation signer authority is independent from deployment-authorization issuers;
+  - signing-authority boundary diagnostics now fail closed on key-material overlap (`publicKeyDigest`) between active gate signers and authorization issuers;
+  - signing-authority boundary diagnostics now fail closed on ambiguous key-role reuse (same key ID with different digests or same digest with different key IDs across role evidence) without exposing secret key material.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -94,6 +97,8 @@
   - `integration publish attest` now enforces fail-closed selected-evidence binding to accepted integration execution evidence (catalog-bound, runtime-bound, audit-verified) before writing immutable attestation output;
   - catalog publication diagnostics now require accepted integration publication attestation evidence in addition to lifecycle publication approval evidence for assertions requiring integration execution evidence;
   - lifecycle publication blocker taxonomy now includes deterministic remediation-coded integration attestation blocker classes;
+  - publication-facing signing-authority boundary diagnostics are now available through a bounded audited CLI path requiring immutable coverage report, trust-policy, and execution-authorization evidence;
+  - signing-authority boundary diagnostics remain deterministic and non-secret while rejecting overlapping or ambiguous signer/issuer role bindings;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -130,12 +135,12 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by seven commits before this uncommitted work).
-- Recent commits before this slice (newest first): `86c7a32`, `07b8dba`, `f3ddebb`, `f737bfe`, `9da6239`.
-- This slice starts Phase 4 major milestone execution by closing audited integration publication attestation kickoff (resource + CLI + publication gating).
+- Branch: `main` tracking `origin/main` (local ahead by eight commits before this uncommitted work).
+- Recent commits before this slice (newest first): `10de4ec`, `86c7a32`, `07b8dba`, `f3ddebb`, `f737bfe`.
+- This slice closes Phase 4 signing-authority boundary diagnostics between gate-evaluation signers and deployment authorization issuers.
 - Phase 4 milestone plan now tracks three ordered slices:
-  - slice 1 completed in this run: audited integration publication attestation closure for required publication diagnostics;
-  - slice 2 pending: enforce independent signing-authority boundary diagnostics between gate-evaluation keys and deployment-authorization keys;
+  - slice 1 completed: audited integration publication attestation closure for required publication diagnostics;
+  - slice 2 completed in this run: independent signing-authority boundary diagnostics closure with fail-closed overlap/ambiguity rejection;
   - slice 3 pending: converge publication policy explainability and report-limitation diagnostics for the full lifecycle+integration attestation chain.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
@@ -149,17 +154,16 @@
 
 ## Next implementation slice
 
-Implement **Phase 4 milestone continuation: independent signing-authority boundary diagnostics closure**:
+Implement **Phase 4 milestone completion: publication policy explainability and report-limitation diagnostics convergence**:
 
-- enforce deterministic, fail-closed diagnostics proving gate-evaluation signing authority remains independent from deployment-authorization key material;
-- add bounded validation/CLI pathways that reject any attested policy chain attempting signer-identity overlap or ambiguous key-role reuse;
-- surface publication diagnostics that explicitly report signing-authority boundary state without storing secret material;
-- preserve immutable content-addressed evidence and existing non-secret durable evidence boundaries.
+- extend publication-policy diagnostics so lifecycle, integration convergence, and signing-authority boundary evidence are emitted in one deterministic explainability surface;
+- add deterministic report-limitation encoding and fail-closed parsing for signing-authority boundary state so `create` and policy-diagnostics outputs remain parity-safe;
+- preserve immutable content-addressed evidence bindings and non-secret durable evidence boundaries while keeping mutation authority unchanged.
 
 Acceptance criteria:
 
-- signing-authority boundary diagnostics fail closed when gate-evaluation signer identities overlap deployment-authorization key identities or role ownership is ambiguous;
-- publication diagnostics expose deterministic boundary-state outcomes without introducing secret-bearing evidence;
+- publication diagnostics expose deterministic combined lifecycle+integration+signing-authority boundary state without introducing secret-bearing evidence;
+- report limitation encoding and policy diagnostic parsing fail closed on malformed, duplicate, or ambiguous signing-authority boundary records;
 - lifecycle and integration publication diagnostics remain deterministic and non-secret with no mutation authority added;
 - lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;

@@ -145,6 +145,22 @@ go run ./cmd/yara catalog coverage lifecycle-publication-policy \
 
 The command does not mutate manifests or execution evidence. It emits bounded diagnostics only, and fails closed when report structure, lifecycle blocker encoding, or summary counts drift from deterministic coverage semantics.
 
+To verify publication-chain signing-authority separation between air-gap gate evaluation signers and deployment authorization issuers:
+
+```bash
+go run ./cmd/yara catalog coverage signing-authority-boundary \
+  --report catalog-v0.2-coverage.yaml \
+  --trust-policy airgap-gate-trust-policy.yaml \
+  --authorization deployment-authorization.yaml \
+  --audit-output catalog-v0.2-coverage.signing-authority-boundary.audit.jsonl
+```
+
+The boundary command fails closed when:
+
+- any trusted active gate signer key material overlaps with deployment authorization issuer key material;
+- key-role reuse is ambiguous (for example the same key ID appears with different digests across role evidence);
+- trust-policy or authorization evidence is malformed.
+
 Canonical lifecycle publication blocker taxonomy:
 
 - `lifecycle-proof-approval-not-recorded` -> `record-lifecycle-proof-approval`

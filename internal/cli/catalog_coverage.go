@@ -14,6 +14,7 @@ import (
 	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/catalogcoverage"
+	"github.com/mauriceberentsen/YARA/internal/resources"
 	"gopkg.in/yaml.v3"
 )
 
@@ -31,10 +32,25 @@ type lifecyclePublicationPolicyOptions struct {
 	auditPath  string
 }
 
+type signingAuthorityBoundaryOptions struct {
+	reportPath       string
+	trustPolicyPath  string
+	authorizationSet csvFlag
+	auditPath        string
+}
+
 type integrationEvidenceConvergence struct {
 	IdentityCount        int  `json:"identityCount"`
 	DeduplicatedCount    int  `json:"deduplicatedCount"`
 	DeduplicationApplied bool `json:"deduplicationApplied"`
+}
+
+type signingAuthorityBoundary struct {
+	Status                   string   `json:"status"`
+	GateSignerCount          int      `json:"gateSignerCount"`
+	AuthorizationIssuerCount int      `json:"authorizationIssuerCount"`
+	OverlapIdentities        []string `json:"overlapIdentities,omitempty"`
+	AmbiguityDiagnostics     []string `json:"ambiguityDiagnostics,omitempty"`
 }
 
 func catalogCoverage(args []string, stdout, stderr io.Writer) int {
@@ -151,6 +167,73 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 	return ExitSuccess
 }
 
+func explainSigningAuthorityBoundaryPolicy(args []string, stdout, stderr io.Writer) int {
+	options, ok := parseSigningAuthorityBoundaryOptions(args, stderr)
+	if !ok {
+		return ExitInvalidInput
+	}
+	report, err := catalogcoverage.Load(options.reportPath)
+	if err != nil {
+		return writeCatalogCoverageBoundaryFailure(stdout, options.auditPath, nil, "YARA-COV-004", err, ExitInvalidInput)
+	}
+	reportSubject := audit.Subject{Kind: catalogcoverage.Kind, Digest: report.Metadata.ReportID}
+	trustPolicy, err := resources.LoadAirgapGateTrustPolicy(options.trustPolicyPath)
+	if err != nil || !trustPolicy.Validate().Valid {
+		return writeCatalogCoverageBoundaryFailure(stdout, options.auditPath, []audit.Subject{reportSubject}, "YARA-COV-008", errors.New("air-gap gate trust policy is invalid"), ExitInvalidInput)
+	}
+	authorizationPaths := uniqueSortedStrings(options.authorizationSet)
+	authorizations := make([]resources.ExecutionAuthorization, 0, len(authorizationPaths))
+	authorizationSubjects := make([]audit.Subject, 0, len(authorizationPaths))
+	for _, path := range authorizationPaths {
+		authorization, loadErr := resources.LoadExecutionAuthorization(path)
+		if loadErr != nil || !authorization.Validate().Valid {
+			return writeCatalogCoverageBoundaryFailure(stdout, options.auditPath, []audit.Subject{reportSubject, {Kind: "AirgapGateTrustPolicy", Digest: trustPolicy.Metadata.PolicyID}}, "YARA-COV-009", errors.New("deployment authorization evidence is invalid"), ExitInvalidInput)
+		}
+		authorizations = append(authorizations, authorization)
+		authorizationSubjects = append(authorizationSubjects, audit.Subject{Kind: "ExecutionAuthorization", Digest: authorization.Metadata.AuthorizationID})
+	}
+	boundary := evaluateSigningAuthorityBoundary(trustPolicy, authorizations)
+	subjects := []audit.Subject{reportSubject, {Kind: "AirgapGateTrustPolicy", Digest: trustPolicy.Metadata.PolicyID}}
+	subjects = append(subjects, authorizationSubjects...)
+	sort.Slice(subjects, func(i, j int) bool {
+		if subjects[i].Kind != subjects[j].Kind {
+			return subjects[i].Kind < subjects[j].Kind
+		}
+		return subjects[i].Digest < subjects[j].Digest
+	})
+	if boundary.Status != "independent" {
+		code := "YARA-COV-010"
+		err := errors.New("signing-authority boundary is not independent")
+		if len(boundary.AmbiguityDiagnostics) > 0 {
+			code = "YARA-COV-011"
+			err = errors.New("signing-authority boundary is ambiguous")
+		}
+		return writeCatalogCoverageBoundaryFailure(stdout, options.auditPath, subjects, code, err, ExitInfeasible)
+	}
+	if err := persistOperationAudit(options.auditPath, "catalog.coverage.signing-authority-boundary", "completed", "success", subjects, nil); err != nil {
+		return writeLoadError(stdout, "YARA-AUD-005", err)
+	}
+	authorizationIDs := make([]string, 0, len(authorizations))
+	for _, authorization := range authorizations {
+		authorizationIDs = append(authorizationIDs, authorization.Metadata.AuthorizationID)
+	}
+	sort.Strings(authorizationIDs)
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(map[string]any{
+		"valid":                    true,
+		"reportId":                 report.Metadata.ReportID,
+		"reportSubject":            map[string]string{"kind": catalogcoverage.Kind, "digest": report.Metadata.ReportID},
+		"trustPolicyId":            trustPolicy.Metadata.PolicyID,
+		"authorizationIds":         authorizationIDs,
+		"signingAuthorityBoundary": boundary,
+		"auditOutput":              options.auditPath,
+	}); err != nil {
+		return ExitInternal
+	}
+	return ExitSuccess
+}
+
 func parseLifecyclePublicationPolicyOptions(args []string, stderr io.Writer) (lifecyclePublicationPolicyOptions, bool) {
 	var options lifecyclePublicationPolicyOptions
 	flags := flag.NewFlagSet("catalog coverage lifecycle-publication-policy", flag.ContinueOnError)
@@ -163,6 +246,24 @@ func parseLifecyclePublicationPolicyOptions(args []string, stderr io.Writer) (li
 	}
 	if flags.NArg() != 0 || options.reportPath == "" || options.auditPath == "" {
 		fmt.Fprintln(stderr, "catalog coverage lifecycle-publication-policy requires --report and --audit-output")
+		return options, false
+	}
+	return options, true
+}
+
+func parseSigningAuthorityBoundaryOptions(args []string, stderr io.Writer) (signingAuthorityBoundaryOptions, bool) {
+	var options signingAuthorityBoundaryOptions
+	flags := flag.NewFlagSet("catalog coverage signing-authority-boundary", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&options.reportPath, "report", "", "CatalogCoverageReport YAML file")
+	flags.StringVar(&options.trustPolicyPath, "trust-policy", "", "AirgapGateTrustPolicy YAML file")
+	flags.Var(&options.authorizationSet, "authorization", "ExecutionAuthorization YAML file (repeatable)")
+	flags.StringVar(&options.auditPath, "audit-output", "", "Generated signing-authority boundary audit JSONL file")
+	if err := flags.Parse(args); err != nil {
+		return options, false
+	}
+	if flags.NArg() != 0 || options.reportPath == "" || options.trustPolicyPath == "" || len(options.authorizationSet) == 0 || options.auditPath == "" {
+		fmt.Fprintln(stderr, "catalog coverage signing-authority-boundary requires --report --trust-policy --authorization --audit-output")
 		return options, false
 	}
 	return options, true
@@ -226,6 +327,94 @@ func writeCatalogCoveragePolicyFailure(output io.Writer, auditPath string, subje
 		return writeLoadError(output, "YARA-AUD-005", auditErr)
 	}
 	return writeLoadErrorWithExit(output, code, err, exitCode)
+}
+
+func writeCatalogCoverageBoundaryFailure(output io.Writer, auditPath string, subjects []audit.Subject, code string, err error, exitCode int) int {
+	if auditErr := persistOperationAudit(auditPath, "catalog.coverage.signing-authority-boundary", "failed", "failed", subjects, []string{code}); auditErr != nil {
+		return writeLoadError(output, "YARA-AUD-005", auditErr)
+	}
+	return writeLoadErrorWithExit(output, code, err, exitCode)
+}
+
+func evaluateSigningAuthorityBoundary(trustPolicy resources.AirgapGateTrustPolicy, authorizations []resources.ExecutionAuthorization) signingAuthorityBoundary {
+	type signerIdentity struct {
+		keyID  string
+		digest string
+	}
+	formatIdentity := func(identity signerIdentity) string {
+		return identity.keyID + "|" + identity.digest
+	}
+	gateIdentities := []signerIdentity{}
+	for _, signer := range trustPolicy.Spec.TrustedSignerIdentities {
+		if signer.Status == "active" {
+			gateIdentities = append(gateIdentities, signerIdentity{keyID: signer.KeyID, digest: signer.PublicKeyDigest})
+		}
+	}
+	authIdentities := []signerIdentity{}
+	for _, authorization := range authorizations {
+		authIdentities = append(authIdentities, signerIdentity{keyID: authorization.Spec.Issuer.KeyID, digest: authorization.Spec.Issuer.PublicKeyDigest})
+	}
+	ambiguities := []string{}
+	keyRoleGate := map[string]string{}
+	keyRoleAuth := map[string]string{}
+	digestRoleGate := map[string]string{}
+	digestRoleAuth := map[string]string{}
+	for _, identity := range gateIdentities {
+		if existing, ok := keyRoleGate[identity.keyID]; ok && existing != identity.digest {
+			ambiguities = append(ambiguities, "gate-signer-key-id-reused-with-different-digest:"+identity.keyID)
+		}
+		keyRoleGate[identity.keyID] = identity.digest
+		if existing, ok := digestRoleGate[identity.digest]; ok && existing != identity.keyID {
+			ambiguities = append(ambiguities, "gate-signer-digest-reused-with-different-key-id:"+identity.digest)
+		}
+		digestRoleGate[identity.digest] = identity.keyID
+	}
+	for _, identity := range authIdentities {
+		if existing, ok := keyRoleAuth[identity.keyID]; ok && existing != identity.digest {
+			ambiguities = append(ambiguities, "authorization-key-id-reused-with-different-digest:"+identity.keyID)
+		}
+		keyRoleAuth[identity.keyID] = identity.digest
+		if existing, ok := digestRoleAuth[identity.digest]; ok && existing != identity.keyID {
+			ambiguities = append(ambiguities, "authorization-digest-reused-with-different-key-id:"+identity.digest)
+		}
+		digestRoleAuth[identity.digest] = identity.keyID
+	}
+	for keyID, digest := range keyRoleGate {
+		if authDigest, ok := keyRoleAuth[keyID]; ok && authDigest != digest {
+			ambiguities = append(ambiguities, "cross-role-key-id-reused-with-different-digest:"+keyID)
+		}
+	}
+	for digest, keyID := range digestRoleGate {
+		if authKeyID, ok := digestRoleAuth[digest]; ok && authKeyID != keyID {
+			ambiguities = append(ambiguities, "cross-role-digest-reused-with-different-key-id:"+digest)
+		}
+	}
+	sort.Strings(ambiguities)
+	ambiguities = uniqueSortedStrings(ambiguities)
+	overlaps := []string{}
+	for _, gateIdentity := range gateIdentities {
+		for _, authorizationIdentity := range authIdentities {
+			if gateIdentity.digest == authorizationIdentity.digest {
+				overlaps = append(overlaps, formatIdentity(gateIdentity))
+				break
+			}
+		}
+	}
+	sort.Strings(overlaps)
+	overlaps = uniqueSortedStrings(overlaps)
+	status := "independent"
+	if len(ambiguities) > 0 {
+		status = "ambiguous"
+	} else if len(overlaps) > 0 {
+		status = "overlap"
+	}
+	return signingAuthorityBoundary{
+		Status:                   status,
+		GateSignerCount:          len(gateIdentities),
+		AuthorizationIssuerCount: len(authIdentities),
+		OverlapIdentities:        overlaps,
+		AmbiguityDiagnostics:     ambiguities,
+	}
 }
 
 func validateCatalogCoverage(args []string, stdout, stderr io.Writer) int {

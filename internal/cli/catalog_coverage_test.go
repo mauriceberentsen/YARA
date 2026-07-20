@@ -2,12 +2,16 @@ package cli
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
@@ -329,6 +333,139 @@ func TestCatalogCoverageLifecyclePublicationPolicyRejectsAmbiguousRemediationEnc
 	}
 }
 
+func TestCatalogCoverageSigningAuthorityBoundaryReportsIndependent(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	_, trustPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate trust signer key: %v", err)
+	}
+	_, authPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate authorization issuer key: %v", err)
+	}
+	trustPolicy := trustPolicyFixture(t, "gate-signer", trustPrivate.Public().(ed25519.PublicKey))
+	trustPolicyPath := filepath.Join(temp, "trust-policy.yaml")
+	writeCatalogCoverageYAMLFixture(t, trustPolicyPath, trustPolicy)
+	authorization := executionAuthorizationFixture(t, "deployment-issuer", authPrivate)
+	authorizationPath := filepath.Join(temp, "authorization.yaml")
+	writeCatalogCoverageYAMLFixture(t, authorizationPath, authorization)
+	boundaryAuditPath := filepath.Join(temp, "boundary.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{
+		"catalog", "coverage", "signing-authority-boundary",
+		"--report", outputPath,
+		"--trust-policy", trustPolicyPath,
+		"--authorization", authorizationPath,
+		"--audit-output", boundaryAuditPath,
+	}, &stdout, &stderr); exitCode != ExitSuccess {
+		t.Fatalf("signing authority boundary failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	var response struct {
+		Valid                    bool `json:"valid"`
+		SigningAuthorityBoundary struct {
+			Status                   string   `json:"status"`
+			OverlapIdentities        []string `json:"overlapIdentities"`
+			AmbiguityDiagnostics     []string `json:"ambiguityDiagnostics"`
+			GateSignerCount          int      `json:"gateSignerCount"`
+			AuthorizationIssuerCount int      `json:"authorizationIssuerCount"`
+		} `json:"signingAuthorityBoundary"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode boundary response: %v", err)
+	}
+	if !response.Valid || response.SigningAuthorityBoundary.Status != "independent" || len(response.SigningAuthorityBoundary.OverlapIdentities) != 0 || len(response.SigningAuthorityBoundary.AmbiguityDiagnostics) != 0 {
+		t.Fatalf("unexpected signing authority boundary response: %#v", response)
+	}
+	events, err := audit.LoadJSONL(boundaryAuditPath)
+	if err != nil {
+		t.Fatalf("load boundary audit: %v", err)
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "catalog.coverage.signing-authority-boundary.completed" {
+		t.Fatalf("unexpected signing authority boundary audit terminal event: %#v", terminal.Spec)
+	}
+}
+
+func TestCatalogCoverageSigningAuthorityBoundaryRejectsOverlap(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	_, sharedPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate shared signer key: %v", err)
+	}
+	trustPolicy := trustPolicyFixture(t, "shared-issuer", sharedPrivate.Public().(ed25519.PublicKey))
+	trustPolicyPath := filepath.Join(temp, "trust-policy.yaml")
+	writeCatalogCoverageYAMLFixture(t, trustPolicyPath, trustPolicy)
+	authorization := executionAuthorizationFixture(t, "shared-issuer", sharedPrivate)
+	authorizationPath := filepath.Join(temp, "authorization.yaml")
+	writeCatalogCoverageYAMLFixture(t, authorizationPath, authorization)
+	boundaryAuditPath := filepath.Join(temp, "boundary.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{
+		"catalog", "coverage", "signing-authority-boundary",
+		"--report", outputPath,
+		"--trust-policy", trustPolicyPath,
+		"--authorization", authorizationPath,
+		"--audit-output", boundaryAuditPath,
+	}, &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected infeasible overlap rejection, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCatalogCoverageSigningAuthorityBoundaryRejectsAmbiguousKeyRoleReuse(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	_, trustPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate trust signer key: %v", err)
+	}
+	_, authPrivateOne, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate authorization issuer key 1: %v", err)
+	}
+	_, authPrivateTwo, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate authorization issuer key 2: %v", err)
+	}
+	trustPolicy := trustPolicyFixture(t, "gate-signer", trustPrivate.Public().(ed25519.PublicKey))
+	trustPolicyPath := filepath.Join(temp, "trust-policy.yaml")
+	writeCatalogCoverageYAMLFixture(t, trustPolicyPath, trustPolicy)
+	authorizationOne := executionAuthorizationFixture(t, "deployment-issuer", authPrivateOne)
+	authorizationTwo := executionAuthorizationFixture(t, "deployment-issuer", authPrivateTwo)
+	authorizationOnePath := filepath.Join(temp, "authorization-one.yaml")
+	authorizationTwoPath := filepath.Join(temp, "authorization-two.yaml")
+	writeCatalogCoverageYAMLFixture(t, authorizationOnePath, authorizationOne)
+	writeCatalogCoverageYAMLFixture(t, authorizationTwoPath, authorizationTwo)
+	boundaryAuditPath := filepath.Join(temp, "boundary.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{
+		"catalog", "coverage", "signing-authority-boundary",
+		"--report", outputPath,
+		"--trust-policy", trustPolicyPath,
+		"--authorization", authorizationOnePath,
+		"--authorization", authorizationTwoPath,
+		"--audit-output", boundaryAuditPath,
+	}, &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected infeasible ambiguity rejection, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
 func catalogCoverageArgs(outputPath, auditPath string) []string {
 	root := filepath.Join("..", "..", "catalog", "v0.2")
 	return []string{
@@ -374,6 +511,80 @@ func deterministicIntegrationResultFixtureForCLI(t *testing.T, catalogDigest str
 		t.Fatalf("assign integration fixture id: %v", err)
 	}
 	return result
+}
+
+func trustPolicyFixture(t *testing.T, keyID string, publicKey ed25519.PublicKey) resources.AirgapGateTrustPolicy {
+	t.Helper()
+	recordedAt := "2026-07-20T12:00:00Z"
+	trustPolicy := resources.AirgapGateTrustPolicy{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicy",
+		Metadata:   resources.AirgapGateTrustPolicyMetadata{Name: "trust-policy"},
+		Spec: resources.AirgapGateTrustPolicySpec{
+			RecordedAt:            recordedAt,
+			TargetReferenceDigest: "sha256:" + strings.Repeat("a", 64),
+			TrustedSignerIdentities: []resources.AirgapTrustedSignerIdentity{
+				{
+					KeyID:           keyID,
+					Algorithm:       "Ed25519",
+					PublicKey:       base64.StdEncoding.EncodeToString(publicKey),
+					PublicKeyDigest: resources.PublicKeyDigest(publicKey),
+					Status:          "active",
+				},
+			},
+			Limitations: []string{
+				"Trust policy fixture",
+			},
+		},
+	}
+	trustPolicy, err := trustPolicy.AssignPolicyID()
+	if err != nil {
+		t.Fatalf("assign trust policy id: %v", err)
+	}
+	return trustPolicy
+}
+
+func executionAuthorizationFixture(t *testing.T, keyID string, privateKey ed25519.PrivateKey) resources.ExecutionAuthorization {
+	t.Helper()
+	now := time.Now().UTC()
+	authorization := resources.ExecutionAuthorization{
+		APIVersion: resources.APIVersion,
+		Kind:       "ExecutionAuthorization",
+		Metadata: resources.ExecutionAuthorizationMetadata{
+			Name: "authorization-fixture",
+		},
+		Spec: resources.ExecutionAuthorizationSpec{
+			IssuedAt:          now.Format(time.RFC3339Nano),
+			ExpiresAt:         now.Add(10 * time.Minute).Format(time.RFC3339Nano),
+			PlanID:            "sha256:" + strings.Repeat("1", 64),
+			BundleID:          "sha256:" + strings.Repeat("2", 64),
+			PreflightResultID: "sha256:" + strings.Repeat("3", 64),
+			ChangeSetID:       "sha256:" + strings.Repeat("4", 64),
+			ApprovalID:        "sha256:" + strings.Repeat("5", 64),
+			Target: resources.TargetIdentity{
+				Type:            "kubernetes",
+				ReferenceDigest: "sha256:" + strings.Repeat("6", 64),
+				ServerVersion:   "v1.30.0",
+			},
+			Issuer: resources.ExecutionAuthorizationIssuer{
+				KeyID: keyID,
+			},
+			Constraints: resources.ExecutionAuthorizationConstraints{
+				AllowedActions:            []string{"create", "no-op", "update"},
+				MaxOperations:             12,
+				AllowDelete:               false,
+				AllowActiveVerification:   true,
+				AcceptedPreflightBlockers: []string{},
+			},
+			Signature: base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize)),
+		},
+	}
+	slices.Sort(authorization.Spec.Constraints.AllowedActions)
+	signed, err := authorization.Sign(privateKey)
+	if err != nil {
+		t.Fatalf("sign authorization fixture: %v", err)
+	}
+	return signed
 }
 
 func writeCatalogCoverageYAMLFixture(t *testing.T, path string, value any) {
