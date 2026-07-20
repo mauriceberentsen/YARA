@@ -58,6 +58,17 @@ var lifecyclePublicationBlockerRemediations = map[string]string{
 	"selected-integration-attestation-does-not-bind-integration-evidence":       "reissue-integration-attestation-with-bound-evidence",
 	"selected-integration-attestation-expiry-invalid":                           "reissue-integration-attestation-with-valid-expiry",
 	"selected-integration-attestation-expired-for-integration-evidence":         "renew-integration-publication-attestation",
+	"publication-chain-rehearsal-not-recorded":                                  "record-publication-chain-rehearsal",
+	"selected-rehearsal-catalog-mismatch":                                       "reissue-publication-chain-rehearsal-for-catalog",
+	"selected-rehearsal-decision-abstained":                                     "collect-explicit-rehearsal-decision",
+	"selected-rehearsal-decision-changes-required":                              "address-rehearsal-review-feedback-and-rerehearse",
+	"selected-rehearsal-does-not-bind-lifecycle-proof-approval":                 "reissue-rehearsal-with-bound-lifecycle-proof-approval",
+	"selected-rehearsal-does-not-bind-integration-publication-attestation":      "reissue-rehearsal-with-bound-integration-publication-attestation",
+	"selected-rehearsal-max-evidence-age-invalid":                               "reissue-rehearsal-with-valid-max-evidence-age",
+	"selected-rehearsal-recorded-at-invalid":                                    "reissue-rehearsal-with-valid-rehearsed-at",
+	"selected-rehearsal-approval-observed-at-invalid":                           "rebuild-rehearsal-from-valid-approval-audit-evidence",
+	"selected-rehearsal-attestation-observed-at-invalid":                        "rebuild-rehearsal-from-valid-attestation-audit-evidence",
+	"selected-rehearsal-stale-for-prerequisite-evidence":                        "renew-publication-chain-rehearsal",
 	"publication-chain-renewal-review-not-recorded":                             "record-publication-chain-renewal-review",
 	"selected-renewal-review-catalog-mismatch":                                  "reissue-renewal-review-for-catalog",
 	"selected-renewal-review-decision-abstained":                                "collect-explicit-renewal-review-decision",
@@ -388,13 +399,17 @@ func assertionCoverage(
 	}
 	slices.Sort(coverage.Blockers)
 	coverage.PromotionEligible = slices.Contains([]string{"known", "experimental", "supported"}, assertion.Status) && assertion.Compatibility == "supported" && len(coverage.Blockers) == 0
-	renewalRequired := requiresIntegrationPublicationAttestation(assertion)
-	coverage.LifecyclePublicationReady = lifecycleGate.Status == "passed" && integrationGate.Status == "passed" && (!renewalRequired || renewalReviewGate.Status == "passed")
+	publicationGovernanceRequired := requiresIntegrationPublicationAttestation(assertion)
+	coverage.LifecyclePublicationReady = lifecycleGate.Status == "passed" &&
+		integrationGate.Status == "passed" &&
+		(!publicationGovernanceRequired || (rehearsalGate.Status == "passed" && renewalReviewGate.Status == "passed"))
 	if lifecycleGate.Status != "passed" {
 		coverage.LifecyclePublicationBlocker = lifecycleGate.Blocker
 	} else if integrationGate.Status != "passed" {
 		coverage.LifecyclePublicationBlocker = lifecyclePublicationBlocker(integrationGate.Blocker)
-	} else if renewalRequired && renewalReviewGate.Status != "passed" {
+	} else if publicationGovernanceRequired && rehearsalGate.Status != "passed" {
+		coverage.LifecyclePublicationBlocker = lifecyclePublicationBlocker(rehearsalGate.Blocker)
+	} else if publicationGovernanceRequired && renewalReviewGate.Status != "passed" {
 		coverage.LifecyclePublicationBlocker = lifecyclePublicationBlocker(renewalReviewGate.Blocker)
 	}
 	return coverage

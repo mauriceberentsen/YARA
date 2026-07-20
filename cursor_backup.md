@@ -79,6 +79,7 @@
 - `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now expose assertion-scoped publication-chain renewal-review posture (`status`, `selectedRenewalReview`, `blocker`) via deterministic report limitation records;
 - publication-policy diagnostics now fail closed when publication-chain renewal-review explainability records are missing, duplicated, malformed, or inconsistent with selected lifecycle/integration/rehearsal evidence identities.
 - lifecycle publication readiness now requires passing renewal-review evidence for assertion scopes that require integration publication evidence, with deterministic remediation-coded blockers.
+- lifecycle publication readiness now requires the full four-pillar publication chain for integration-required assertion scopes: lifecycle-proof approval, integration publication attestation, publication-chain rehearsal, and publication-chain renewal-review.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -132,6 +133,7 @@
   - catalog coverage outputs now preserve deterministic parity for assertion-scoped renewal-review diagnostics across create and lifecycle-publication-policy entry points;
   - lifecycle publication policy diagnostics now fail closed when renewal-review explainability records drift from selected gate evidence state or use malformed limitation encoding;
   - lifecycle publication gating now fails closed when integration-required assertions lack passing bound renewal-review evidence, and taxonomy-coded remediation stays deterministic across create/policy command paths;
+  - lifecycle publication gating now also fails closed when integration-required assertions lack passing publication-chain rehearsal evidence, using deterministic rehearsal remediation taxonomy shared across create and policy diagnostics;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -172,11 +174,11 @@
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `fe12a5c`, `991a865`, `86aca55`, `499df6d`, `b01fd01`.
-- This slice closes **Phase 8 slice 1** for renewal-review lifecycle-publication gating.
+- Recent commits before this slice (newest first): `144309d`, `fe12a5c`, `991a865`, `86aca55`, `499df6d`.
+- This slice closes **Phase 8 slice 2** for full four-pillar publication-readiness gating.
 - M1 (Publication gating closure / Phase 8) status:
-  - slice 1 completed in this run: lifecycle publication readiness now requires passing renewal-review evidence for integration-required assertion scopes, with deterministic taxonomy-coded blockers/remediation;
-  - slice 2 pending: require passing publication-chain rehearsal in lifecycle publication readiness (full four-pillar gating);
+  - slice 1 completed: lifecycle publication readiness requires passing renewal-review evidence for integration-required assertion scopes with deterministic taxonomy-coded blockers/remediation;
+  - slice 2 completed in this run: lifecycle publication readiness now requires passing publication-chain rehearsal plus renewal review for integration-required assertion scopes (full four-pillar gating);
   - slice 3 pending: acceptance proof fixture with all four pillars passing and deterministic blocker checks for each missing pillar.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
@@ -193,7 +195,7 @@ The following ordered milestones define the shortest honest path from the curren
 
 Slices:
 1. Completed: wired `publication-chain-renewal-review` into `LifecyclePublicationReady` for integration-required assertion scopes, including deterministic renewal-review blocker taxonomy/remediation.
-2. Pending: promote `LifecyclePublicationReady` to require passing lifecycle-proof approval + integration publication attestation + rehearsal + renewal-review gates simultaneously; reject partial-pass states fail-closed.
+2. Completed: `LifecyclePublicationReady` now requires passing lifecycle-proof approval + integration publication attestation + rehearsal + renewal-review gates simultaneously for integration-required assertions.
 3. Pending: acceptance proof fixture where all four gates pass, and where each omitted pillar yields deterministic taxonomy-coded blockers.
 
 Exit: the full publication-chain governance loop is closed and locally validated.
@@ -277,18 +279,18 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **Phase 8 slice 2: enforce full four-pillar publication readiness gating**:
+Implement **Phase 8 slice 3: publication readiness acceptance-proof fixture and blocker matrix tests**:
 
-- require integration-required assertions to have passing `publication-chain-rehearsal` in addition to lifecycle-proof approval, integration publication attestation, and renewal-review before setting `lifecyclePublicationReady=true`;
-- add deterministic lifecycle blocker taxonomy entries/remediations for missing, non-approved, stale, catalog-mismatched, or unbound rehearsal evidence when publication readiness is evaluated;
+- add an explicit acceptance fixture where all four publication pillars are present and passing for one integration-required assertion, producing `lifecyclePublicationReady=true`;
+- add deterministic blocker-matrix tests proving each missing pillar (lifecycle approval, integration attestation, rehearsal, renewal review) independently yields the expected taxonomy-coded blocker;
 - preserve read-only fail-closed gating and explainability parity between `catalog coverage create` and `catalog coverage lifecycle-publication-policy`.
 
 Acceptance criteria:
 
-- lifecycle publication readiness requires all four publication pillars for integration-required assertions: lifecycle-proof approval + integration publication attestation + publication-chain rehearsal + publication-chain renewal-review;
-- blocker taxonomy encodes rehearsal and renewal failure states with deterministic remediation guidance and fail-closed parsing;
+- one deterministic acceptance fixture yields `lifecyclePublicationReady=true` only when all four publication pillars are passing for an integration-required assertion;
+- blocker matrix tests prove each omitted publication pillar yields its own deterministic taxonomy-coded blocker and remediation;
 - report create and policy diagnostics preserve deterministic non-secret parity for lifecycle/integration/rehearsal/renewal publication gating;
-- durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval, rehearsal, renewal review, and publication outputs;
+- durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval, integration attestation, rehearsal, renewal review, and publication outputs;
 - apply-side provenance remains fail-closed and unaffected by publication-gating changes;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 
