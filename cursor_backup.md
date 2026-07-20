@@ -3,8 +3,8 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner plus bounded deployment path).
-- Branch baseline: `main` at `8ae7502` (`merge ARM64 Kubernetes apply fixes`).
-- Working tree currently contains the import-receipt slice changes from this run (not yet committed).
+- Branch baseline: `main` at `a77fccf` (`Bind Kubernetes apply to artifact import receipts.`).
+- Working tree is clean after the slice commit; local branch is `ahead 1` of `origin/main`.
 - Accepted ADRs include `0001`-`0011`; direct apply boundary is in ADR-0011.
 - Latest archived coverage remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`.
 
@@ -45,9 +45,9 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main`.
-- Recent commits (newest first): `8ae7502`, `08f774e`, `cc1f0a5`, `94b9706`, `ea490d0`.
-- Current working tree is intentionally dirty with this run's coherent import-receipt slice.
+- Branch: `main` tracking `origin/main` (`ahead 1`).
+- Recent commits (newest first): `a77fccf`, `8ae7502`, `08f774e`, `cc1f0a5`, `94b9706`.
+- Current working tree is clean after this run's commit.
 - Git author to use for new commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## Open limitations and unproven claims
