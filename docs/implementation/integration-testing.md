@@ -166,6 +166,24 @@ The boundary command fails closed when:
 - it surfaces `publicationChainRehearsal` diagnostics in policy output for each inspected assertion;
 - it fails closed for assertion-scoped diagnostics when rehearsal evidence for that assertion is missing, stale, foreign, or unbound.
 
+When recording promotion reviews for assertions that require integration publication evidence, bind a reviewed publication-chain rehearsal identity explicitly:
+
+```bash
+go run ./cmd/yara promotion review record \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --evidence sha256:<publication-chain-rehearsal-id> \
+  --publication-chain-rehearsal publication-chain-rehearsal.yaml \
+  --confirm-publication-chain-rehearsal sha256:<publication-chain-rehearsal-id> \
+  --max-rehearsal-age 720h \
+  --reviewer-role release-manager \
+  --decision approved \
+  --reason-reference ticket-promotion-review-123 \
+  --name promotion-review \
+  --output promotion-review.yaml \
+  --audit-output promotion-review.audit.jsonl
+```
+
 `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now emit a shared deterministic explainability surface across:
 
 - lifecycle publication readiness and blocker taxonomy;

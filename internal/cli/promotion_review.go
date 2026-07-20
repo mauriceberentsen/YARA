@@ -18,9 +18,10 @@ import (
 )
 
 type promotionReviewOptions struct {
-	catalogPath, assertionRef, reviewerRole, reasonReference string
-	name, outputPath, auditPath, decision                    string
-	selectedEvidence                                         csvFlag
+	catalogPath, assertionRef, reviewerRole, reasonReference                           string
+	name, outputPath, auditPath, decision                                              string
+	publicationChainRehearsalPath, confirmPublicationChainRehearsalID, maxRehearsalAge string
+	selectedEvidence                                                                   csvFlag
 }
 
 func recordPromotionReview(args []string, stdout, stderr io.Writer) int {
@@ -39,9 +40,11 @@ func recordPromotionReview(args []string, stdout, stderr io.Writer) int {
 	target := "catalog:" + catalogDigest
 	catalogSubject := audit.Subject{Kind: "CatalogSnapshot", Digest: catalogDigest}
 	assertionKnown := false
+	var selectedAssertion catalog.AssertionDescriptor
 	for _, assertion := range snapshot.ManifestInventory().Compatibility {
 		if assertion.ID == options.assertionRef {
 			assertionKnown = true
+			selectedAssertion = assertion
 			break
 		}
 	}
@@ -64,6 +67,41 @@ func recordPromotionReview(args []string, stdout, stderr io.Writer) int {
 	for _, digest := range selected {
 		if !strings.HasPrefix(digest, "sha256:") || len(digest) != 71 {
 			return writePromotionFailure(stdout, options.auditPath, target, []audit.Subject{catalogSubject}, "YARA-PRM-104", errors.New("selected evidence IDs must be SHA-256 digests"), ExitInvalidInput)
+		}
+	}
+	subjects := []audit.Subject{catalogSubject}
+	if requiresIntegrationPublicationAttestation(selectedAssertion) {
+		if options.publicationChainRehearsalPath == "" || options.confirmPublicationChainRehearsalID == "" || options.maxRehearsalAge == "" {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-106", errors.New("assertions requiring integration publication evidence must provide --publication-chain-rehearsal --confirm-publication-chain-rehearsal and --max-rehearsal-age"), ExitInvalidInput)
+		}
+		rehearsal, err := resources.LoadPublicationChainRehearsal(options.publicationChainRehearsalPath)
+		if err != nil || !rehearsal.Validate().Valid {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-107", errors.New("publication-chain rehearsal evidence is invalid"), ExitInvalidInput)
+		}
+		subjects = append(subjects, audit.Subject{Kind: "PublicationChainRehearsal", Digest: rehearsal.Metadata.RehearsalID})
+		if rehearsal.Metadata.RehearsalID != options.confirmPublicationChainRehearsalID {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-108", errors.New("explicit publication-chain rehearsal confirmation mismatch"), ExitInfeasible)
+		}
+		if rehearsal.Spec.CatalogDigest != catalogDigest || rehearsal.Spec.AssertionRef != options.assertionRef {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-109", errors.New("publication-chain rehearsal evidence is foreign to the selected assertion scope"), ExitInfeasible)
+		}
+		if rehearsal.Spec.Decision != resources.PromotionDecisionApproved {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-110", errors.New("publication-chain rehearsal evidence must be approved"), ExitInfeasible)
+		}
+		maxRehearsalAge, err := time.ParseDuration(options.maxRehearsalAge)
+		if err != nil || maxRehearsalAge <= 0 {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-111", errors.New("max-rehearsal-age must be a positive duration"), ExitInvalidInput)
+		}
+		rehearsedAt, err := time.Parse(time.RFC3339Nano, rehearsal.Spec.RehearsedAt)
+		if err != nil {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-107", errors.New("publication-chain rehearsal timestamp is invalid"), ExitInvalidInput)
+		}
+		now := time.Now().UTC()
+		if rehearsedAt.After(now) || now.Sub(rehearsedAt) > maxRehearsalAge {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-112", errors.New("publication-chain rehearsal evidence is stale for promotion review"), ExitInfeasible)
+		}
+		if !slices.Contains(selected, rehearsal.Metadata.RehearsalID) {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-113", errors.New("selected evidence must include the bound publication-chain rehearsal identity"), ExitInfeasible)
 		}
 	}
 	actorID, assurance := localActor()
@@ -106,10 +144,7 @@ func recordPromotionReview(args []string, stdout, stderr io.Writer) int {
 	if err := writeExclusive(options.outputPath, data); err != nil {
 		return writePromotionFailure(stdout, options.auditPath, target, []audit.Subject{catalogSubject}, "YARA-PRM-105", err, ExitInvalidInput)
 	}
-	subjects := []audit.Subject{
-		catalogSubject,
-		{Kind: "PromotionReview", Digest: review.Metadata.ReviewID},
-	}
+	subjects = append(subjects, audit.Subject{Kind: "PromotionReview", Digest: review.Metadata.ReviewID})
 	if err := persistOperationAuditForTarget(options.auditPath, "promotion.review", "completed", "success", target, subjects, nil); err != nil {
 		_ = os.Remove(options.outputPath)
 		return writeLoadError(stdout, "YARA-AUD-005", err)
@@ -136,6 +171,9 @@ func parsePromotionReviewOptions(args []string, stderr io.Writer) (promotionRevi
 	flags.StringVar(&options.catalogPath, "catalog", "", "Validated CatalogSnapshot file")
 	flags.StringVar(&options.assertionRef, "assertion", "", "Exact assertion ID to review")
 	flags.Var(&options.selectedEvidence, "evidence", "Selected accepted evidence result digest (repeatable)")
+	flags.StringVar(&options.publicationChainRehearsalPath, "publication-chain-rehearsal", "", "Validated PublicationChainRehearsal file")
+	flags.StringVar(&options.confirmPublicationChainRehearsalID, "confirm-publication-chain-rehearsal", "", "Exact publication-chain rehearsal ID confirmation")
+	flags.StringVar(&options.maxRehearsalAge, "max-rehearsal-age", "", "Maximum age allowed for publication-chain rehearsal evidence")
 	flags.StringVar(&options.reviewerRole, "reviewer-role", "", "Independent reviewer role")
 	flags.StringVar(&options.decision, "decision", "", "Review decision: approved|changes-required|abstained")
 	flags.StringVar(&options.reasonReference, "reason-reference", "", "Non-secret review reason reference")

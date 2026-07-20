@@ -67,6 +67,8 @@
   - publication-chain rehearsal now fails closed on stale evidence windows, foreign catalog/assertion bindings, approval/attestation confirmation mismatches, malformed signing-boundary audits, or non-independent signer-boundary evidence.
   - publication-policy diagnostics now include assertion-scoped `publication-chain-rehearsal` gate state sourced from immutable coverage evidence;
   - assertion-scoped lifecycle publication policy diagnostics now fail closed when publication-chain rehearsal evidence is missing or non-passing for the selected assertion.
+  - `promotion review record` now requires explicit publication-chain rehearsal binding for assertions requiring integration publication evidence;
+  - promotion-review recording now fails closed on missing, stale, foreign, non-approved, or assertion-mismatched rehearsal evidence and requires selected evidence to include the bound rehearsal identity.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -111,6 +113,7 @@
   - publication-chain rehearsals are content-addressed (`rehearsalId`), bind exact publication-chain identity subjects plus verified signing-boundary audit head, and record non-mutating reviewer readiness decisions;
   - `publication chain rehearse` plus `publication-chain-rehearsal validate` provide bounded pre-live publication readiness checks with deterministic audit chains;
   - assertion-scoped lifecycle publication policy now reports deterministic publication-chain rehearsal readiness diagnostics (`status`, `blocker`, selected rehearsal ID) and rejects non-ready assertion scopes fail-closed;
+  - promotion-review entry points now converge on publication-chain rehearsal identity evidence for integration-required assertions and record deterministic audit subjects for rehearsal bindings;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -147,13 +150,13 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by eleven commits before this uncommitted work).
-- Recent commits before this slice (newest first): `9c7414c`, `cdf8393`, `3ff1b5d`, `10de4ec`, `86c7a32`.
-- This slice closes Phase 5 assertion-scoped publication-chain policy diagnostics parity.
+- Branch: `main` tracking `origin/main` (local ahead by twelve commits before this uncommitted work).
+- Recent commits before this slice (newest first): `b1cfa4a`, `9c7414c`, `cdf8393`, `3ff1b5d`, `10de4ec`.
+- This slice closes Phase 5 publication-chain reviewer decision convergence for promotion-review entry points.
 - Phase 5 milestone plan now tracks three ordered slices:
   - slice 1 completed: publication-chain rehearsal resource/command/validation closure with fail-closed chain binding checks;
-  - slice 2 completed in this run: assertion-scoped publication-chain policy diagnostics parity in coverage policy output;
-  - slice 3 pending: publication-chain reviewer decision convergence for promotion-review entry points.
+  - slice 2 completed: assertion-scoped publication-chain policy diagnostics parity in coverage policy output;
+  - slice 3 completed in this run: publication-chain reviewer decision convergence for promotion-review entry points.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -166,16 +169,16 @@
 
 ## Next implementation slice
 
-Implement **Phase 5 milestone completion: publication-chain reviewer decision convergence for promotion-review entry points**:
+Implement **Phase 6 milestone kickoff: publication-chain evidence retention and renewal diagnostics**:
 
-- require an explicit publication-chain rehearsal identity binding when recording promotion reviews for assertions requiring integration publication evidence;
-- fail closed on stale/foreign/non-approved rehearsal evidence or assertion-scope mismatch at promotion-review recording time;
-- preserve deterministic non-secret evidence boundaries and existing mutation-authority constraints.
+- add bounded diagnostics that classify publication-chain evidence as renewable or non-renewable before expiry while preserving immutable historical evidence;
+- fail closed when renewal inputs attempt to replace or overwrite reviewed historical publication-chain evidence identities;
+- preserve deterministic non-secret explainability and existing mutation-authority constraints.
 
 Acceptance criteria:
 
-- promotion-review recording fails closed when required publication-chain rehearsal evidence is missing, stale, foreign, unapproved, or mismatched to selected assertion scope;
-- promotion entry-point diagnostics remain deterministic and non-secret while exposing bounded publication-chain rehearsal readiness binding state;
+- publication-chain renewal diagnostics fail closed when retention windows or renewal bindings are malformed, stale, or foreign to assertion scope;
+- publication-chain retention outputs remain deterministic and non-secret while preserving immutable historical evidence identities;
 - lifecycle and integration publication diagnostics remain deterministic and non-secret with no mutation authority added;
 - lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
