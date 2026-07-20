@@ -2471,6 +2471,109 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		verification := verifyWorkflowRolloutClosureChain(workspacePath)
 		writeServeJSON(writer, http.StatusOK, verification)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/rollout-closure/verify/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow rollout closure verify export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowRolloutClosureVerifyExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-050", err.Error())
+			return
+		}
+		markdownPath, err := ensureWorkspaceFilePath(workspacePath, payload.MarkdownPath, "markdownPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-050", err.Error())
+			return
+		}
+		jsonPath, err := ensureWorkspaceFilePath(workspacePath, payload.JSONPath, "jsonPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-050", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-050", err.Error())
+			return
+		}
+		if markdownPath == jsonPath || markdownPath == auditPath || jsonPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-050", "markdownPath, jsonPath and auditPath must be different files")
+			return
+		}
+		verification := verifyWorkflowRolloutClosureChain(workspacePath)
+		if !verification.Verification.Ready && !payload.AllowBlocked {
+			writeServeError(writer, http.StatusUnprocessableEntity, "YARA-SRV-050", "YARA-RCVX-003: verification is blocked; set allowBlocked=true with allowBlockedReasonReference to export blocked verification")
+			return
+		}
+		if !verification.Verification.Ready && strings.TrimSpace(payload.AllowBlockedReasonReference) == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-050", "YARA-RCVX-004: allowBlockedReasonReference is required when exporting a blocked verification")
+			return
+		}
+		markdownBytes := []byte(renderWorkflowRolloutClosureVerifyMarkdown(payload, verification) + "\n")
+		if err := writeExclusive(markdownPath, markdownBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-050", err.Error())
+			return
+		}
+		exportBundle := workflowRolloutClosureVerifyExportBundle{Valid: true}
+		exportBundle.Export.WorkspacePath = workspacePath
+		exportBundle.Export.VerificationReference = strings.TrimSpace(payload.VerificationReference)
+		exportBundle.Export.OperatorReference = strings.TrimSpace(payload.OperatorReference)
+		exportBundle.Export.VerificationTimestamp = strings.TrimSpace(payload.VerificationTimestamp)
+		exportBundle.Export.AllowBlocked = payload.AllowBlocked
+		exportBundle.Export.AllowBlockedReasonReference = strings.TrimSpace(payload.AllowBlockedReasonReference)
+		exportBundle.Export.Ready = verification.Verification.Ready
+		exportBundle.Export.VerificationState = verification.Verification.VerificationState
+		exportBundle.Export.BlockerCode = verification.Verification.BlockerCode
+		exportBundle.Export.Continuity = verification.Verification.Continuity
+		exportBundle.Export.Coverage = verification.Verification.Coverage
+		exportBundle.Export.Diagnostics = verification.Verification.Diagnostics
+		jsonBytes, err := json.MarshalIndent(exportBundle, "", "  ")
+		if err != nil {
+			_ = os.Remove(markdownPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode rollout closure verify export json: %v", err))
+			return
+		}
+		jsonBytes = append(jsonBytes, '\n')
+		if err := writeExclusive(jsonPath, jsonBytes); err != nil {
+			_ = os.Remove(markdownPath)
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-050", err.Error())
+			return
+		}
+		exportSubjects := []audit.Subject{
+			{Kind: "WorkflowRolloutClosureVerifyMarkdown", Digest: digestBytes(markdownBytes)},
+			{Kind: "WorkflowRolloutClosureVerifyJSON", Digest: digestBytes(jsonBytes)},
+			{
+				Kind: "WorkflowRolloutClosureVerifyReference",
+				Digest: digestBytes([]byte(strings.Join([]string{
+					exportBundle.Export.VerificationReference,
+					exportBundle.Export.OperatorReference,
+					exportBundle.Export.VerificationTimestamp,
+					verification.Verification.BlockerCode,
+					verification.Verification.Continuity.AuthorizationID,
+					verification.Verification.Continuity.TargetDigest,
+				}, "|"))),
+			},
+		}
+		if err := persistOperationAuditForTarget(auditPath, "workflow.rollout-closure.verify.export", "completed", verification.Verification.VerificationState, "kubernetes:"+verification.Verification.Continuity.TargetDigest, exportSubjects, nil); err != nil {
+			_ = os.Remove(markdownPath)
+			_ = os.Remove(jsonPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowRolloutClosureVerifyExportResponse{Valid: true}
+		response.Export.MarkdownPath = markdownPath
+		response.Export.JSONPath = jsonPath
+		response.Export.AuditPath = auditPath
+		response.Export.Ready = verification.Verification.Ready
+		response.Export.BlockedArchival = !verification.Verification.Ready
+		response.Export.VerificationState = verification.Verification.VerificationState
+		response.Export.BlockerCode = verification.Verification.BlockerCode
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -3655,6 +3758,48 @@ type workflowClosureVerifyCoverage struct {
 	Reason   string `json:"reason,omitempty"`
 }
 
+type workflowRolloutClosureVerifyExportRequest struct {
+	VerificationReference       string `json:"verificationReference"`
+	OperatorReference           string `json:"operatorReference"`
+	VerificationTimestamp       string `json:"verificationTimestamp"`
+	MarkdownPath                string `json:"markdownPath"`
+	JSONPath                    string `json:"jsonPath"`
+	AuditPath                   string `json:"auditPath"`
+	AllowBlocked                bool   `json:"allowBlocked"`
+	AllowBlockedReasonReference string `json:"allowBlockedReasonReference,omitempty"`
+}
+
+type workflowRolloutClosureVerifyExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		MarkdownPath      string `json:"markdownPath"`
+		JSONPath          string `json:"jsonPath"`
+		AuditPath         string `json:"auditPath"`
+		Ready             bool   `json:"ready"`
+		BlockedArchival   bool   `json:"blockedArchival"`
+		VerificationState string `json:"verificationState"`
+		BlockerCode       string `json:"blockerCode,omitempty"`
+	} `json:"export"`
+}
+
+type workflowRolloutClosureVerifyExportBundle struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		WorkspacePath               string                          `json:"workspacePath"`
+		VerificationReference       string                          `json:"verificationReference"`
+		OperatorReference           string                          `json:"operatorReference"`
+		VerificationTimestamp       string                          `json:"verificationTimestamp"`
+		AllowBlocked                bool                            `json:"allowBlocked"`
+		AllowBlockedReasonReference string                          `json:"allowBlockedReasonReference,omitempty"`
+		Ready                       bool                            `json:"ready"`
+		VerificationState           string                          `json:"verificationState"`
+		BlockerCode                 string                          `json:"blockerCode,omitempty"`
+		Continuity                  workflowClosureContinuity       `json:"continuity"`
+		Coverage                    []workflowClosureVerifyCoverage `json:"coverage"`
+		Diagnostics                 []workflowCapsuleBlocker        `json:"diagnostics"`
+	} `json:"verificationExport"`
+}
+
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -4498,6 +4643,37 @@ func decodeWorkflowRolloutClosureRecipientPackageExportRequest(request *http.Req
 	}
 	if _, err := time.Parse(time.RFC3339Nano, payload.PreparedTimestamp); err != nil {
 		return payload, errors.New("preparedTimestamp must be a valid RFC3339 timestamp")
+	}
+	return payload, nil
+}
+
+func decodeWorkflowRolloutClosureVerifyExportRequest(request *http.Request) (workflowRolloutClosureVerifyExportRequest, error) {
+	var payload workflowRolloutClosureVerifyExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.VerificationReference) == "" ||
+		strings.TrimSpace(payload.OperatorReference) == "" ||
+		strings.TrimSpace(payload.VerificationTimestamp) == "" ||
+		strings.TrimSpace(payload.MarkdownPath) == "" ||
+		strings.TrimSpace(payload.JSONPath) == "" ||
+		strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("verificationReference, operatorReference, verificationTimestamp, markdownPath, jsonPath and auditPath are required")
+	}
+	if payload.MarkdownPath == payload.JSONPath || payload.MarkdownPath == payload.AuditPath || payload.JSONPath == payload.AuditPath {
+		return payload, errors.New("markdownPath, jsonPath and auditPath must be different files")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.VerificationTimestamp); err != nil {
+		return payload, errors.New("verificationTimestamp must be a valid RFC3339 timestamp")
+	}
+	if payload.AllowBlocked && strings.TrimSpace(payload.AllowBlockedReasonReference) == "" {
+		return payload, errors.New("allowBlockedReasonReference is required when allowBlocked=true")
 	}
 	return payload, nil
 }
@@ -8096,6 +8272,44 @@ func renderCapsuleMarkdown(capsule workflowCapsuleResponse, blockedReasonReferen
 		lines = append(lines, "", "## Blockers")
 		for _, blocker := range capsule.Capsule.Blockers {
 			lines = append(lines, "- "+blocker.Code+": "+blocker.Message+" | remediation="+blocker.Remediation)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderWorkflowRolloutClosureVerifyMarkdown(payload workflowRolloutClosureVerifyExportRequest, verification workflowRolloutClosureVerifyResponse) string {
+	lines := []string{
+		"# YARA rollout closure verification export",
+		"",
+		"## Verification metadata",
+		"- Verification reference: " + strings.TrimSpace(payload.VerificationReference),
+		"- Operator reference: " + strings.TrimSpace(payload.OperatorReference),
+		"- Verification timestamp: " + strings.TrimSpace(payload.VerificationTimestamp),
+		"- Workspace path: " + verification.Verification.WorkspacePath,
+		"",
+		"## Verification result",
+		"- Ready: " + fmt.Sprintf("%t", verification.Verification.Ready),
+		"- Verification state: " + mapValueOrDefault(verification.Verification.VerificationState, "n/a"),
+		"- Blocker code: " + mapValueOrDefault(verification.Verification.BlockerCode, "none"),
+		"- Authorization ID: " + mapValueOrDefault(verification.Verification.Continuity.AuthorizationID, "n/a"),
+		"- Target digest: " + mapValueOrDefault(verification.Verification.Continuity.TargetDigest, "n/a"),
+	}
+	if strings.TrimSpace(payload.AllowBlockedReasonReference) != "" {
+		lines = append(lines, "- Blocked archival reason reference: "+strings.TrimSpace(payload.AllowBlockedReasonReference))
+	}
+	lines = append(lines, "", "## Chain coverage")
+	for _, entry := range verification.Verification.Coverage {
+		lines = append(lines,
+			"- "+entry.Artifact+
+				" | status="+mapValueOrDefault(entry.Status, "n/a")+
+				" | state="+mapValueOrDefault(entry.State, "n/a")+
+				" | digest="+mapValueOrDefault(entry.Digest, "n/a"),
+		)
+	}
+	if len(verification.Verification.Diagnostics) > 0 {
+		lines = append(lines, "", "## Diagnostics")
+		for _, diagnostic := range verification.Verification.Diagnostics {
+			lines = append(lines, "- "+diagnostic.Code+": "+diagnostic.Message+" | remediation="+diagnostic.Remediation)
 		}
 	}
 	return strings.Join(lines, "\n")

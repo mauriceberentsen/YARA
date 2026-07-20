@@ -1474,6 +1474,17 @@ function CapsuleView({ payload }) {
   }));
   const [closureRecipientPackageSubmitState, setClosureRecipientPackageSubmitState] = useState({ loading: false, error: "", result: null });
   const [closureVerifySubmitState, setClosureVerifySubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyExportForm, setClosureVerifyExportForm] = useState(() => ({
+    verificationReference: "",
+    operatorReference: "",
+    verificationTimestamp: "",
+    markdownPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.md` : "",
+    jsonPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.export.audit.jsonl` : "",
+    allowBlocked: false,
+    allowBlockedReasonReference: "",
+  }));
+  const [closureVerifyExportSubmitState, setClosureVerifyExportSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1586,6 +1597,12 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-recipient-package.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-recipient-package.export.audit.jsonl`,
+    }));
+    setClosureVerifyExportForm((previous) => ({
+      ...previous,
+      markdownPath: previous.markdownPath || `${workspacePath}/workflow.rollout-closure-verify.md`,
+      jsonPath: previous.jsonPath || `${workspacePath}/workflow.rollout-closure-verify.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2235,6 +2252,41 @@ function CapsuleView({ payload }) {
       setClosureVerifySubmitState({ loading: false, error: error.message || "Rollout closure verify failed", result: null });
     }
   };
+  const updateClosureVerifyExport = (key) => (event) => {
+    const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+    setClosureVerifyExportForm((previous) => ({ ...previous, [key]: value }));
+  };
+  const canExportClosureVerify = closureVerifyExportForm.verificationReference.trim() !== "" &&
+    closureVerifyExportForm.operatorReference.trim() !== "" &&
+    closureVerifyExportForm.verificationTimestamp.trim() !== "" &&
+    closureVerifyExportForm.markdownPath !== "" &&
+    closureVerifyExportForm.jsonPath !== "" &&
+    closureVerifyExportForm.auditPath !== "" &&
+    closureVerifyExportForm.markdownPath !== closureVerifyExportForm.jsonPath &&
+    closureVerifyExportForm.markdownPath !== closureVerifyExportForm.auditPath &&
+    closureVerifyExportForm.jsonPath !== closureVerifyExportForm.auditPath &&
+    (!closureVerifyExportForm.allowBlocked || closureVerifyExportForm.allowBlockedReasonReference.trim() !== "");
+  const submitClosureVerifyExport = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerify) {
+      return;
+    }
+    setClosureVerifyExportSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyExportForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify export failed");
+      }
+      setClosureVerifyExportSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyExportSubmitState({ loading: false, error: error.message || "Rollout closure verify export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -2337,6 +2389,56 @@ function CapsuleView({ payload }) {
             <p>No closure chain diagnostics.</p>
           )}
         </>
+      )}
+      <h3>Export closure chain verification bundle</h3>
+      <form onSubmit={submitClosureVerifyExport}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-reference">Verification reference</label>
+          <input id="closure-verify-reference" value={closureVerifyExportForm.verificationReference} onChange={updateClosureVerifyExport("verificationReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-operator-reference">Verification operator reference</label>
+          <input id="closure-verify-operator-reference" value={closureVerifyExportForm.operatorReference} onChange={updateClosureVerifyExport("operatorReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-timestamp">Verification timestamp (RFC3339)</label>
+          <input id="closure-verify-timestamp" value={closureVerifyExportForm.verificationTimestamp} onChange={updateClosureVerifyExport("verificationTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-markdown-path">Verification markdown output path</label>
+          <input id="closure-verify-markdown-path" value={closureVerifyExportForm.markdownPath} onChange={updateClosureVerifyExport("markdownPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-json-path">Verification JSON output path</label>
+          <input id="closure-verify-json-path" value={closureVerifyExportForm.jsonPath} onChange={updateClosureVerifyExport("jsonPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-audit-path">Verification audit output path</label>
+          <input id="closure-verify-audit-path" value={closureVerifyExportForm.auditPath} onChange={updateClosureVerifyExport("auditPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-allow-blocked">Allow blocked verification export</label>
+          <input id="closure-verify-allow-blocked" type="checkbox" checked={closureVerifyExportForm.allowBlocked} onChange={updateClosureVerifyExport("allowBlocked")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-blocked-reason">Blocked export reason reference</label>
+          <input id="closure-verify-blocked-reason" value={closureVerifyExportForm.allowBlockedReasonReference} onChange={updateClosureVerifyExport("allowBlockedReasonReference")} />
+        </div>
+        <button type="submit" disabled={closureVerifyExportSubmitState.loading || !canExportClosureVerify}>
+          {closureVerifyExportSubmitState.loading ? "Exporting verification bundle..." : "Export closure verification bundle"}
+        </button>
+      </form>
+      {!canExportClosureVerify && <p className="error">Verification export requires references, timestamp, distinct output paths, and a blocked reason when blocked export is allowed.</p>}
+      {closureVerifyExportSubmitState.error && <p className="error">Verification export: blocked ({closureVerifyExportSubmitState.error})</p>}
+      {closureVerifyExportSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Markdown path</dt><dd>{closureVerifyExportSubmitState.result.markdownPath || "n/a"}</dd></div>
+          <div><dt>JSON path</dt><dd>{closureVerifyExportSubmitState.result.jsonPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyExportSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Verification state</dt><dd>{closureVerifyExportSubmitState.result.verificationState || "n/a"}</dd></div>
+          <div><dt>Blocked archival</dt><dd>{String(Boolean(closureVerifyExportSubmitState.result.blockedArchival))}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyExportSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
       )}
       <h3>Export capsule snapshot</h3>
       <form onSubmit={submit}>

@@ -487,6 +487,21 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            markdownPath: requestPayload.markdownPath,
+            jsonPath: requestPayload.jsonPath,
+            auditPath: requestPayload.auditPath,
+            ready: true,
+            blockedArchival: false,
+            verificationState: "pass",
+            blockerCode: "",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -809,6 +824,11 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Verify rollout closure chain" }));
     await waitFor(() => expect(screen.getByText("sha256:recipient")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("No closure chain diagnostics.")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Verification reference"), { target: { value: "verify-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Verification operator reference"), { target: { value: "operator-verify-1" } });
+    fireEvent.change(screen.getByLabelText("Verification timestamp (RFC3339)"), { target: { value: "2026-07-21T01:35:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification bundle" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -1003,6 +1023,12 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-050", message: "YARA-RCVX-003: verification is blocked; set allowBlocked=true with allowBlockedReasonReference to export blocked verification", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -1144,6 +1170,11 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Verify rollout closure chain" }));
     await waitFor(() => expect(screen.getByText("artifact state mismatch")).toBeInTheDocument());
     await waitFor(() => expect(screen.getAllByText(/YARA-RCV-003/).length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByLabelText("Verification reference"), { target: { value: "verify-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Verification operator reference"), { target: { value: "operator-verify-1" } });
+    fireEvent.change(screen.getByLabelText("Verification timestamp (RFC3339)"), { target: { value: "2026-07-21T01:35:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification bundle" }));
+    await waitFor(() => expect(screen.getByText(/YARA-RCVX-003/)).toBeInTheDocument());
   }, 55000);
 
   it("fails closed on malformed drift payload", async () => {
