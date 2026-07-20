@@ -1670,8 +1670,8 @@ func TestServeWorkflowClosureReviewGateExportWritesArtifactsAndAudit(t *testing.
 	populateWorkflowWorkspace(t, workspacePath)
 	writeClosurePackageFixtures(t, workspacePath)
 	handler := serveHandlerFixture(t, false, workspacePath)
-	markdownPath := filepath.Join(workspacePath, "workflow.closure-review-gate.md")
-	jsonPath := filepath.Join(workspacePath, "workflow.closure-review-gate.json")
+	markdownPath := filepath.Join(workspacePath, "workflow.closure-review-gate.export.md")
+	jsonPath := filepath.Join(workspacePath, "workflow.closure-review-gate.export.json")
 	auditPath := filepath.Join(workspacePath, "workflow.closure-review-gate.export.audit.jsonl")
 	requestBody := fmt.Sprintf(`{"releaseReadinessReference":"release-checklist-001","reviewerReference":"ticket-456","decision":"blocked","markdownPath":%q,"jsonPath":%q,"auditPath":%q}`, markdownPath, jsonPath, auditPath)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/closure-package/review-gate/export", strings.NewReader(requestBody))
@@ -1694,6 +1694,101 @@ func TestServeWorkflowClosureReviewGateExportWritesArtifactsAndAudit(t *testing.
 	}
 	if len(events) == 0 {
 		t.Fatalf("expected audit events for closure review gate export")
+	}
+}
+
+func TestServeWorkflowReleaseDecisionExportWritesLedgerAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	ledgerPath := filepath.Join(workspacePath, "workflow.release-decision.json")
+	auditPath := filepath.Join(workspacePath, "workflow.release-decision.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"releaseReadinessReference":"release-checklist-001","reviewerReference":"ticket-456","decision":"approved","operatorReference":"operator-1","decisionTimestamp":"2026-07-21T00:05:00Z","ledgerPath":%q,"auditPath":%q}`, ledgerPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-decision/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for release decision export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	ledgerBytes, err := os.ReadFile(ledgerPath)
+	if err != nil {
+		t.Fatalf("read release decision ledger: %v", err)
+	}
+	ledger := workflowReleaseDecisionLedger{}
+	if err := json.Unmarshal(ledgerBytes, &ledger); err != nil {
+		t.Fatalf("decode release decision ledger: %v", err)
+	}
+	if ledger.Ledger.PublicationState != "ready-to-publish" {
+		t.Fatalf("expected ready-to-publish ledger state, got %#v", ledger.Ledger)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load release decision audit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected audit events for release decision export")
+	}
+}
+
+func TestServeWorkflowReleaseDecisionExportRejectsMissingDecisionTimestamp(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"releaseReadinessReference":"release-checklist-001","reviewerReference":"ticket-456","decision":"approved","operatorReference":"operator-1","ledgerPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.release-decision.json"),
+		filepath.Join(workspacePath, "workflow.release-decision.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-decision/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing decision timestamp, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "decisionTimestamp") {
+		t.Fatalf("expected decision timestamp diagnostic, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowReleaseDecisionExportRejectsContinuityMismatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	reviewGatePath := filepath.Join(workspacePath, "workflow.closure-review-gate.json")
+	gate := workflowClosureReviewGateResponse{}
+	gateBytes, err := os.ReadFile(reviewGatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(gateBytes, &gate); err != nil {
+		t.Fatal(err)
+	}
+	gate.Gate.Continuity.AuthorizationID = testCLIDigest('f')
+	corrupted, err := json.MarshalIndent(gate, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted = append(corrupted, '\n')
+	if err := os.WriteFile(reviewGatePath, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"releaseReadinessReference":"release-checklist-001","reviewerReference":"ticket-456","decision":"approved","operatorReference":"operator-1","decisionTimestamp":"2026-07-21T00:05:00Z","ledgerPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.release-decision.mismatch.json"),
+		filepath.Join(workspacePath, "workflow.release-decision.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-decision/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for continuity mismatch, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RDL-006") {
+		t.Fatalf("expected deterministic release-decision blocker code, got %s", recorder.Body.String())
 	}
 }
 
@@ -1997,6 +2092,19 @@ func writeClosurePackageFixtures(t *testing.T, workspacePath string) {
 	closurePackageBytes = append(closurePackageBytes, '\n')
 	if err := os.WriteFile(closurePackagePath, closurePackageBytes, 0o600); err != nil {
 		t.Fatalf("write closure package fixture: %v", err)
+	}
+	reviewGate, _, err := evaluateWorkflowClosureReviewGate(workspacePath, "release-checklist-001", "ticket-456", "approved")
+	if err != nil {
+		t.Fatalf("build closure review gate fixture: %v", err)
+	}
+	reviewGatePath := filepath.Join(workspacePath, "workflow.closure-review-gate.json")
+	reviewGateBytes, err := json.MarshalIndent(reviewGate, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal closure review gate fixture: %v", err)
+	}
+	reviewGateBytes = append(reviewGateBytes, '\n')
+	if err := os.WriteFile(reviewGatePath, reviewGateBytes, 0o600); err != nil {
+		t.Fatalf("write closure review gate fixture: %v", err)
 	}
 }
 

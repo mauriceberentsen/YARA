@@ -1342,6 +1342,16 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.closure-review-gate.export.audit.jsonl` : "",
   }));
   const [reviewGateSubmitState, setReviewGateSubmitState] = useState({ loading: false, error: "", result: null });
+  const [releaseDecisionForm, setReleaseDecisionForm] = useState(() => ({
+    releaseReadinessReference: "",
+    reviewerReference: "",
+    decision: "approved",
+    operatorReference: "",
+    decisionTimestamp: "",
+    ledgerPath: workspacePath ? `${workspacePath}/workflow.release-decision.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.release-decision.export.audit.jsonl` : "",
+  }));
+  const [releaseDecisionSubmitState, setReleaseDecisionSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1374,6 +1384,11 @@ function CapsuleView({ payload }) {
       markdownPath: previous.markdownPath || `${workspacePath}/workflow.closure-review-gate.md`,
       jsonPath: previous.jsonPath || `${workspacePath}/workflow.closure-review-gate.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.closure-review-gate.export.audit.jsonl`,
+    }));
+    setReleaseDecisionForm((previous) => ({
+      ...previous,
+      ledgerPath: previous.ledgerPath || `${workspacePath}/workflow.release-decision.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.release-decision.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1525,6 +1540,38 @@ function CapsuleView({ payload }) {
       setReviewGateSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setReviewGateSubmitState({ loading: false, error: error.message || "Closure review gate export failed", result: null });
+    }
+  };
+  const updateReleaseDecision = (key) => (event) => {
+    setReleaseDecisionForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportReleaseDecision = releaseDecisionForm.releaseReadinessReference.trim() !== "" &&
+    releaseDecisionForm.reviewerReference.trim() !== "" &&
+    releaseDecisionForm.decision.trim() !== "" &&
+    releaseDecisionForm.operatorReference.trim() !== "" &&
+    releaseDecisionForm.decisionTimestamp.trim() !== "" &&
+    releaseDecisionForm.ledgerPath !== "" &&
+    releaseDecisionForm.auditPath !== "" &&
+    releaseDecisionForm.ledgerPath !== releaseDecisionForm.auditPath;
+  const submitReleaseDecision = async (event) => {
+    event.preventDefault();
+    if (!canExportReleaseDecision) {
+      return;
+    }
+    setReleaseDecisionSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/release-decision/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(releaseDecisionForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Release decision export failed");
+      }
+      setReleaseDecisionSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setReleaseDecisionSubmitState({ loading: false, error: error.message || "Release decision export failed", result: null });
     }
   };
   return (
@@ -1739,6 +1786,53 @@ function CapsuleView({ payload }) {
           <div><dt>JSON path</dt><dd>{reviewGateSubmitState.result.jsonPath || "n/a"}</dd></div>
           <div><dt>Audit path</dt><dd>{reviewGateSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Outcome</dt><dd>{reviewGateSubmitState.result.outcome || "n/a"}</dd></div>
+        </dl>
+      )}
+      <h3>Export release decision ledger</h3>
+      <form onSubmit={submitReleaseDecision}>
+        <div className="formRow">
+          <label htmlFor="release-decision-release-reference">Release decision release readiness reference</label>
+          <input id="release-decision-release-reference" value={releaseDecisionForm.releaseReadinessReference} onChange={updateReleaseDecision("releaseReadinessReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-decision-reviewer-reference">Release decision reviewer reference</label>
+          <input id="release-decision-reviewer-reference" value={releaseDecisionForm.reviewerReference} onChange={updateReleaseDecision("reviewerReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-decision-value">Decision</label>
+          <select id="release-decision-value" value={releaseDecisionForm.decision} onChange={updateReleaseDecision("decision")}>
+            <option value="approved">approved</option>
+            <option value="blocked">blocked</option>
+          </select>
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-decision-operator-reference">Release decision operator reference</label>
+          <input id="release-decision-operator-reference" value={releaseDecisionForm.operatorReference} onChange={updateReleaseDecision("operatorReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-decision-timestamp">Decision timestamp (RFC3339)</label>
+          <input id="release-decision-timestamp" value={releaseDecisionForm.decisionTimestamp} onChange={updateReleaseDecision("decisionTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-decision-ledger-path">Ledger output path</label>
+          <input id="release-decision-ledger-path" value={releaseDecisionForm.ledgerPath} onChange={updateReleaseDecision("ledgerPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-decision-audit-path">Audit output path</label>
+          <input id="release-decision-audit-path" value={releaseDecisionForm.auditPath} onChange={updateReleaseDecision("auditPath")} />
+        </div>
+        <button type="submit" disabled={releaseDecisionSubmitState.loading || !canExportReleaseDecision}>
+          {releaseDecisionSubmitState.loading ? "Exporting release decision..." : "Export release decision"}
+        </button>
+      </form>
+      {!canExportReleaseDecision && <p className="error">Release decision export requires references, timestamp, and distinct ledger/audit paths.</p>}
+      {releaseDecisionSubmitState.error && <p className="error">Error: {releaseDecisionSubmitState.error}</p>}
+      {releaseDecisionSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Ledger path</dt><dd>{releaseDecisionSubmitState.result.ledgerPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{releaseDecisionSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Publication state</dt><dd>{releaseDecisionSubmitState.result.publicationState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{releaseDecisionSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>

@@ -278,6 +278,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/release-decision/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            ledgerPath: requestPayload.ledgerPath,
+            auditPath: requestPayload.auditPath,
+            publicationState: requestPayload.decision === "blocked" ? "blocked" : "ready-to-publish",
+            blockerCode: requestPayload.decision === "blocked" ? "YARA-RDL-010" : "",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -515,6 +527,12 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Reviewer reference"), { target: { value: "ticket-456" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure review gate" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.closure-review-gate.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Release decision release readiness reference"), { target: { value: "release-checklist-001" } });
+    fireEvent.change(screen.getByLabelText("Release decision reviewer reference"), { target: { value: "ticket-456" } });
+    fireEvent.change(screen.getByLabelText("Release decision operator reference"), { target: { value: "operator-1" } });
+    fireEvent.change(screen.getByLabelText("Decision timestamp (RFC3339)"), { target: { value: "2026-07-21T00:05:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export release decision" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.release-decision.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -596,6 +614,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-033", message: "YARA-RVG-006: closure package continuity is mismatched against current evidence bundle and receipt timeline exports", severity: "error" }],
         }), { status: 422 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/release-decision/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-034", message: "YARA-RDL-006: closure package and review gate continuity chains are mismatched", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -637,6 +661,12 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Reviewer reference"), { target: { value: "ticket-456" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure review gate" }));
     await waitFor(() => expect(screen.getByText(/YARA-RVG-006/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Release decision release readiness reference"), { target: { value: "release-checklist-001" } });
+    fireEvent.change(screen.getByLabelText("Release decision reviewer reference"), { target: { value: "ticket-456" } });
+    fireEvent.change(screen.getByLabelText("Release decision operator reference"), { target: { value: "operator-1" } });
+    fireEvent.change(screen.getByLabelText("Decision timestamp (RFC3339)"), { target: { value: "2026-07-21T00:05:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export release decision" }));
+    await waitFor(() => expect(screen.getByText(/YARA-RDL-006/)).toBeInTheDocument());
   });
 
   it("fails closed on malformed drift payload", async () => {
