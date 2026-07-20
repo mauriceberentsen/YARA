@@ -2,46 +2,43 @@
 
 ## Current repository state
 
-- Repository: `YARA` (audit-first deterministic planner plus bounded deployment path).
-- Branch baseline: `main` at `8746cdf` (`Add separately authorized Kubernetes retirement path.`).
-- Current run state: local `main` is ahead of `origin/main` by one commit.
-- Accepted ADRs include `0001`-`0011`; direct apply boundary is in ADR-0011.
-- Latest archived coverage remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`.
+- Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
+- Branch baseline: `main` at `272e99e` (`Add separately authorized Kubernetes rollback path.`).
+- Local state: `main` is ahead of `origin/main` by three commits (`a77fccf`, `8746cdf`, `272e99e`).
+- ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
+- Latest archived catalog coverage remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`.
 
 ## Current product boundary
 
-- Implemented boundary is still narrow and fail-closed:
-  - deterministic offline planning and rendering;
-  - read-only Kubernetes preflight and change-set observation;
-  - review-only approval plus short-lived signed execution authorization;
-  - direct Kubernetes apply for the exact rendered LiteLLM-vLLM bundle only;
-  - separate signed delete-only retirement path for owned rendered resources.
-- Apply requires pre-existing owned namespace and bound `yara-model` PVC.
-- Apply supports only authorized `create`/`update`/`no-op`; namespace must be exact `no-op`.
-- Apply still has no implicit delete, prune, adoption, rollback, bootstrap provisioning, or model import path.
+- Implemented lifecycle chain is now:
+  - deterministic plan/render;
+  - read-only Kubernetes preflight and change-set;
+  - review-only approval;
+  - short-lived signed authorization;
+  - separate bounded executor commands for apply, retirement, and rollback.
+- Apply remains explicit and bounded to exact rendered objects; it does not implicitly delete/prune/adopt.
+- Retirement remains separate delete-only authority with exact owned no-op baseline requirements.
+- Rollback is now a separate non-delete authority and command, bound to exact reviewed rollback actions and operation count.
+- All three mutating commands require durable started audit before mutation and fail closed when receipt/audit persistence cannot complete.
 
 ## Verified capabilities
 
-- **Implemented + locally validated (tests/docs/schemas in repo):**
-  - strict content-addressed resources and schemas for bundle, preflight, change set, approval, authorization, receipt;
-  - fail-closed audit chains with durable `deployment.apply.started` before mutation;
-  - lock-and-recheck executor ordering and stale/foreign-state rejection before apply;
-  - verifier Pod hardened profile and explicit `/usr/bin/python3` entrypoint;
-  - deterministic normalization updates for Kubernetes 1.35 server defaults;
-  - vLLM writable cache redirection while keeping read-only root and model mount separation.
-  - new strict `ArtifactImportReceipt` resource/schema/validation command and fail-closed binding into `deployment apply kubernetes`;
-  - apply now requires `--import-receipt`, verifies exact plan/bundle/target/model-file bindings before mutation, and binds `importReceiptId` into `DeploymentReceipt` and apply audit subjects.
-  - `authorization issue-retirement` issues delete-only signed constraints from a fresh exact owned no-op baseline;
-  - `deployment retire kubernetes` performs lock-scoped fail-closed owned deletion with `RetirementReceipt` evidence and dedicated retirement audit actions.
-- **Validated on live environment (documented controlled run in this handoff history):**
-  - one successful authorized Kubernetes apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
-  - one separately reviewed idempotency apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
-- **Archived operational evidence in repo (contract scope):**
-  - GB10 Qwen Coder and Qwen3 sustained-capacity passes:
-    - `sha256:5387ae8f8e8a7869f15ae0285012f3de7f37136e86bebf7969261e70e369b65f`
-    - `sha256:825cca84c847f1f65deb6dbe3c5f4eb30b8f75814ecba0f30e6dc414268357dd`
-  - coverage still blocks promotion on independent review and integration gates.
-- **Validated in this run (local/simulated only):**
+- **Implemented + locally validated in repository tests/schemas/docs:**
+  - content-addressed resources and schema/Go validation for apply (`DeploymentReceipt`), import (`ArtifactImportReceipt`), retirement (`RetirementReceipt`), and rollback (`RollbackReceipt`);
+  - separate authorization issuance paths:
+    - `authorization issue` (apply profile),
+    - `authorization issue-retirement` (delete-only),
+    - `authorization issue-rollback` (non-delete rollback profile);
+  - separate executor command paths:
+    - `deployment apply kubernetes`,
+    - `deployment retire kubernetes`,
+    - `deployment rollback kubernetes`;
+  - rollback lock-and-recheck execution with stale/foreign-state rejection before object mutation;
+  - rollback durable evidence path with sorted deterministic operation ordering and stable diagnostics.
+- **Validated on live environment (historical evidence already present):**
+  - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
+  - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
+- **Validated in this run (simulated/local only):**
   - `gofmt -w <changed-go-files>` passed;
   - `git diff --check` passed;
   - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check` passed;
@@ -49,38 +46,39 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (`ahead 1`).
-- Recent commits (newest first): `8746cdf`, `fe846fb`, `a77fccf`, `8ae7502`, `08f774e`.
-- Working tree is clean after this slice commit.
-- Git author to use for new commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
+- Branch: `main` tracking `origin/main`.
+- Recent commits (newest first): `272e99e`, `0c5e134`, `8746cdf`, `fe846fb`, `a77fccf`.
+- Working tree is clean after the rollback slice commit.
+- Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## Open limitations and unproven claims
 
-- Air-gap completeness is still unproven: import execution, transfer chain-of-custody and scanning attestations remain external to apply.
-- Clean-cluster bootstrap (namespace/PVC/storage provisioning) is out of scope.
-- Safe owned retirement is implemented; rollback primitives remain unimplemented.
-- Integration execution evidence (`component-smoke` / `topology-end-to-end`) remains unimplemented; only validation contract exists.
-- Independent promotion review is still missing for promotion eligibility.
+- No new live rollback validation was executed in this run; rollback is proven only through local/simulated tests.
+- Air-gap completeness remains unproven: import execution, transfer chain-of-custody, and scanning attestations remain external.
+- Clean-cluster bootstrap (namespace/PVC/storage provisioning) remains out of scope.
+- Integration execution evidence (`component-smoke` and `topology-end-to-end`) remains unimplemented.
+- Independent promotion review gate remains unresolved for promotion eligibility.
 
 ## Next implementation slice
 
-Implement **safe separately authorized rollback primitives**:
+Implement **generic integration executor for the bounded LiteLLM-to-vLLM topology**:
 
-- Add a distinct rollback command/contract (not apply, not retirement) that can restore a reviewed prior owned state from explicit immutable inputs.
-- Require fresh preflight/change-set/review/signed authorization constraints specific to rollback scope and operation count.
-- Keep rollback explicit and bounded; never add implicit prune/adoption and never infer prior desired state from live drift.
+- add an explicit non-planner integration execution command path that consumes immutable reviewed inputs;
+- emit content-addressed integration execution receipts and audit chains for `component-smoke` and `topology-end-to-end`;
+- preserve pseudonymized targets and keep no secrets/raw logs/object bodies in durable evidence;
+- fail closed on stale inputs, target drift, or evidence persistence failure;
+- keep integration mutation authority narrower than review/observation authority.
 
-Acceptance criteria for this slice:
+Acceptance criteria:
 
-- rollback fails closed when ownership, target identity, or approved rollback set drifts;
-- durable receipt/audit prove exactly what was reverted and what was skipped/blocked;
-- no secret material, raw object bodies, kubeconfig/context/raw target address in durable evidence;
-- schema validation and Go validation stay aligned;
-- determinism: identical rollback inputs produce identical operation ordering/evidence identities.
+- integration execution can run only from exact reviewed/authorized immutable inputs;
+- durable receipts/audit prove what was executed, what was skipped, and why;
+- schema validation and Go validation stay aligned and deterministic;
+- executor-ordering and stale-state failures are covered by focused tests.
 
 ## Validation requirements
 
-Run at minimum after implementation:
+Run at minimum for each new slice:
 
 ```bash
 gofmt -w <changed-go-files>
@@ -89,31 +87,30 @@ GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check
 GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...
 ```
 
-Additional required coverage for this slice:
+Required test depth for mutating lifecycle slices:
 
-- focused unit tests for the rollback contract and ownership constraints;
-- negative validation tests (foreign ownership, stale state, unauthorized rollback set);
-- determinism tests for receipt identity and operation ordering;
-- CLI tests for changed command behavior and authorization mismatch paths;
-- fail-closed mutation tests proving no delete occurs when audit/receipt preconditions fail.
+- focused unit tests for new resource contracts and validation invariants;
+- negative tests for stale/foreign/unauthorized mutation paths;
+- determinism tests for content-addressed receipt identities and operation ordering;
+- CLI tests for changed command behavior and authorization confirmation mismatch paths;
+- fail-closed tests proving no mutation when required audit/receipt preconditions fail.
 
 Validation classification rules:
 
-- mark as **simulated/local** for unit/CLI/fake-kubectl tests;
-- mark as **live** only for actually executed cluster runs;
-- do not claim new live validation unless this run performs it.
+- classify unit/CLI/fake-runner coverage as **simulated/local**;
+- classify as **live** only when an actual cluster execution was run in this session;
+- never promote simulated/local results to live claims.
 
 ## Publishing requirements
 
-- Review full diff for scope coherence; exclude unrelated files.
-- Ensure no secrets, private keys, kubeconfig content, raw target addresses, prompts/completions, env vars, raw logs, or Kubernetes object bodies are introduced in durable evidence.
-- Ensure `.yara/` artifacts remain unstaged.
-- Ensure docs, schemas, and Go validation remain consistent.
-- Update this handoff again after implementation with:
+- Review full diff for scope coherence and exclude unrelated changes.
+- Keep `.yara/` outputs and machine-local artifacts unstaged.
+- Do not persist secrets/private keys/kubeconfig/raw target addresses/prompts/completions/env vars/raw logs/raw Kubernetes object bodies.
+- Keep docs, schemas, CLI behavior, and Go validation in sync.
+- Update this handoff after each completed slice with:
   - completed slice outcome;
-  - actual branch + commit state;
+  - actual branch and commit state;
   - exact validation commands that passed;
-  - simulated/local/live distinction;
-  - one new recommended next slice.
-- Commit with author `Maurice Berentsen <mauriceberentsen@live.nl>`.
-- Do not merge or push unless explicitly authorized by current repo policy and access context.
+  - explicit simulated/local/live distinction;
+  - exactly one next recommended slice.
+- Do not merge or push unless explicitly authorized by repository policy and access context.
