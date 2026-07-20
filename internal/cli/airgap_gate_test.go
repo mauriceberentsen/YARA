@@ -85,7 +85,7 @@ func TestAirgapProvenanceGateEvaluateWritesResultAndAudit(t *testing.T) {
 	writeYAMLFixture(t, policyPath, trustPolicy)
 	stdout.Reset()
 	stderr.Reset()
-	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", filepath.Join(directory, "airgap-gate.yaml"), "--trust-policy", policyPath}, &stdout, &stderr); exit != ExitSuccess {
+	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", filepath.Join(directory, "airgap-gate.yaml"), "--trust-policy", policyPath, "--confirm-policy", trustPolicy.Metadata.PolicyID}, &stdout, &stderr); exit != ExitSuccess {
 		t.Fatalf("airgap gate verify failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }
@@ -196,7 +196,67 @@ func TestAirgapProvenanceGateVerifyFailsForRevokedSigner(t *testing.T) {
 	writeYAMLFixture(t, policyPath, trustPolicy)
 	stdout.Reset()
 	stderr.Reset()
-	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", gatePath, "--trust-policy", policyPath}, &stdout, &stderr); exit != ExitInfeasible {
+	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", gatePath, "--trust-policy", policyPath, "--confirm-policy", trustPolicy.Metadata.PolicyID}, &stdout, &stderr); exit != ExitInfeasible {
 		t.Fatalf("expected revoked signer verification failure: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestAirgapProvenanceGateVerifyRejectsPolicyConfirmationMismatch(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, _ := writeExecutionInputs(t, directory, now)
+	gatePublicKey, gatePrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gatePrivatePath, _ := writeAuthorizationKeys(t, directory, gatePublicKey, gatePrivateKey)
+	args := []string{
+		"airgap", "provenance-gate", "evaluate",
+		"--bundle", valueForFlag(paths, "--bundle"),
+		"--import-receipt", valueForFlag(paths, "--import-receipt"),
+		"--transfer-receipt", valueForFlag(paths, "--transfer-receipt"),
+		"--scan-receipt", valueForFlag(paths, "--scan-receipt"),
+		"--private-key", gatePrivatePath,
+		"--key-id", "operations-key-1",
+		"--reason-reference", "ticket-gate-confirmation",
+		"--name", "airgap-gate",
+		"--output", filepath.Join(directory, "airgap-gate.yaml"),
+		"--audit-output", filepath.Join(directory, "airgap-gate.audit.jsonl"),
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := Run(args, &stdout, &stderr); exit != ExitSuccess {
+		t.Fatalf("airgap gate evaluate failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	result, err := resources.LoadAirgapProvenanceGateResult(filepath.Join(directory, "airgap-gate.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustPolicy := resources.AirgapGateTrustPolicy{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicy",
+		Metadata:   resources.AirgapGateTrustPolicyMetadata{Name: "airgap-gate-confirmation-policy"},
+		Spec: resources.AirgapGateTrustPolicySpec{
+			RecordedAt:            now.Add(time.Minute).Format(time.RFC3339Nano),
+			TargetReferenceDigest: result.Spec.Target.ReferenceDigest,
+			TrustedSignerIdentities: []resources.AirgapTrustedSignerIdentity{{
+				KeyID:           "operations-key-1",
+				Algorithm:       "Ed25519",
+				PublicKey:       base64.StdEncoding.EncodeToString(gatePublicKey),
+				PublicKeyDigest: resources.PublicKeyDigest(gatePublicKey),
+				Status:          "active",
+			}},
+			Limitations: []string{"Confirmation mismatch test."},
+		},
+	}
+	trustPolicy, err = trustPolicy.AssignPolicyID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(directory, "airgap-gate-confirmation-policy.yaml")
+	writeYAMLFixture(t, policyPath, trustPolicy)
+	stdout.Reset()
+	stderr.Reset()
+	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", filepath.Join(directory, "airgap-gate.yaml"), "--trust-policy", policyPath, "--confirm-policy", testCLIDigest('f')}, &stdout, &stderr); exit != ExitInfeasible {
+		t.Fatalf("expected confirmation mismatch failure: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }

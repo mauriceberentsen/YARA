@@ -29,6 +29,7 @@ type deploymentApplyOptions struct {
 	scanReceiptPaths                                       csvFlag
 	airgapGateResultPath                                   string
 	airgapGateTrustPolicyPath                              string
+	confirmAirgapGateTrustPolicy                           string
 	authorizationPath, publicKeyPath, confirmAuthorization string
 	name, receiptPath, auditPath, kubeconfig, contextName  string
 	timeout                                                time.Duration
@@ -174,6 +175,7 @@ func parseDeploymentApplyOptions(args []string, stderr io.Writer) (deploymentApp
 	flags.Var(&options.scanReceiptPaths, "scan-receipt", "ArtifactScanReceipt path (repeatable)")
 	flags.StringVar(&options.airgapGateResultPath, "airgap-gate-result", "", "Optional AirgapProvenanceGateResult used for fail-closed apply-time policy binding")
 	flags.StringVar(&options.airgapGateTrustPolicyPath, "airgap-gate-trust-policy", "", "Content-addressed AirgapGateTrustPolicy used for gate signature verification")
+	flags.StringVar(&options.confirmAirgapGateTrustPolicy, "confirm-airgap-gate-trust-policy", "", "Exact trust-policy ID operator confirmation")
 	flags.StringVar(&options.authorizationPath, "authorization", "", "Signed ExecutionAuthorization")
 	flags.StringVar(&options.publicKeyPath, "public-key", "", "Trusted PEM PKIX Ed25519 public key")
 	flags.StringVar(&options.confirmAuthorization, "confirm-authorization", "", "Exact authorization ID operator confirmation")
@@ -190,8 +192,8 @@ func parseDeploymentApplyOptions(args []string, stderr io.Writer) (deploymentApp
 		fmt.Fprintln(stderr, "deployment apply kubernetes requires all exact inputs including import receipt, trusted key, confirmation, name, receipt output and audit output")
 		return options, false
 	}
-	if options.airgapGateResultPath != "" && options.airgapGateTrustPolicyPath == "" {
-		fmt.Fprintln(stderr, "deployment apply kubernetes requires --airgap-gate-trust-policy when --airgap-gate-result is provided")
+	if options.airgapGateResultPath != "" && (options.airgapGateTrustPolicyPath == "" || options.confirmAirgapGateTrustPolicy == "") {
+		fmt.Fprintln(stderr, "deployment apply kubernetes requires --airgap-gate-trust-policy and --confirm-airgap-gate-trust-policy when --airgap-gate-result is provided")
 		return options, false
 	}
 	if options.receiptPath == options.auditPath {
@@ -280,6 +282,9 @@ func loadAndValidateExecutionInputs(options deploymentApplyOptions, at time.Time
 		policy, err := resources.LoadAirgapGateTrustPolicy(options.airgapGateTrustPolicyPath)
 		if err != nil || !policy.Validate().Valid {
 			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-119", errors.New("airgap gate trust policy is invalid")
+		}
+		if policy.Metadata.PolicyID != options.confirmAirgapGateTrustPolicy {
+			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-119", errors.New("explicit trust-policy confirmation does not match the supplied policy")
 		}
 		if err := policy.VerifyGateResult(result, at); err != nil {
 			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-119", err

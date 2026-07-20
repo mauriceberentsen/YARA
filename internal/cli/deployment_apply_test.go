@@ -260,9 +260,13 @@ func TestDeploymentApplyAcceptsPassedAirgapGateResultWithoutReceiptFlags(t *test
 	paths, authorization := writeExecutionInputs(t, directory, now)
 	gatePath := filepath.Join(directory, "airgap-gate.yaml")
 	gateTrustPolicyPath := writeAirgapGateFixture(t, gatePath, paths)
+	gateTrustPolicy, err := resources.LoadAirgapGateTrustPolicy(gateTrustPolicyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	paths = removeFlag(paths, "--transfer-receipt")
 	paths = removeFlag(paths, "--scan-receipt")
-	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-trust-policy", gateTrustPolicyPath)
+	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-trust-policy", gateTrustPolicyPath, "--confirm-airgap-gate-trust-policy", gateTrustPolicy.Metadata.PolicyID)
 	originalFactory := newKubernetesExecutor
 	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
 	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
@@ -286,6 +290,31 @@ func TestDeploymentApplyAcceptsPassedAirgapGateResultWithoutReceiptFlags(t *test
 	}
 	if receipt.Spec.AirgapGateResultID == "" || len(receipt.Spec.TransferReceiptIDs) == 0 || len(receipt.Spec.ScanReceiptIDs) == 0 {
 		t.Fatalf("receipt missing gate-derived provenance bindings: %#v", receipt.Spec)
+	}
+	if receipt.Spec.AirgapGateTrustPolicyID != gateTrustPolicy.Metadata.PolicyID {
+		t.Fatalf("receipt missing trust-policy binding: %#v", receipt.Spec)
+	}
+}
+
+func TestDeploymentApplyRejectsAirgapTrustPolicyConfirmationMismatch(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, directory, now)
+	gatePath := filepath.Join(directory, "airgap-gate.yaml")
+	gateTrustPolicyPath := writeAirgapGateFixture(t, gatePath, paths)
+	paths = removeFlag(paths, "--transfer-receipt")
+	paths = removeFlag(paths, "--scan-receipt")
+	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-trust-policy", gateTrustPolicyPath, "--confirm-airgap-gate-trust-policy", testCLIDigest('f'))
+	originalFactory := newKubernetesExecutor
+	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
+	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
+		t.Fatal("executor reached with trust policy confirmation mismatch")
+		return nil, nil
+	}
+	args := append(paths, "--confirm-authorization", authorization.Metadata.AuthorizationID, "--name", "receipt", "--receipt-output", filepath.Join(directory, "receipt.yaml"), "--audit-output", filepath.Join(directory, "apply.audit.jsonl"))
+	var stdout, stderr bytes.Buffer
+	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitInfeasible {
+		t.Fatalf("trust policy confirmation mismatch should fail: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }
 

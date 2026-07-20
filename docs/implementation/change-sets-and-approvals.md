@@ -201,7 +201,15 @@ go run ./cmd/yara airgap provenance-gate evaluate \
 
 go run ./cmd/yara airgap provenance-gate verify \
   --gate-result reference-stack.airgap-gate.yaml \
-  --trust-policy reference-stack.airgap-gate-trust-policy.yaml
+  --trust-policy reference-stack.airgap-gate-trust-policy.yaml \
+  --confirm-policy 'sha256:<full-policy-id>'
+
+go run ./cmd/yara airgap gate-trust-policy record \
+  --target-reference-digest sha256:<target-reference-digest> \
+  --signer key-id=operations-key-1,public-key=gate-public.pem,status=active \
+  --name reference-stack-airgap-gate-trust-policy \
+  --output reference-stack.airgap-gate-trust-policy.yaml \
+  --audit-output reference-stack.airgap-gate-trust-policy.audit.jsonl
 ```
 
 Validate it through:
@@ -210,7 +218,7 @@ Validate it through:
 go run ./cmd/yara airgap-provenance-gate-result validate reference-stack.airgap-gate.yaml
 ```
 
-When provided via `deployment apply kubernetes --airgap-gate-result --airgap-gate-trust-policy`, apply can fail closed on this gate binding instead of recomputing provenance checks ad hoc. The gate result must be passed, signature-valid under an active trust-policy signer identity, unexpired at apply time, and bind the exact plan/bundle/catalog/target/import identities plus referenced receipt sets.
+When provided via `deployment apply kubernetes --airgap-gate-result --airgap-gate-trust-policy --confirm-airgap-gate-trust-policy`, apply can fail closed on this gate binding instead of recomputing provenance checks ad hoc. The gate result must be passed, signature-valid under an active trust-policy signer identity, explicitly policy-confirmed by operator-supplied `policyId`, unexpired at apply time, and bind the exact plan/bundle/catalog/target/import identities plus referenced receipt sets.
 
 ## Separate authorized retirement
 

@@ -25,7 +25,7 @@ type airgapGateOptions struct {
 }
 
 type airgapGateVerifyOptions struct {
-	gateResultPath, trustPolicyPath, auditPath string
+	gateResultPath, trustPolicyPath, confirmPolicyID, auditPath string
 }
 
 func evaluateAirgapProvenanceGate(args []string, stdout, stderr io.Writer) int {
@@ -218,9 +218,10 @@ func verifyAirgapProvenanceGateResultAt(args []string, stdout, stderr io.Writer,
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.gateResultPath, "gate-result", "", "AirgapProvenanceGateResult YAML")
 	flags.StringVar(&options.trustPolicyPath, "trust-policy", "", "AirgapGateTrustPolicy YAML")
+	flags.StringVar(&options.confirmPolicyID, "confirm-policy", "", "Exact trust-policy ID confirmation")
 	flags.StringVar(&options.auditPath, "audit-output", "", "Optional verification audit JSONL")
-	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || options.gateResultPath == "" || options.trustPolicyPath == "" {
-		fmt.Fprintln(stderr, "airgap provenance-gate verify requires --gate-result and --trust-policy")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || options.gateResultPath == "" || options.trustPolicyPath == "" || options.confirmPolicyID == "" {
+		fmt.Fprintln(stderr, "airgap provenance-gate verify requires --gate-result --trust-policy and --confirm-policy")
 		return ExitInvalidInput
 	}
 	result, err := resources.LoadAirgapProvenanceGateResult(options.gateResultPath)
@@ -233,6 +234,15 @@ func verifyAirgapProvenanceGateResultAt(args []string, stdout, stderr io.Writer,
 			return writeLoadError(stdout, "YARA-AUD-005", auditErr)
 		}
 		return writeLoadErrorWithExit(stdout, "YARA-AGP-108", errors.New("air-gap gate trust policy is invalid"), ExitInvalidInput)
+	}
+	if policy.Metadata.PolicyID != options.confirmPolicyID {
+		if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, []audit.Subject{
+			{Kind: "AirgapProvenanceGateResult", Digest: result.Metadata.GateResultID},
+			{Kind: "AirgapGateTrustPolicy", Digest: policy.Metadata.PolicyID},
+		}, []string{"YARA-AGP-110"}); auditErr != nil {
+			return writeLoadError(stdout, "YARA-AUD-005", auditErr)
+		}
+		return writeLoadErrorWithExit(stdout, "YARA-AGP-110", errors.New("explicit trust-policy confirmation does not match the supplied policy"), ExitInfeasible)
 	}
 	subjects := []audit.Subject{
 		{Kind: "AirgapProvenanceGateResult", Digest: result.Metadata.GateResultID},

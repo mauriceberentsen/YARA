@@ -354,7 +354,14 @@ go run ./cmd/yara airgap provenance-gate evaluate \
   --audit-output reference-stack.airgap-gate.audit.jsonl
 go run ./cmd/yara airgap provenance-gate verify \
   --gate-result reference-stack.airgap-gate.yaml \
-  --trust-policy reference-stack.airgap-gate-trust-policy.yaml
+  --trust-policy reference-stack.airgap-gate-trust-policy.yaml \
+  --confirm-policy 'sha256:<full-policy-id>'
+go run ./cmd/yara airgap gate-trust-policy record \
+  --target-reference-digest sha256:<target-reference-digest> \
+  --signer key-id=operations-key-1,public-key=gate-public.pem,status=active \
+  --name reference-stack-airgap-gate-trust-policy \
+  --output reference-stack.airgap-gate-trust-policy.yaml \
+  --audit-output reference-stack.airgap-gate-trust-policy.audit.jsonl
 ```
 
 Currently implemented:
