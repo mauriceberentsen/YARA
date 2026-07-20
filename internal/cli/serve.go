@@ -1310,6 +1310,64 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.ReceiptCount = len(timeline.Timeline.Prior) + 1
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/closure-package/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow closure package export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowClosurePackageExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-031", err.Error())
+			return
+		}
+		manifestPath, err := ensureWorkspaceFilePath(workspacePath, payload.ManifestPath, "manifestPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-031", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-031", err.Error())
+			return
+		}
+		if manifestPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-031", "manifestPath and auditPath must be different files")
+			return
+		}
+		closurePackage, subjects, err := buildWorkflowClosurePackageManifest(workspacePath, payload.ReleaseReadinessReference)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-031", err.Error())
+			return
+		}
+		manifestBytes, err := json.MarshalIndent(closurePackage, "", "  ")
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode closure package manifest: %v", err))
+			return
+		}
+		manifestBytes = append(manifestBytes, '\n')
+		if err := writeExclusive(manifestPath, manifestBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-031", err.Error())
+			return
+		}
+		exportSubjects := append(append([]audit.Subject(nil), subjects...),
+			audit.Subject{Kind: "WorkflowClosurePackageManifest", Digest: digestBytes(manifestBytes)},
+		)
+		if err := persistOperationAuditForTarget(auditPath, "workflow.closure-package.export", "completed", "success", "kubernetes:"+closurePackage.Package.Continuity.TargetDigest, exportSubjects, nil); err != nil {
+			_ = os.Remove(manifestPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowClosurePackageExportResponse{Valid: true}
+		response.Export.ManifestPath = manifestPath
+		response.Export.AuditPath = auditPath
+		response.Export.EvidenceBundleCount = len(closurePackage.Package.EvidenceBundles)
+		response.Export.ReceiptTimelineCount = len(closurePackage.Package.ReceiptTimelines)
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -1743,6 +1801,45 @@ type workflowReceiptTimelineExportResponse struct {
 		AuditPath    string `json:"auditPath"`
 		ReceiptCount int    `json:"receiptCount"`
 	} `json:"export"`
+}
+
+type workflowClosurePackageExportRequest struct {
+	ManifestPath              string `json:"manifestPath"`
+	AuditPath                 string `json:"auditPath"`
+	ReleaseReadinessReference string `json:"releaseReadinessReference"`
+}
+
+type workflowClosurePackageExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		ManifestPath         string `json:"manifestPath"`
+		AuditPath            string `json:"auditPath"`
+		EvidenceBundleCount  int    `json:"evidenceBundleCount"`
+		ReceiptTimelineCount int    `json:"receiptTimelineCount"`
+	} `json:"export"`
+}
+
+type workflowClosurePackageManifest struct {
+	Valid   bool `json:"valid"`
+	Package struct {
+		WorkspacePath             string                    `json:"workspacePath"`
+		ReleaseReadinessReference string                    `json:"releaseReadinessReference"`
+		Continuity                workflowClosureContinuity `json:"continuity"`
+		EvidenceBundles           []workflowClosureArtifact `json:"evidenceBundles"`
+		ReceiptTimelines          []workflowClosureArtifact `json:"receiptTimelines"`
+		RunbookExports            []workflowExportReference `json:"runbookExports"`
+		CapsuleExports            []workflowExportReference `json:"capsuleExports"`
+	} `json:"closurePackage"`
+}
+
+type workflowClosureContinuity struct {
+	AuthorizationID string `json:"authorizationId"`
+	TargetDigest    string `json:"targetDigest"`
+}
+
+type workflowClosureArtifact struct {
+	Path   string `json:"path"`
+	Digest string `json:"digest"`
 }
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
@@ -2193,6 +2290,26 @@ func decodeWorkflowReceiptTimelineExportRequest(request *http.Request) (workflow
 	return payload, nil
 }
 
+func decodeWorkflowClosurePackageExportRequest(request *http.Request) (workflowClosurePackageExportRequest, error) {
+	var payload workflowClosurePackageExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.ManifestPath) == "" || strings.TrimSpace(payload.AuditPath) == "" || strings.TrimSpace(payload.ReleaseReadinessReference) == "" {
+		return payload, errors.New("manifestPath, auditPath and releaseReadinessReference are required")
+	}
+	if payload.ManifestPath == payload.AuditPath {
+		return payload, errors.New("manifestPath and auditPath must be different files")
+	}
+	return payload, nil
+}
+
 func shellQuote(value string) string {
 	if value == "" {
 		return "''"
@@ -2575,6 +2692,139 @@ func buildWorkflowReceiptTimeline(workspacePath string) (workflowReceiptTimeline
 	return timeline, subjects, nil
 }
 
+func buildWorkflowClosurePackageManifest(workspacePath, releaseReadinessReference string) (workflowClosurePackageManifest, []audit.Subject, error) {
+	evidenceBundles, evidenceSubjects, evidenceSummary, err := collectEvidenceBundleArtifacts(workspacePath)
+	if err != nil {
+		return workflowClosurePackageManifest{}, nil, err
+	}
+	receiptTimelines, timelineSubjects, timelineSummary, err := collectReceiptTimelineArtifacts(workspacePath)
+	if err != nil {
+		return workflowClosurePackageManifest{}, nil, err
+	}
+	if evidenceSummary.AuthorizationID != timelineSummary.AuthorizationID {
+		return workflowClosurePackageManifest{}, nil, errors.New("YARA-CLS-003: evidence bundle and receipt timeline authorization continuity is mismatched")
+	}
+	if evidenceSummary.TargetDigest != timelineSummary.TargetDigest {
+		return workflowClosurePackageManifest{}, nil, errors.New("YARA-CLS-004: evidence bundle and receipt timeline target digest continuity is mismatched")
+	}
+	manifest := workflowClosurePackageManifest{Valid: true}
+	manifest.Package.WorkspacePath = workspacePath
+	manifest.Package.ReleaseReadinessReference = releaseReadinessReference
+	manifest.Package.Continuity.AuthorizationID = evidenceSummary.AuthorizationID
+	manifest.Package.Continuity.TargetDigest = evidenceSummary.TargetDigest
+	manifest.Package.EvidenceBundles = evidenceBundles
+	manifest.Package.ReceiptTimelines = receiptTimelines
+	manifest.Package.RunbookExports = evidenceSummary.RunbookExports
+	manifest.Package.CapsuleExports = evidenceSummary.CapsuleExports
+	subjects := append([]audit.Subject{}, evidenceSubjects...)
+	subjects = append(subjects, timelineSubjects...)
+	return manifest, subjects, nil
+}
+
+type evidenceBundleSummary struct {
+	AuthorizationID string
+	TargetDigest    string
+	RunbookExports  []workflowExportReference
+	CapsuleExports  []workflowExportReference
+}
+
+func collectEvidenceBundleArtifacts(workspacePath string) ([]workflowClosureArtifact, []audit.Subject, evidenceBundleSummary, error) {
+	paths := discoverEvidenceBundleExports(workspacePath)
+	if len(paths) == 0 {
+		return nil, nil, evidenceBundleSummary{}, errors.New("YARA-CLS-001: closure package requires at least one evidence bundle export")
+	}
+	artifacts := make([]workflowClosureArtifact, 0, len(paths))
+	subjects := make([]audit.Subject, 0, len(paths))
+	summary := evidenceBundleSummary{}
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, nil, evidenceBundleSummary{}, fmt.Errorf("read evidence bundle export %s: %w", filepath.Base(path), err)
+		}
+		manifest := workflowEvidenceBundleManifest{}
+		if err := json.Unmarshal(content, &manifest); err != nil {
+			return nil, nil, evidenceBundleSummary{}, fmt.Errorf("decode evidence bundle export %s: %w", filepath.Base(path), err)
+		}
+		if !manifest.Valid {
+			return nil, nil, evidenceBundleSummary{}, fmt.Errorf("YARA-CLS-002: evidence bundle export %s is invalid", filepath.Base(path))
+		}
+		if summary.AuthorizationID == "" {
+			summary.AuthorizationID = manifest.Manifest.Evidence.AuthorizationID
+			summary.TargetDigest = manifest.Manifest.Evidence.TargetReferenceDigest
+			summary.RunbookExports = append([]workflowExportReference(nil), manifest.Manifest.RunbookExports...)
+			summary.CapsuleExports = append([]workflowExportReference(nil), manifest.Manifest.CapsuleExports...)
+		} else if summary.AuthorizationID != manifest.Manifest.Evidence.AuthorizationID || summary.TargetDigest != manifest.Manifest.Evidence.TargetReferenceDigest {
+			return nil, nil, evidenceBundleSummary{}, errors.New("YARA-CLS-003: evidence bundle exports are not bound to one authorization/target continuity chain")
+		}
+		artifacts = append(artifacts, workflowClosureArtifact{
+			Path:   path,
+			Digest: digestBytes(content),
+		})
+		subjects = append(subjects, audit.Subject{
+			Kind:   "WorkflowEvidenceBundleManifest",
+			Digest: digestBytes(content),
+		})
+	}
+	return artifacts, subjects, summary, nil
+}
+
+type receiptTimelineSummary struct {
+	AuthorizationID string
+	TargetDigest    string
+}
+
+func collectReceiptTimelineArtifacts(workspacePath string) ([]workflowClosureArtifact, []audit.Subject, receiptTimelineSummary, error) {
+	markdownPaths, jsonPaths := discoverReceiptTimelineExports(workspacePath)
+	if len(markdownPaths) == 0 || len(jsonPaths) == 0 {
+		return nil, nil, receiptTimelineSummary{}, errors.New("YARA-CLS-005: closure package requires receipt timeline markdown and json exports")
+	}
+	jsonSet := map[string]struct{}{}
+	for _, path := range jsonPaths {
+		jsonSet[path] = struct{}{}
+	}
+	artifacts := make([]workflowClosureArtifact, 0, len(markdownPaths)+len(jsonPaths))
+	subjects := make([]audit.Subject, 0, len(markdownPaths)+len(jsonPaths))
+	summary := receiptTimelineSummary{}
+	for _, markdownPath := range markdownPaths {
+		base := strings.TrimSuffix(markdownPath, ".receipt-timeline.md")
+		jsonPath := base + ".receipt-timeline.json"
+		if _, ok := jsonSet[jsonPath]; !ok {
+			return nil, nil, receiptTimelineSummary{}, fmt.Errorf("YARA-CLS-006: missing paired receipt timeline json for %s", filepath.Base(markdownPath))
+		}
+		markdownBytes, err := os.ReadFile(markdownPath)
+		if err != nil {
+			return nil, nil, receiptTimelineSummary{}, fmt.Errorf("read receipt timeline markdown %s: %w", filepath.Base(markdownPath), err)
+		}
+		jsonBytes, err := os.ReadFile(jsonPath)
+		if err != nil {
+			return nil, nil, receiptTimelineSummary{}, fmt.Errorf("read receipt timeline json %s: %w", filepath.Base(jsonPath), err)
+		}
+		timeline := workflowReceiptTimelineResponse{}
+		if err := json.Unmarshal(jsonBytes, &timeline); err != nil {
+			return nil, nil, receiptTimelineSummary{}, fmt.Errorf("decode receipt timeline json %s: %w", filepath.Base(jsonPath), err)
+		}
+		if !timeline.Valid {
+			return nil, nil, receiptTimelineSummary{}, fmt.Errorf("YARA-CLS-007: receipt timeline export %s is invalid", filepath.Base(jsonPath))
+		}
+		if summary.AuthorizationID == "" {
+			summary.AuthorizationID = timeline.Timeline.Continuity.AuthorizationID
+			summary.TargetDigest = timeline.Timeline.Continuity.TargetDigest
+		} else if summary.AuthorizationID != timeline.Timeline.Continuity.AuthorizationID || summary.TargetDigest != timeline.Timeline.Continuity.TargetDigest {
+			return nil, nil, receiptTimelineSummary{}, errors.New("YARA-CLS-008: receipt timeline exports are not bound to one authorization/target continuity chain")
+		}
+		artifacts = append(artifacts,
+			workflowClosureArtifact{Path: markdownPath, Digest: digestBytes(markdownBytes)},
+			workflowClosureArtifact{Path: jsonPath, Digest: digestBytes(jsonBytes)},
+		)
+		subjects = append(subjects,
+			audit.Subject{Kind: "ReceiptTimelineMarkdown", Digest: digestBytes(markdownBytes)},
+			audit.Subject{Kind: "ReceiptTimelineJSON", Digest: digestBytes(jsonBytes)},
+		)
+	}
+	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
+	return artifacts, subjects, summary, nil
+}
+
 func workflowCoreArtifacts(workspacePath string) (map[string]string, []string, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -2844,6 +3094,49 @@ func discoverCapsuleExports(workspacePath string) ([]string, []string) {
 			markdownPaths = append(markdownPaths, filepath.Join(workspacePath, name))
 		}
 		if strings.HasSuffix(name, ".capsule.json") {
+			jsonPaths = append(jsonPaths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(markdownPaths)
+	sort.Strings(jsonPaths)
+	return markdownPaths, jsonPaths
+}
+
+func discoverEvidenceBundleExports(workspacePath string) []string {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}
+	}
+	paths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".evidence-bundle.json") {
+			paths = append(paths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func discoverReceiptTimelineExports(workspacePath string) ([]string, []string) {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}, []string{}
+	}
+	markdownPaths := []string{}
+	jsonPaths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".receipt-timeline.md") {
+			markdownPaths = append(markdownPaths, filepath.Join(workspacePath, name))
+		}
+		if strings.HasSuffix(name, ".receipt-timeline.json") {
 			jsonPaths = append(jsonPaths, filepath.Join(workspacePath, name))
 		}
 	}

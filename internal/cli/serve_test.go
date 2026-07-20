@@ -1531,6 +1531,104 @@ func TestServeWorkflowReceiptTimelineExportWritesArtifactsAndAudit(t *testing.T)
 	}
 }
 
+func TestServeWorkflowClosurePackageExportWritesManifestAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	manifestPath := filepath.Join(workspacePath, "workflow.closure-package.json")
+	auditPath := filepath.Join(workspacePath, "workflow.closure-package.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"manifestPath":%q,"auditPath":%q,"releaseReadinessReference":"release-checklist-001"}`, manifestPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/closure-package/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for closure package export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read closure package manifest: %v", err)
+	}
+	manifest := workflowClosurePackageManifest{}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode closure package manifest: %v", err)
+	}
+	if manifest.Package.ReleaseReadinessReference != "release-checklist-001" {
+		t.Fatalf("expected release readiness reference in closure package, got %#v", manifest.Package)
+	}
+	if len(manifest.Package.EvidenceBundles) == 0 || len(manifest.Package.ReceiptTimelines) == 0 {
+		t.Fatalf("expected closure package references, got %#v", manifest.Package)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load closure package export audit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected audit events for closure package export")
+	}
+}
+
+func TestServeWorkflowClosurePackageExportRejectsMissingReleaseReadinessReference(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.closure-package.json"),
+		filepath.Join(workspacePath, "workflow.closure-package.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/closure-package/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing release readiness reference, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "releaseReadinessReference") {
+		t.Fatalf("expected release readiness validation diagnostic, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowClosurePackageExportRejectsContinuityMismatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	timelineJSONPath := filepath.Join(workspacePath, "workflow.receipt-timeline.json")
+	timeline := workflowReceiptTimelineResponse{}
+	timelineBytes, err := os.ReadFile(timelineJSONPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(timelineBytes, &timeline); err != nil {
+		t.Fatal(err)
+	}
+	timeline.Timeline.Continuity.AuthorizationID = testCLIDigest('d')
+	corruptedTimeline, err := json.MarshalIndent(timeline, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corruptedTimeline = append(corruptedTimeline, '\n')
+	if err := os.WriteFile(timelineJSONPath, corruptedTimeline, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"manifestPath":%q,"auditPath":%q,"releaseReadinessReference":"release-checklist-001"}`,
+		filepath.Join(workspacePath, "workflow.closure-package.json"),
+		filepath.Join(workspacePath, "workflow.closure-package.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/closure-package/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for continuity mismatch, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-CLS-003") {
+		t.Fatalf("expected deterministic closure blocker code, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
@@ -1783,6 +1881,42 @@ func writeDeploymentReceiptFixtures(t *testing.T, workspacePath string) []resour
 	first := writeReceipt("reference-receipt-older", time.Date(2026, 7, 20, 12, 4, 0, 0, time.UTC), time.Date(2026, 7, 20, 12, 5, 0, 0, time.UTC))
 	second := writeReceipt("reference-receipt-latest", time.Date(2026, 7, 20, 12, 9, 0, 0, time.UTC), time.Date(2026, 7, 20, 12, 10, 0, 0, time.UTC))
 	return []resources.DeploymentReceipt{first, second}
+}
+
+func writeClosurePackageFixtures(t *testing.T, workspacePath string) {
+	t.Helper()
+	writeEvidenceBundleFixtures(t, workspacePath)
+	writeDeploymentReceiptFixtures(t, workspacePath)
+	timeline, _, err := buildWorkflowReceiptTimeline(workspacePath)
+	if err != nil {
+		t.Fatalf("build receipt timeline fixture: %v", err)
+	}
+	timelineMarkdownPath := filepath.Join(workspacePath, "workflow.receipt-timeline.md")
+	timelineJSONPath := filepath.Join(workspacePath, "workflow.receipt-timeline.json")
+	if err := os.WriteFile(timelineMarkdownPath, []byte(renderReceiptTimelineMarkdown(timeline)+"\n"), 0o600); err != nil {
+		t.Fatalf("write receipt timeline markdown fixture: %v", err)
+	}
+	timelineJSONBytes, err := json.MarshalIndent(timeline, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal receipt timeline fixture: %v", err)
+	}
+	timelineJSONBytes = append(timelineJSONBytes, '\n')
+	if err := os.WriteFile(timelineJSONPath, timelineJSONBytes, 0o600); err != nil {
+		t.Fatalf("write receipt timeline json fixture: %v", err)
+	}
+	evidenceBundle, _, err := buildWorkflowEvidenceBundleManifest(workspacePath)
+	if err != nil {
+		t.Fatalf("build evidence bundle fixture: %v", err)
+	}
+	evidenceBundlePath := filepath.Join(workspacePath, "workflow.evidence-bundle.json")
+	evidenceBundleBytes, err := json.MarshalIndent(evidenceBundle, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal evidence bundle fixture: %v", err)
+	}
+	evidenceBundleBytes = append(evidenceBundleBytes, '\n')
+	if err := os.WriteFile(evidenceBundlePath, evidenceBundleBytes, 0o600); err != nil {
+		t.Fatalf("write evidence bundle fixture: %v", err)
+	}
 }
 
 func serveHandlerFixture(t *testing.T, uiEnabled bool, workspacePath string) http.Handler {

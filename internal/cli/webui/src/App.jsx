@@ -1327,6 +1327,12 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.receipt-timeline.export.audit.jsonl` : "",
   }));
   const [timelineSubmitState, setTimelineSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureForm, setClosureForm] = useState(() => ({
+    manifestPath: workspacePath ? `${workspacePath}/workflow.closure-package.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.closure-package.export.audit.jsonl` : "",
+    releaseReadinessReference: "",
+  }));
+  const [closureSubmitState, setClosureSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1348,6 +1354,11 @@ function CapsuleView({ payload }) {
       markdownPath: previous.markdownPath || `${workspacePath}/workflow.receipt-timeline.md`,
       jsonPath: previous.jsonPath || `${workspacePath}/workflow.receipt-timeline.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.receipt-timeline.export.audit.jsonl`,
+    }));
+    setClosureForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.closure-package.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.closure-package.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1438,6 +1449,34 @@ function CapsuleView({ payload }) {
       setTimelineSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setTimelineSubmitState({ loading: false, error: error.message || "Receipt timeline export failed", result: null });
+    }
+  };
+  const updateClosure = (key) => (event) => {
+    setClosureForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosure = closureForm.manifestPath !== "" &&
+    closureForm.auditPath !== "" &&
+    closureForm.releaseReadinessReference.trim() !== "" &&
+    closureForm.manifestPath !== closureForm.auditPath;
+  const submitClosure = async (event) => {
+    event.preventDefault();
+    if (!canExportClosure) {
+      return;
+    }
+    setClosureSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/closure-package/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Closure package export failed");
+      }
+      setClosureSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureSubmitState({ loading: false, error: error.message || "Closure package export failed", result: null });
     }
   };
   return (
@@ -1581,6 +1620,34 @@ function CapsuleView({ payload }) {
           <div><dt>JSON path</dt><dd>{timelineSubmitState.result.jsonPath || "n/a"}</dd></div>
           <div><dt>Audit path</dt><dd>{timelineSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Receipt count</dt><dd>{String(timelineSubmitState.result.receiptCount ?? 0)}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure package</h3>
+      <form onSubmit={submitClosure}>
+        <div className="formRow">
+          <label htmlFor="closure-package-manifest-path">Manifest output path</label>
+          <input id="closure-package-manifest-path" value={closureForm.manifestPath} onChange={updateClosure("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-package-audit-path">Audit output path</label>
+          <input id="closure-package-audit-path" value={closureForm.auditPath} onChange={updateClosure("auditPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-package-reference">Release readiness reference</label>
+          <input id="closure-package-reference" value={closureForm.releaseReadinessReference} onChange={updateClosure("releaseReadinessReference")} />
+        </div>
+        <button type="submit" disabled={closureSubmitState.loading || !canExportClosure}>
+          {closureSubmitState.loading ? "Exporting closure package..." : "Export closure package"}
+        </button>
+      </form>
+      {!canExportClosure && <p className="error">Closure package export requires distinct manifest/audit paths and a release readiness reference.</p>}
+      {closureSubmitState.error && <p className="error">Error: {closureSubmitState.error}</p>}
+      {closureSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Evidence bundles</dt><dd>{String(closureSubmitState.result.evidenceBundleCount ?? 0)}</dd></div>
+          <div><dt>Receipt timelines</dt><dd>{String(closureSubmitState.result.receiptTimelineCount ?? 0)}</dd></div>
         </dl>
       )}
     </>

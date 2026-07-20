@@ -254,6 +254,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/closure-package/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            manifestPath: requestPayload.manifestPath,
+            auditPath: requestPayload.auditPath,
+            evidenceBundleCount: 1,
+            receiptTimelineCount: 1,
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -484,6 +496,9 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.evidence-bundle.json")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Export receipt timeline" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.receipt-timeline.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Release readiness reference"), { target: { value: "release-checklist-001" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure package" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.closure-package.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -553,6 +568,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-030", message: "receipt authorization binding does not match workspace authorization", severity: "error" }],
         }), { status: 400 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/closure-package/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-031", message: "YARA-CLS-003: evidence bundle and receipt timeline authorization continuity is mismatched", severity: "error" }],
+        }), { status: 400 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -587,6 +608,9 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText(/runbook markdown and json exports/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Export receipt timeline" }));
     await waitFor(() => expect(screen.getByText(/does not match workspace authorization/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Release readiness reference"), { target: { value: "release-checklist-001" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure package" }));
+    await waitFor(() => expect(screen.getByText(/continuity is mismatched/)).toBeInTheDocument());
   });
 
   it("fails closed on malformed drift payload", async () => {
