@@ -242,6 +242,8 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 			report.Spec.Summary.LifecyclePublicationBlockedAssertions++
 		}
 	}
+	report.Spec.Limitations = append(report.Spec.Limitations, publicationChainRetentionLimitations(report.Spec.Assertions)...)
+	slices.Sort(report.Spec.Limitations)
 	report.Spec.Components = componentCoverage(inventory.Components, report.Spec.Assertions, evidence, func(assertion AssertionCoverage, id string) bool { return assertion.RuntimeRef == id })
 	report.Spec.Models = manifestCoverage(inventory.Models, report.Spec.Assertions, evidence.Contracts, func(assertion AssertionCoverage, id string) bool { return assertion.ModelRef == id })
 	report.Spec.Hardware = manifestCoverage(inventory.Hardware, report.Spec.Assertions, evidence.Contracts, func(assertion AssertionCoverage, id string) bool { return assertion.HardwareProfileRef == id })
@@ -258,6 +260,38 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 	report.Spec.Summary.VerifiedAuditChainCount = evidence.VerifiedAuditCount
 	report.Spec.Complete = report.Spec.Summary.AssertionCount > 0 && report.Spec.Summary.PromotionEligibleAssertions == report.Spec.Summary.AssertionCount && allManifestCoverageComplete(report)
 	return report.AssignReportID()
+}
+
+func publicationChainRetentionLimitations(assertions []AssertionCoverage) []string {
+	records := make([]string, 0, len(assertions))
+	for _, assertion := range assertions {
+		rehearsalGate := GateCoverage{}
+		found := false
+		for _, gate := range assertion.Gates {
+			if gate.ID == "publication-chain-rehearsal" {
+				rehearsalGate = gate
+				found = true
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+		status := "non-renewable"
+		if rehearsalGate.Status == "passed" {
+			status = "renewable"
+		}
+		selected := rehearsalGate.SelectedResult
+		if selected == "" {
+			selected = "none"
+		}
+		blocker := rehearsalGate.Blocker
+		if blocker == "" {
+			blocker = "none"
+		}
+		records = append(records, fmt.Sprintf("publication-chain-retention:assertion=%s,status=%s,selected-rehearsal=%s,blocker=%s", assertion.ID, status, selected, blocker))
+	}
+	return records
 }
 
 func assertionCoverage(

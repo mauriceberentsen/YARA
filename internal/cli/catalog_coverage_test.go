@@ -43,6 +43,11 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 			AmbiguityCount int    `json:"ambiguityCount"`
 			Evaluated      bool   `json:"evaluated"`
 		} `json:"signingAuthorityBoundary"`
+		PublicationChainRetention []struct {
+			Assertion string `json:"assertion"`
+			Status    string `json:"status"`
+			Blocker   string `json:"blocker"`
+		} `json:"publicationChainRetention"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -55,6 +60,9 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 	}
 	if response.SigningAuthorityBoundary.Status != "not-evaluated" || response.SigningAuthorityBoundary.OverlapCount != 0 || response.SigningAuthorityBoundary.AmbiguityCount != 0 || response.SigningAuthorityBoundary.Evaluated {
 		t.Fatalf("unexpected signing authority boundary diagnostics for v0.2 fixtures: %#v", response.SigningAuthorityBoundary)
+	}
+	if len(response.PublicationChainRetention) == 0 || response.PublicationChainRetention[0].Status != "non-renewable" {
+		t.Fatalf("expected publication-chain retention diagnostics in create response: %#v", response.PublicationChainRetention)
 	}
 	report, err := catalogcoverage.Load(outputPath)
 	if err != nil {
@@ -168,6 +176,11 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 			Status    string `json:"status"`
 			Blocker   string `json:"blocker"`
 		} `json:"publicationChainRehearsal"`
+		PublicationChainRetention []struct {
+			Assertion string `json:"assertion"`
+			Status    string `json:"status"`
+			Blocker   string `json:"blocker"`
+		} `json:"publicationChainRetention"`
 		Taxonomy []catalogcoverage.LifecyclePublicationBlockerDefinition `json:"taxonomy"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
@@ -196,6 +209,9 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 	}
 	if len(response.PublicationChainRehearsal) == 0 || response.PublicationChainRehearsal[0].Status != "missing" {
 		t.Fatalf("expected publication-chain rehearsal diagnostics in policy response: %#v", response.PublicationChainRehearsal)
+	}
+	if len(response.PublicationChainRetention) == 0 || response.PublicationChainRetention[0].Status != "non-renewable" {
+		t.Fatalf("expected publication-chain retention diagnostics in policy response: %#v", response.PublicationChainRetention)
 	}
 	events, err := audit.LoadJSONL(policyAuditPath)
 	if err != nil {
@@ -363,6 +379,86 @@ func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnDuplicateSigningA
 	var stdout, stderr bytes.Buffer
 	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
 		t.Fatalf("expected internal error for duplicate signing-authority boundary limitation record, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnMalformedPublicationChainRetentionLimitation(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	report, err := catalogcoverage.Load(outputPath)
+	if err != nil {
+		t.Fatalf("load report: %v", err)
+	}
+	filtered := make([]string, 0, len(report.Spec.Limitations))
+	for _, limitation := range report.Spec.Limitations {
+		if strings.HasPrefix(limitation, "publication-chain-retention:") {
+			filtered = append(filtered, "publication-chain-retention:assertion=compat.vllm-qwen-coder-7b-awq-gb10,status=renewable,selected-rehearsal=none")
+			continue
+		}
+		filtered = append(filtered, limitation)
+	}
+	report.Spec.Limitations = filtered
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	reportData, err := yaml.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(outputPath, reportData, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
+		t.Fatalf("expected internal error for malformed publication-chain retention limitation record, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnInconsistentPublicationChainRetentionLimitation(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	report, err := catalogcoverage.Load(outputPath)
+	if err != nil {
+		t.Fatalf("load report: %v", err)
+	}
+	replaced := false
+	filtered := make([]string, 0, len(report.Spec.Limitations))
+	for _, limitation := range report.Spec.Limitations {
+		if strings.HasPrefix(limitation, "publication-chain-retention:") && !replaced {
+			filtered = append(filtered, strings.Replace(limitation, "selected-rehearsal=none", "selected-rehearsal=sha256:"+strings.Repeat("a", 64), 1))
+			replaced = true
+			continue
+		}
+		filtered = append(filtered, limitation)
+	}
+	report.Spec.Limitations = filtered
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	reportData, err := yaml.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(outputPath, reportData, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
+		t.Fatalf("expected internal error for inconsistent publication-chain retention limitation record, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
 	}
 }
 

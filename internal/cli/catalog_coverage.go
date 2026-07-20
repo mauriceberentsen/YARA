@@ -67,6 +67,13 @@ type publicationChainRehearsalDiagnostics struct {
 	SelectedRehearsal string `json:"selectedRehearsal,omitempty"`
 }
 
+type publicationChainRetentionPosture struct {
+	Assertion         string `json:"assertion"`
+	Status            string `json:"status"`
+	Blocker           string `json:"blocker,omitempty"`
+	SelectedRehearsal string `json:"selectedRehearsal,omitempty"`
+}
+
 func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 	options, ok := parseCatalogCoverageOptions(args, stderr)
 	if !ok {
@@ -110,6 +117,11 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 		_ = os.Remove(options.outputPath)
 		return writeCatalogCoverageFailure(stdout, options, []audit.Subject{catalogSubject, reportSubject}, "YARA-COV-500", err, ExitInternal)
 	}
+	retentionDiagnostics, err := publicationChainRetentionFromReport(report)
+	if err != nil {
+		_ = os.Remove(options.outputPath)
+		return writeCatalogCoverageFailure(stdout, options, []audit.Subject{catalogSubject, reportSubject}, "YARA-COV-500", err, ExitInternal)
+	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(map[string]any{
@@ -119,6 +131,7 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 		"lifecyclePublicationBlockedAssertions": report.Spec.Summary.LifecyclePublicationBlockedAssertions,
 		"integrationEvidenceConvergence":        convergence,
 		"signingAuthorityBoundary":              signingBoundary,
+		"publicationChainRetention":             retentionDiagnostics,
 	}); err != nil {
 		return ExitInternal
 	}
@@ -152,8 +165,13 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 	if err != nil {
 		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
 	}
+	retentionDiagnostics, err := publicationChainRetentionFromReport(report)
+	if err != nil {
+		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
+	}
 	blocked := []map[string]string{}
 	rehearsalDiagnostics := []publicationChainRehearsalDiagnostics{}
+	filteredRetentionDiagnostics := []publicationChainRetentionPosture{}
 	for _, assertion := range filtered {
 		rehearsalGate, found := findAssertionGate(assertion, "publication-chain-rehearsal")
 		if !found {
@@ -165,6 +183,11 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 			Blocker:           rehearsalGate.Blocker,
 			SelectedRehearsal: rehearsalGate.SelectedResult,
 		})
+		retentionDiagnostic, found := findPublicationChainRetentionDiagnostic(retentionDiagnostics, assertion.ID)
+		if !found {
+			return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", fmt.Errorf("assertion %s does not include publication-chain retention diagnostics", assertion.ID), ExitInternal)
+		}
+		filteredRetentionDiagnostics = append(filteredRetentionDiagnostics, retentionDiagnostic)
 		if options.assertion != "" && rehearsalGate.Status != "passed" {
 			return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-012", fmt.Errorf("assertion %s publication-chain rehearsal is not ready: %s", assertion.ID, rehearsalGate.Blocker), ExitInfeasible)
 		}
@@ -184,6 +207,9 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 	}
 	sort.Slice(blocked, func(i, j int) bool { return blocked[i]["assertion"] < blocked[j]["assertion"] })
 	sort.Slice(rehearsalDiagnostics, func(i, j int) bool { return rehearsalDiagnostics[i].Assertion < rehearsalDiagnostics[j].Assertion })
+	sort.Slice(filteredRetentionDiagnostics, func(i, j int) bool {
+		return filteredRetentionDiagnostics[i].Assertion < filteredRetentionDiagnostics[j].Assertion
+	})
 	if err := persistOperationAudit(options.auditPath, "catalog.coverage.lifecycle-publication-policy", "completed", "success", []audit.Subject{subject}, nil); err != nil {
 		return writeLoadError(stdout, "YARA-AUD-005", err)
 	}
@@ -199,6 +225,7 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		"integrationEvidenceConvergence":        convergence,
 		"signingAuthorityBoundary":              signingBoundary,
 		"publicationChainRehearsal":             rehearsalDiagnostics,
+		"publicationChainRetention":             filteredRetentionDiagnostics,
 		"blockedAssertions":                     blocked,
 		"taxonomy":                              catalogcoverage.LifecyclePublicationBlockerTaxonomy(),
 		"auditOutput":                           options.auditPath,
@@ -446,6 +473,120 @@ func signingAuthorityBoundaryFromReport(report catalogcoverage.Report) (signingA
 		AmbiguityCount: ambiguityCount,
 		Evaluated:      status != "not-evaluated",
 	}, nil
+}
+
+func publicationChainRetentionFromReport(report catalogcoverage.Report) ([]publicationChainRetentionPosture, error) {
+	const prefix = "publication-chain-retention:"
+	byAssertion := map[string]publicationChainRetentionPosture{}
+	for _, limitation := range report.Spec.Limitations {
+		if !strings.HasPrefix(limitation, prefix) {
+			continue
+		}
+		body := strings.TrimPrefix(limitation, prefix)
+		parts := strings.Split(body, ",")
+		if len(parts) != 4 {
+			return nil, errors.New("publication-chain retention limitation record is malformed")
+		}
+		values := map[string]string{}
+		for _, part := range parts {
+			keyValue := strings.SplitN(strings.TrimSpace(part), "=", 2)
+			if len(keyValue) != 2 {
+				return nil, errors.New("publication-chain retention limitation record contains invalid key-value pairs")
+			}
+			key := strings.TrimSpace(keyValue[0])
+			if _, exists := values[key]; exists {
+				return nil, errors.New("publication-chain retention limitation record contains duplicate keys")
+			}
+			values[key] = strings.TrimSpace(keyValue[1])
+		}
+		assertionID, ok := values["assertion"]
+		if !ok || assertionID == "" {
+			return nil, errors.New("publication-chain retention limitation record omits assertion")
+		}
+		status, ok := values["status"]
+		if !ok || (status != "renewable" && status != "non-renewable") {
+			return nil, errors.New("publication-chain retention limitation record has unsupported status")
+		}
+		selectedRehearsal, ok := values["selected-rehearsal"]
+		if !ok || selectedRehearsal == "" {
+			return nil, errors.New("publication-chain retention limitation record omits selected-rehearsal")
+		}
+		if selectedRehearsal != "none" && (!strings.HasPrefix(selectedRehearsal, "sha256:") || len(selectedRehearsal) != 71) {
+			return nil, errors.New("publication-chain retention limitation record contains invalid selected-rehearsal identity")
+		}
+		blocker, ok := values["blocker"]
+		if !ok || blocker == "" {
+			return nil, errors.New("publication-chain retention limitation record omits blocker")
+		}
+		if _, exists := byAssertion[assertionID]; exists {
+			return nil, errors.New("catalog coverage report contains duplicate publication-chain retention limitation records for one assertion")
+		}
+		diagnostic := publicationChainRetentionPosture{
+			Assertion: assertionID,
+			Status:    status,
+		}
+		if blocker != "none" {
+			diagnostic.Blocker = blocker
+		}
+		if selectedRehearsal != "none" {
+			diagnostic.SelectedRehearsal = selectedRehearsal
+		}
+		byAssertion[assertionID] = diagnostic
+	}
+	if len(byAssertion) != len(report.Spec.Assertions) {
+		return nil, errors.New("catalog coverage report does not include publication-chain retention limitation records for each assertion")
+	}
+	result := make([]publicationChainRetentionPosture, 0, len(report.Spec.Assertions))
+	for _, assertion := range report.Spec.Assertions {
+		retentionDiagnostic, ok := byAssertion[assertion.ID]
+		if !ok {
+			return nil, errors.New("catalog coverage report is missing publication-chain retention limitation for assertion")
+		}
+		rehearsalGate, found := findAssertionGate(assertion, "publication-chain-rehearsal")
+		if !found {
+			return nil, errors.New("catalog coverage assertion is missing publication-chain rehearsal gate")
+		}
+		expectedStatus := "non-renewable"
+		if rehearsalGate.Status == "passed" {
+			expectedStatus = "renewable"
+		}
+		if retentionDiagnostic.Status != expectedStatus {
+			return nil, errors.New("publication-chain retention limitation status is inconsistent with rehearsal gate status")
+		}
+		expectedSelectedRehearsal := rehearsalGate.SelectedResult
+		if expectedSelectedRehearsal == "" {
+			expectedSelectedRehearsal = "none"
+		}
+		actualSelectedRehearsal := retentionDiagnostic.SelectedRehearsal
+		if actualSelectedRehearsal == "" {
+			actualSelectedRehearsal = "none"
+		}
+		if actualSelectedRehearsal != expectedSelectedRehearsal {
+			return nil, errors.New("publication-chain retention limitation selected-rehearsal is inconsistent with rehearsal gate selection")
+		}
+		expectedBlocker := rehearsalGate.Blocker
+		if expectedBlocker == "" {
+			expectedBlocker = "none"
+		}
+		actualBlocker := retentionDiagnostic.Blocker
+		if actualBlocker == "" {
+			actualBlocker = "none"
+		}
+		if actualBlocker != expectedBlocker {
+			return nil, errors.New("publication-chain retention limitation blocker is inconsistent with rehearsal gate blocker")
+		}
+		result = append(result, retentionDiagnostic)
+	}
+	return result, nil
+}
+
+func findPublicationChainRetentionDiagnostic(diagnostics []publicationChainRetentionPosture, assertionID string) (publicationChainRetentionPosture, bool) {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Assertion == assertionID {
+			return diagnostic, true
+		}
+	}
+	return publicationChainRetentionPosture{}, false
 }
 
 func writeCatalogCoveragePolicyFailure(output io.Writer, auditPath string, subjects []audit.Subject, code string, err error, exitCode int) int {

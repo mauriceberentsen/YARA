@@ -204,6 +204,7 @@ go run ./cmd/yara publication chain retention-diagnostics \
 - lifecycle publication readiness and blocker taxonomy;
 - integration evidence convergence (`identityCount`, `deduplicatedCount`);
 - signing-authority boundary report-limitation state (`status`, `overlapCount`, `ambiguityCount`, `evaluated`).
+- publication-chain retention posture (`assertion`, `status`, `selectedRehearsal`, `blocker`) derived from assertion-scoped rehearsal identity selection.
 
 Both commands fail closed when signing-authority boundary limitation records are missing, duplicated, malformed, or internally inconsistent.
 
