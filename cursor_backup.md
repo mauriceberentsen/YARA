@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `40862e4`, `bddeca0`, `18af3da`, `1c0d65d`, `a16f6e2`.
+- Recent commits (newest first): `3ecd8df`, `40862e4`, `bddeca0`, `18af3da`, `1c0d65d`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
@@ -38,6 +38,10 @@
   - `POST /api/v1/workflow/render` executes bounded bundle rendering (`kubernetes-gitops` or `docker-compose`) with explicit path/target inputs;
   - bundle and audit outputs are restricted to workspace-managed output paths and fail closed on invalid targets/paths;
   - Render UI form now writes bundle artifacts and renders deterministic bundle summary metadata in-session.
+- Interactive workflow cockpit I4 is implemented:
+  - `POST /api/v1/workflow/preflight` and `POST /api/v1/workflow/changeset` execute bounded read-only Kubernetes observation commands with explicit input/output paths;
+  - preflight and changeset outputs are restricted to workspace-managed output paths and fail closed on invalid/out-of-workspace paths;
+  - Preflight and Change-set UI forms now render deterministic summaries and change inspector output, including hard blocker signaling for blocked change-sets.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -54,9 +58,9 @@
 
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `POST /api/v1/workflow/render` endpoint implemented with strict JSON decoding, structured failure responses, and exit-code aware HTTP status mapping;
-  - workspace-bounded bundle/audit output paths now enforced fail-closed for workflow rendering;
-  - Render UI form implemented with no-reload result panel and automatic Pipeline refresh after successful render.
+  - `POST /api/v1/workflow/preflight` and `POST /api/v1/workflow/changeset` endpoints implemented with strict JSON decoding, structured failure responses, and exit-code aware HTTP status mapping;
+  - workspace-bounded preflight/changeset output paths now enforced fail-closed for workflow observation artifacts;
+  - Preflight and Change-set UI forms implemented with no-reload result panels, blocker-aware change inspector output, and automatic Pipeline refresh on artifact creation.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui`;
@@ -100,39 +104,35 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 
 ### I4 — Preflight and change-set observation
 
-- new `POST /api/v1/workflow/preflight` and `POST /api/v1/workflow/changeset` endpoints invoke the respective read-only Kubernetes observation commands;
-- UI shows kubeconfig/context input fields and renders the change inspector: adds/modifies/deletions per object with severity;
-- blocked change-sets are surfaced as hard blockers — the UI prevents advancing to approval when the change-set status is `blocked`.
+- `POST /api/v1/workflow/preflight` + `POST /api/v1/workflow/changeset` + Preflight/Change-set forms + deterministic result/inspector panels + workspace path bounding.
+- Status: completed.
 
 ### I5 — Approval form
-
 - new `POST /api/v1/workflow/approval` endpoint invokes `approval record` with the decision, reason-reference, and bound artifact identities;
 - UI shows a review checklist that surfaces plan summary, bundle digest, preflight target, and change-set object list before the approve/reject form;
 - no implicit approval — the operator must explicitly choose `approve` or `reject` and supply a reason-reference string;
 - result shows approval summary and content-addressed approval ID.
 
 ### I6 — Authorization CLI generator and apply confirmation
-
 - for authorization, the UI generates and displays the exact `yara authorization issue` CLI command with all workspace-resolved paths — the private key is never sent to the server;
 - once the authorization file appears in the workspace (operator runs the command externally), the UI detects it via `GET /api/v1/workspace` polling and advances to the apply stage;
 - new `POST /api/v1/workflow/apply` endpoint invokes `deployment apply kubernetes` only after the operator confirms via an explicit UI dialog that shows the full evidence chain (plan → bundle → preflight → change-set → approval → authorization digests) and requires typing the confirm-authorization hash;
 - apply result shows receipt summary and audit chain link.
 
 ## Next implementation slice
+Implement **I5 — Approval form**:
+- add bounded `POST /api/v1/workflow/approval` endpoint invoking `approval record` with explicit `bundlePath`, `preflightPath`, `changeSetPath`, `decision`, `reasonReference`, `outputPath`, and `auditPath`;
+- enforce workspace-managed output/audit paths and fail closed when approval decision or evidence bindings are invalid;
+- return deterministic response metadata: approval ID, decision/effect, output path, audit path, and bound artifact identities;
+- extend UI with an approval review checklist and explicit approve/reject form; prevent submit until decision and reason-reference are both provided.
 
-Implement **I4 — Preflight and change-set observation**:
-- add bounded `POST /api/v1/workflow/preflight` endpoint invoking `target preflight kubernetes` into workspace-managed output/audit paths;
-- add bounded `POST /api/v1/workflow/changeset` endpoint invoking `target changeset kubernetes` with explicit bundle+preflight inputs and workspace-managed outputs;
-- return deterministic response metadata for both endpoints (resource IDs, output paths, audit paths, and summary counts);
-- extend UI with Preflight and Change-set forms plus a change inspector panel, and refresh Pipeline on success.
 Acceptance criteria:
-- preflight and change-set endpoints reject missing/invalid inputs with structured diagnostics and fail closed path enforcement;
-- successful preflight/write shows Preflight stage complete; successful change-set/write shows Change-set stage complete;
-- blocked change-sets are rendered as hard blockers in UI with explicit outcome/status details;
+- approval endpoint rejects missing/invalid fields with structured diagnostics and fail-closed path enforcement;
+- successful approval writes approval + audit artifacts in workspace and Pipeline shows Approval stage complete;
+- UI checklist displays plan/bundle/preflight/change-set bindings and returns approval identity in-session without page reload;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 
 ## Validation requirements
-
 Run at minimum for each slice:
 
 ```bash

@@ -4,15 +4,20 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/catalogcoverage"
+	"github.com/mauriceberentsen/YARA/internal/changeset"
+	"github.com/mauriceberentsen/YARA/internal/resources"
+	"github.com/mauriceberentsen/YARA/internal/targetpreflight"
 )
 
 func TestServeRequiresCatalogAndCoverageReport(t *testing.T) {
@@ -310,6 +315,212 @@ func TestServeWorkflowRenderWritesBundleAndAudit(t *testing.T) {
 	second, _ := stages[1].(map[string]any)
 	if second["status"] != "complete" {
 		t.Fatalf("expected bundle stage complete after render, got %#v", second)
+	}
+}
+
+func TestServeWorkflowPreflightRejectsOutOfWorkspaceOutput(t *testing.T) {
+	workspacePath := t.TempDir()
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{
+		"bundlePath": "%s",
+		"name": "reference-preflight",
+		"outputPath": "%s",
+		"auditPath": "%s"
+	}`,
+		filepath.Join(workspacePath, "reference-stack.kubernetes.bundle.yaml"),
+		filepath.Join("..", "..", "outside-preflight.yaml"),
+		filepath.Join(workspacePath, "reference-preflight.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/preflight", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for out-of-workspace preflight output, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-SRV-015") {
+		t.Fatalf("expected structured preflight path error, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowPreflightAndChangeSetWriteArtifacts(t *testing.T) {
+	workspacePath := t.TempDir()
+	restorePreflightRunner, restoreChangeSetRunner := workflowPreflightRunner, workflowChangeSetRunner
+	t.Cleanup(func() {
+		workflowPreflightRunner = restorePreflightRunner
+		workflowChangeSetRunner = restoreChangeSetRunner
+	})
+	workflowPreflightRunner = func(args []string, stdout, stderr io.Writer) int {
+		observation := targetpreflight.Observation{
+			ReferenceDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+			ServerVersion:   "v1.35.2", CoreV1: true, AppsV1: true, NetworkingV1: true,
+			NodesReadable: true, GPUCount: 1, NodePlatforms: []string{"linux/amd64"}, DNSReadable: true, DNSPodCount: 1,
+			NamespaceReadable: true, PVCReadable: true, PVCExists: true, PVCPhase: "Bound",
+		}
+		factory := func(_, _ string) (targetpreflight.Observer, error) {
+			return fixedTargetObserver{observation: observation}, nil
+		}
+		return runKubernetesTargetPreflight(args, stdout, stderr, factory, func() time.Time {
+			return time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+		})
+	}
+	workflowChangeSetRunner = func(args []string, stdout, stderr io.Writer) int {
+		factory := func(_, _ string) (changeset.Observer, error) {
+			options, ok := parseChangeSetOptions(args, stderr)
+			if !ok {
+				return nil, fmt.Errorf("parse change-set options")
+			}
+			bundle, err := resources.LoadDeploymentBundle(options.bundlePath)
+			if err != nil {
+				return nil, err
+			}
+			desired, err := changeset.DesiredObjects(bundle)
+			if err != nil {
+				return nil, err
+			}
+			observation := changeset.Observation{
+				Target: resources.TargetIdentity{
+					Type:            "kubernetes",
+					ReferenceDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+					ServerVersion:   "v1.35.2",
+				},
+			}
+			for _, object := range desired {
+				observation.Objects = append(observation.Objects, changeset.ObjectObservation{
+					Reference: object.Reference,
+					Readable:  true,
+					Exists:    false,
+					Owned:     false,
+					PlanMatch: false,
+				})
+			}
+			return fixedChangeSetObserver{observation: observation}, nil
+		}
+		return runKubernetesChangeSet(args, stdout, stderr, factory, func() time.Time {
+			return time.Date(2026, 7, 20, 12, 1, 0, 0, time.UTC)
+		})
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	planRequest := fmt.Sprintf(`{
+		"requestPath": "%s",
+		"inventoryPath": "%s",
+		"catalogPath": "%s",
+		"outputPath": "%s",
+		"auditPath": "%s"
+	}`,
+		filepath.Join("..", "..", "docs", "examples", "v0.2-platform-request.yaml"),
+		filepath.Join("..", "..", "docs", "examples", "v0.2-inventory.yaml"),
+		filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		filepath.Join(workspacePath, "reference-stack.plan.yaml"),
+		filepath.Join(workspacePath, "reference-stack.plan.audit.jsonl"),
+	)
+	planRecorder := httptest.NewRecorder()
+	planHTTP := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/plan", strings.NewReader(planRequest))
+	planHTTP.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(planRecorder, planHTTP)
+	if planRecorder.Code != http.StatusOK {
+		t.Fatalf("expected plan creation success before preflight, got %d: %s", planRecorder.Code, planRecorder.Body.String())
+	}
+	renderRequest := fmt.Sprintf(`{
+		"planPath": "%s",
+		"catalogPath": "%s",
+		"target": "kubernetes-gitops",
+		"bundleName": "reference-stack",
+		"outputPath": "%s",
+		"auditPath": "%s"
+	}`,
+		filepath.Join(workspacePath, "reference-stack.plan.yaml"),
+		filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		filepath.Join(workspacePath, "reference-stack.kubernetes.bundle.yaml"),
+		filepath.Join(workspacePath, "reference-stack.kubernetes.bundle.audit.jsonl"),
+	)
+	renderRecorder := httptest.NewRecorder()
+	renderHTTP := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/render", strings.NewReader(renderRequest))
+	renderHTTP.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(renderRecorder, renderHTTP)
+	if renderRecorder.Code != http.StatusOK {
+		t.Fatalf("expected render success before preflight, got %d: %s", renderRecorder.Code, renderRecorder.Body.String())
+	}
+	preflightRequest := fmt.Sprintf(`{
+		"bundlePath": "%s",
+		"name": "reference-preflight",
+		"outputPath": "%s",
+		"auditPath": "%s",
+		"kubeconfig": "/private/admin.conf",
+		"context": "production-admin",
+		"timeout": "30s"
+	}`,
+		filepath.Join(workspacePath, "reference-stack.kubernetes.bundle.yaml"),
+		filepath.Join(workspacePath, "reference-preflight.yaml"),
+		filepath.Join(workspacePath, "reference-preflight.audit.jsonl"),
+	)
+	preflightRecorder := httptest.NewRecorder()
+	preflightHTTP := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/preflight", strings.NewReader(preflightRequest))
+	preflightHTTP.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(preflightRecorder, preflightHTTP)
+	if preflightRecorder.Code != http.StatusOK && preflightRecorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected preflight success or blocked response, got %d: %s", preflightRecorder.Code, preflightRecorder.Body.String())
+	}
+	var preflightPayload map[string]any
+	if err := json.Unmarshal(preflightRecorder.Body.Bytes(), &preflightPayload); err != nil {
+		t.Fatalf("decode preflight response: %v", err)
+	}
+	preflight, _ := preflightPayload["preflight"].(map[string]any)
+	if preflight["resultId"] == "" || preflight["resultPath"] == "" || preflight["auditPath"] == "" {
+		t.Fatalf("preflight response omitted expected fields: %#v", preflight)
+	}
+	changeSetRequest := fmt.Sprintf(`{
+		"bundlePath": "%s",
+		"preflightPath": "%s",
+		"name": "reference-change-set",
+		"outputPath": "%s",
+		"auditPath": "%s",
+		"kubeconfig": "/private/admin.conf",
+		"context": "production-admin",
+		"timeout": "30s"
+	}`,
+		filepath.Join(workspacePath, "reference-stack.kubernetes.bundle.yaml"),
+		filepath.Join(workspacePath, "reference-preflight.yaml"),
+		filepath.Join(workspacePath, "reference-change-set.yaml"),
+		filepath.Join(workspacePath, "reference-change-set.audit.jsonl"),
+	)
+	changeSetRecorder := httptest.NewRecorder()
+	changeSetHTTP := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/changeset", strings.NewReader(changeSetRequest))
+	changeSetHTTP.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(changeSetRecorder, changeSetHTTP)
+	if changeSetRecorder.Code != http.StatusOK {
+		t.Fatalf("expected change-set success, got %d: %s", changeSetRecorder.Code, changeSetRecorder.Body.String())
+	}
+	var changeSetPayload map[string]any
+	if err := json.Unmarshal(changeSetRecorder.Body.Bytes(), &changeSetPayload); err != nil {
+		t.Fatalf("decode changeset response: %v", err)
+	}
+	changeSet, _ := changeSetPayload["changeSet"].(map[string]any)
+	if changeSet["changeSetId"] == "" || changeSet["changeSetPath"] == "" || changeSet["auditPath"] == "" {
+		t.Fatalf("changeset response omitted expected fields: %#v", changeSet)
+	}
+	workspaceRequest := httptest.NewRequest(http.MethodGet, "/api/v1/workspace", nil)
+	workspaceRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(workspaceRecorder, workspaceRequest)
+	if workspaceRecorder.Code != http.StatusOK {
+		t.Fatalf("expected workspace success after changeset, got %d: %s", workspaceRecorder.Code, workspaceRecorder.Body.String())
+	}
+	var workspacePayload map[string]any
+	if err := json.Unmarshal(workspaceRecorder.Body.Bytes(), &workspacePayload); err != nil {
+		t.Fatalf("decode workspace response: %v", err)
+	}
+	workspace, _ := workspacePayload["workspace"].(map[string]any)
+	stages, _ := workspace["stages"].([]any)
+	if len(stages) < 4 {
+		t.Fatalf("expected at least four stages, got %#v", stages)
+	}
+	preflightStage, _ := stages[2].(map[string]any)
+	if preflightStage["status"] != "complete" {
+		t.Fatalf("expected preflight stage complete, got %#v", preflightStage)
+	}
+	changeSetStage, _ := stages[3].(map[string]any)
+	if changeSetStage["status"] != "complete" {
+		t.Fatalf("expected changeset stage complete, got %#v", changeSetStage)
 	}
 }
 

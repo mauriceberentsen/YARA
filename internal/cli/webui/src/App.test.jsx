@@ -37,6 +37,40 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/preflight" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          preflight: {
+            resultId: "sha256:preflight",
+            outcome: "passed",
+            targetReferenceDigest: "sha256:target",
+            resultPath: ".yara/workspaces/default/reference-preflight.yaml",
+            auditPath: ".yara/workspaces/default/reference-preflight.audit.jsonl",
+            checkCount: 9,
+            passedChecks: 9,
+            blockedChecks: 0,
+            failedChecks: 0,
+          },
+        }), { status: 200 }));
+      }
+      if (parsed.pathname === "/api/v1/workflow/changeset" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          changeSet: {
+            changeSetId: "sha256:changeset",
+            outcome: "blocked",
+            changeSetPath: ".yara/workspaces/default/reference-change-set.yaml",
+            auditPath: ".yara/workspaces/default/reference-change-set.audit.jsonl",
+            operationCount: 2,
+            blockedCount: 1,
+            summary: { creates: 1, updates: 0, noOps: 0, conflicts: 1, unresolved: 0, deletes: 0 },
+            operations: [
+              { resource: "apps/v1/Deployment default/gateway", action: "conflict", ownership: "foreign", severity: "blocker", riskClasses: ["workload-restart"], diagnosticCode: "YARA-CHG-102" },
+              { resource: "v1/ConfigMap default/gateway-config", action: "create", ownership: "absent", severity: "review", riskClasses: ["configuration"], diagnosticCode: "none" },
+            ],
+          },
+        }), { status: 422 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -78,6 +112,36 @@ describe("App", () => {
               { id: "bundle", label: "Bundle", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.kubernetes.bundle.yaml" },
               { id: "preflight", label: "Preflight", status: "not-started" },
               { id: "changeset", label: "Change-set", status: "not-started" },
+              { id: "approval", label: "Approval", status: "not-started" },
+              { id: "authorization", label: "Authorization", status: "not-started" },
+              { id: "receipt", label: "Apply receipt", status: "not-started" },
+            ],
+          },
+        },
+        "/api/v1/workspace?refresh=3": {
+          valid: true,
+          workspace: {
+            path: ".yara/workspaces/default",
+            stages: [
+              { id: "plan", label: "Plan", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.plan.yaml" },
+              { id: "bundle", label: "Bundle", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.kubernetes.bundle.yaml" },
+              { id: "preflight", label: "Preflight", status: "complete", artifactPath: ".yara/workspaces/default/reference-preflight.yaml" },
+              { id: "changeset", label: "Change-set", status: "not-started" },
+              { id: "approval", label: "Approval", status: "not-started" },
+              { id: "authorization", label: "Authorization", status: "not-started" },
+              { id: "receipt", label: "Apply receipt", status: "not-started" },
+            ],
+          },
+        },
+        "/api/v1/workspace?refresh=4": {
+          valid: true,
+          workspace: {
+            path: ".yara/workspaces/default",
+            stages: [
+              { id: "plan", label: "Plan", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.plan.yaml" },
+              { id: "bundle", label: "Bundle", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.kubernetes.bundle.yaml" },
+              { id: "preflight", label: "Preflight", status: "complete", artifactPath: ".yara/workspaces/default/reference-preflight.yaml" },
+              { id: "changeset", label: "Change-set", status: "complete", artifactPath: ".yara/workspaces/default/reference-change-set.yaml" },
               { id: "approval", label: "Approval", status: "not-started" },
               { id: "authorization", label: "Authorization", status: "not-started" },
               { id: "receipt", label: "Apply receipt", status: "not-started" },
@@ -164,6 +228,17 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Render bundle" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Render bundle" }));
     await waitFor(() => expect(screen.getByText("sha256:bundle")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Preflight" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run preflight" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Run preflight" }));
+    await waitFor(() => expect(screen.getByText("sha256:preflight")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Change-set" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Compute change-set" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Compute change-set" }));
+    await waitFor(() => expect(screen.getByText("sha256:changeset")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Hard blocker: approval remains disabled until conflicts or unresolved objects are cleared.")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());

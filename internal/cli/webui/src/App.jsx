@@ -4,6 +4,8 @@ const views = [
   { id: "pipeline", label: "Pipeline", endpoint: "/api/v1/workspace" },
   { id: "plan-create", label: "Plan create", endpoint: "/api/v1/workspace" },
   { id: "render", label: "Render", endpoint: "/api/v1/workspace" },
+  { id: "preflight", label: "Preflight", endpoint: "/api/v1/workspace" },
+  { id: "changeset", label: "Change-set", endpoint: "/api/v1/workspace" },
   { id: "catalog", label: "Catalog", endpoint: "/api/v1/catalog" },
   { id: "coverage", label: "Coverage", endpoint: "/api/v1/coverage" },
   { id: "drift", label: "Drift", endpoint: "/api/v1/drift-posture" },
@@ -469,6 +471,272 @@ function RenderView({ workspacePayload, onRenderCreated }) {
   );
 }
 
+function PreflightView({ workspacePayload, onPreflightCreated }) {
+  const workspacePath = workspacePayload?.workspace?.path || "";
+  const [form, setForm] = useState(() => ({
+    bundlePath: workspacePath ? `${workspacePath}/reference-stack.kubernetes.bundle.yaml` : "",
+    name: "reference-preflight",
+    outputPath: workspacePath ? `${workspacePath}/reference-preflight.yaml` : "",
+    auditPath: workspacePath ? `${workspacePath}/reference-preflight.audit.jsonl` : "",
+    kubeconfig: "",
+    context: "",
+    timeout: "30s",
+  }));
+  const [submitState, setSubmitState] = useState({ loading: false, error: "", result: null });
+
+  useEffect(() => {
+    if (!workspacePath) {
+      return;
+    }
+    setForm((previous) => {
+      const next = { ...previous };
+      if (!previous.bundlePath) {
+        next.bundlePath = `${workspacePath}/reference-stack.kubernetes.bundle.yaml`;
+      }
+      if (!previous.outputPath) {
+        next.outputPath = `${workspacePath}/reference-preflight.yaml`;
+      }
+      if (!previous.auditPath) {
+        next.auditPath = `${workspacePath}/reference-preflight.audit.jsonl`;
+      }
+      return next;
+    });
+  }, [workspacePath]);
+
+  const update = (key) => (event) => {
+    setForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/preflight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const payload = await response.json();
+      if (!response.ok && !payload?.preflight) {
+        throw new Error(payload?.diagnostics?.[0]?.message || "Preflight failed");
+      }
+      setSubmitState({
+        loading: false,
+        error: response.ok ? "" : payload?.diagnostics?.[0]?.message || "Preflight returned blockers",
+        result: payload.preflight || null,
+      });
+      onPreflightCreated();
+    } catch (error) {
+      setSubmitState({ loading: false, error: error.message || "Preflight failed", result: null });
+    }
+  };
+
+  return (
+    <>
+      <p>Workspace: {workspacePath || "unknown"}</p>
+      <form onSubmit={submit}>
+        <div className="formRow">
+          <label htmlFor="preflight-bundle-path">Bundle path</label>
+          <input id="preflight-bundle-path" value={form.bundlePath} onChange={update("bundlePath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="preflight-name">Preflight name</label>
+          <input id="preflight-name" value={form.name} onChange={update("name")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="preflight-output-path">Preflight output path</label>
+          <input id="preflight-output-path" value={form.outputPath} onChange={update("outputPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="preflight-audit-path">Audit output path</label>
+          <input id="preflight-audit-path" value={form.auditPath} onChange={update("auditPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="preflight-kubeconfig">Kubeconfig path (optional)</label>
+          <input id="preflight-kubeconfig" value={form.kubeconfig} onChange={update("kubeconfig")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="preflight-context">Context (optional)</label>
+          <input id="preflight-context" value={form.context} onChange={update("context")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="preflight-timeout">Timeout</label>
+          <input id="preflight-timeout" value={form.timeout} onChange={update("timeout")} />
+        </div>
+        <button type="submit" disabled={submitState.loading}>
+          {submitState.loading ? "Running preflight..." : "Run preflight"}
+        </button>
+      </form>
+      {submitState.error && <p className="error">Error: {submitState.error}</p>}
+      {submitState.result && (
+        <dl className="grid">
+          <div><dt>Result ID</dt><dd>{submitState.result.resultId || "n/a"}</dd></div>
+          <div><dt>Outcome</dt><dd>{submitState.result.outcome || "n/a"}</dd></div>
+          <div><dt>Target digest</dt><dd>{submitState.result.targetReferenceDigest || "n/a"}</dd></div>
+          <div><dt>Result path</dt><dd>{submitState.result.resultPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{submitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Checks</dt><dd>{String(submitState.result.checkCount ?? 0)}</dd></div>
+          <div><dt>Passed</dt><dd>{String(submitState.result.passedChecks ?? 0)}</dd></div>
+          <div><dt>Blocked</dt><dd>{String(submitState.result.blockedChecks ?? 0)}</dd></div>
+          <div><dt>Failed</dt><dd>{String(submitState.result.failedChecks ?? 0)}</dd></div>
+        </dl>
+      )}
+    </>
+  );
+}
+
+function ChangeSetView({ workspacePayload, onChangeSetCreated }) {
+  const workspacePath = workspacePayload?.workspace?.path || "";
+  const [form, setForm] = useState(() => ({
+    bundlePath: workspacePath ? `${workspacePath}/reference-stack.kubernetes.bundle.yaml` : "",
+    preflightPath: workspacePath ? `${workspacePath}/reference-preflight.yaml` : "",
+    name: "reference-change-set",
+    outputPath: workspacePath ? `${workspacePath}/reference-change-set.yaml` : "",
+    auditPath: workspacePath ? `${workspacePath}/reference-change-set.audit.jsonl` : "",
+    kubeconfig: "",
+    context: "",
+    timeout: "30s",
+  }));
+  const [submitState, setSubmitState] = useState({ loading: false, error: "", result: null });
+
+  useEffect(() => {
+    if (!workspacePath) {
+      return;
+    }
+    setForm((previous) => {
+      const next = { ...previous };
+      if (!previous.bundlePath) {
+        next.bundlePath = `${workspacePath}/reference-stack.kubernetes.bundle.yaml`;
+      }
+      if (!previous.preflightPath) {
+        next.preflightPath = `${workspacePath}/reference-preflight.yaml`;
+      }
+      if (!previous.outputPath) {
+        next.outputPath = `${workspacePath}/reference-change-set.yaml`;
+      }
+      if (!previous.auditPath) {
+        next.auditPath = `${workspacePath}/reference-change-set.audit.jsonl`;
+      }
+      return next;
+    });
+  }, [workspacePath]);
+
+  const update = (key) => (event) => {
+    setForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/changeset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const payload = await response.json();
+      if (!response.ok && !payload?.changeSet) {
+        throw new Error(payload?.diagnostics?.[0]?.message || "Change-set failed");
+      }
+      const blocked = payload?.changeSet?.outcome === "blocked";
+      setSubmitState({
+        loading: false,
+        error: blocked ? "Change-set is blocked; approval cannot proceed." : "",
+        result: payload.changeSet || null,
+      });
+      onChangeSetCreated();
+    } catch (error) {
+      setSubmitState({ loading: false, error: error.message || "Change-set failed", result: null });
+    }
+  };
+
+  const operations = Array.isArray(submitState.result?.operations) ? submitState.result.operations : [];
+  const blocked = submitState.result?.outcome === "blocked";
+  return (
+    <>
+      <p>Workspace: {workspacePath || "unknown"}</p>
+      <form onSubmit={submit}>
+        <div className="formRow">
+          <label htmlFor="changeset-bundle-path">Bundle path</label>
+          <input id="changeset-bundle-path" value={form.bundlePath} onChange={update("bundlePath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="changeset-preflight-path">Preflight path</label>
+          <input id="changeset-preflight-path" value={form.preflightPath} onChange={update("preflightPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="changeset-name">Change-set name</label>
+          <input id="changeset-name" value={form.name} onChange={update("name")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="changeset-output-path">Change-set output path</label>
+          <input id="changeset-output-path" value={form.outputPath} onChange={update("outputPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="changeset-audit-path">Audit output path</label>
+          <input id="changeset-audit-path" value={form.auditPath} onChange={update("auditPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="changeset-kubeconfig">Kubeconfig path (optional)</label>
+          <input id="changeset-kubeconfig" value={form.kubeconfig} onChange={update("kubeconfig")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="changeset-context">Context (optional)</label>
+          <input id="changeset-context" value={form.context} onChange={update("context")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="changeset-timeout">Timeout</label>
+          <input id="changeset-timeout" value={form.timeout} onChange={update("timeout")} />
+        </div>
+        <button type="submit" disabled={submitState.loading}>
+          {submitState.loading ? "Computing change-set..." : "Compute change-set"}
+        </button>
+      </form>
+      {submitState.error && <p className="error">Error: {submitState.error}</p>}
+      {submitState.result && (
+        <>
+          <dl className="grid">
+            <div><dt>Change-set ID</dt><dd>{submitState.result.changeSetId || "n/a"}</dd></div>
+            <div><dt>Outcome</dt><dd>{submitState.result.outcome || "n/a"}</dd></div>
+            <div><dt>Change-set path</dt><dd>{submitState.result.changeSetPath || "n/a"}</dd></div>
+            <div><dt>Audit path</dt><dd>{submitState.result.auditPath || "n/a"}</dd></div>
+            <div><dt>Operations</dt><dd>{String(submitState.result.operationCount ?? 0)}</dd></div>
+            <div><dt>Blocked operations</dt><dd>{String(submitState.result.blockedCount ?? 0)}</dd></div>
+          </dl>
+          {blocked && <p className="error">Hard blocker: approval remains disabled until conflicts or unresolved objects are cleared.</p>}
+          {operations.length > 0 && (
+            <table>
+              <thead>
+                <tr>
+                  <th>Resource</th>
+                  <th>Action</th>
+                  <th>Ownership</th>
+                  <th>Severity</th>
+                  <th>Risks</th>
+                  <th>Diagnostic</th>
+                </tr>
+              </thead>
+              <tbody>
+                {operations.map((row) => (
+                  <tr key={`${row.resource}:${row.action}`}>
+                    <td>{row.resource}</td>
+                    <td>{row.action}</td>
+                    <td>{row.ownership}</td>
+                    <td>{row.severity}</td>
+                    <td>{Array.isArray(row.riskClasses) ? row.riskClasses.join(", ") : "none"}</td>
+                    <td>{row.diagnosticCode || "none"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <button type="button" disabled={blocked}>Proceed to approval (I5)</button>
+        </>
+      )}
+    </>
+  );
+}
+
 function renderView(viewID, payload, extra = {}) {
   if (viewID === "pipeline") {
     return <PipelineView payload={payload} />;
@@ -478,6 +746,12 @@ function renderView(viewID, payload, extra = {}) {
   }
   if (viewID === "render") {
     return <RenderView workspacePayload={payload} onRenderCreated={extra.onRenderCreated || (() => {})} />;
+  }
+  if (viewID === "preflight") {
+    return <PreflightView workspacePayload={payload} onPreflightCreated={extra.onPreflightCreated || (() => {})} />;
+  }
+  if (viewID === "changeset") {
+    return <ChangeSetView workspacePayload={payload} onChangeSetCreated={extra.onChangeSetCreated || (() => {})} />;
   }
   if (viewID === "catalog") {
     return (
@@ -516,13 +790,13 @@ export function App() {
   const driftEndpoint = driftAssertion ? `/api/v1/drift-posture?assertion=${encodeURIComponent(driftAssertion)}` : "/api/v1/drift-posture";
   const lifecycleEndpoint = lifecycleAssertion ? `/api/v1/lifecycle-policy?assertion=${encodeURIComponent(lifecycleAssertion)}` : "/api/v1/lifecycle-policy";
   const activeView = useMemo(() => views.find((view) => view.id === activeViewID) || views[0], [activeViewID]);
-  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" ? workspaceEndpoint : activeView.endpoint;
+  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" || activeView.id === "preflight" || activeView.id === "changeset" ? workspaceEndpoint : activeView.endpoint;
   const decoder =
     activeView.id === "drift"
       ? decodeDriftPayload
       : activeView.id === "lifecycle"
         ? decodeLifecyclePayload
-        : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render"
+        : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" || activeView.id === "preflight" || activeView.id === "changeset"
           ? decodeWorkspacePayload
           : undefined;
   const { loading, payload, error } = useEndpoint(endpoint, decoder);
@@ -562,6 +836,8 @@ export function App() {
             assertions: assertionIDs,
             onPlanCreated: () => setWorkspaceRefresh((value) => value + 1),
             onRenderCreated: () => setWorkspaceRefresh((value) => value + 1),
+            onPreflightCreated: () => setWorkspaceRefresh((value) => value + 1),
+            onChangeSetCreated: () => setWorkspaceRefresh((value) => value + 1),
           })}
       </section>
     </main>

@@ -455,6 +455,227 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Render.OperationCount = len(bundle.Spec.Operations)
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/preflight", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow preflight requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowPreflightRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-015", err.Error())
+			return
+		}
+		outputPath, err := ensureWorkspaceFilePath(workspacePath, payload.OutputPath, "outputPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-015", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-015", err.Error())
+			return
+		}
+		if strings.EqualFold(outputPath, auditPath) {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-015", "outputPath and auditPath must be different files")
+			return
+		}
+		var commandStdout bytes.Buffer
+		var commandStderr bytes.Buffer
+		preflightArgs := []string{
+			"--bundle", payload.BundlePath,
+			"--name", payload.Name,
+			"--output", outputPath,
+			"--audit-output", auditPath,
+		}
+		if payload.Kubeconfig != "" {
+			preflightArgs = append(preflightArgs, "--kubeconfig", payload.Kubeconfig)
+		}
+		if payload.ContextName != "" {
+			preflightArgs = append(preflightArgs, "--context", payload.ContextName)
+		}
+		if payload.Timeout != "" {
+			preflightArgs = append(preflightArgs, "--timeout", payload.Timeout)
+		}
+		exitCode := workflowPreflightRunner(preflightArgs, &commandStdout, &commandStderr)
+		var preflightCommandResult struct {
+			Valid       bool   `json:"valid"`
+			Outcome     string `json:"outcome"`
+			ResultID    string `json:"resultId"`
+			Output      string `json:"output"`
+			AuditOutput string `json:"auditOutput"`
+		}
+		if err := json.Unmarshal(commandStdout.Bytes(), &preflightCommandResult); err != nil {
+			if exitCode != ExitSuccess {
+				var failurePayload any
+				if unmarshalErr := json.Unmarshal(commandStdout.Bytes(), &failurePayload); unmarshalErr == nil {
+					writeServeJSON(writer, workflowPreflightStatus(exitCode), failurePayload)
+					return
+				}
+				writeServeError(writer, workflowPreflightStatus(exitCode), "YARA-SRV-016", strings.TrimSpace(commandStderr.String()))
+				return
+			}
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("decode preflight workflow output: %v", err))
+			return
+		}
+		if !preflightCommandResult.Valid || preflightCommandResult.Output == "" || preflightCommandResult.AuditOutput == "" {
+			if exitCode != ExitSuccess {
+				var failurePayload any
+				if unmarshalErr := json.Unmarshal(commandStdout.Bytes(), &failurePayload); unmarshalErr == nil {
+					writeServeJSON(writer, workflowPreflightStatus(exitCode), failurePayload)
+					return
+				}
+				writeServeError(writer, workflowPreflightStatus(exitCode), "YARA-SRV-016", strings.TrimSpace(commandStderr.String()))
+				return
+			}
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", "preflight workflow output omitted deterministic result metadata")
+			return
+		}
+		preflightResult, err := resources.LoadTargetPreflightResult(preflightCommandResult.Output)
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("load generated preflight result: %v", err))
+			return
+		}
+		report := preflightResult.Validate()
+		if !report.Valid {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("generated preflight result failed validation: %s", report.Diagnostics[0].Code))
+			return
+		}
+		response := workflowPreflightResponse{Valid: true}
+		response.Preflight.ResultID = preflightResult.Metadata.ResultID
+		response.Preflight.Outcome = preflightResult.Spec.Outcome
+		response.Preflight.TargetReferenceDigest = preflightResult.Spec.Target.ReferenceDigest
+		response.Preflight.ResultPath = preflightCommandResult.Output
+		response.Preflight.AuditPath = preflightCommandResult.AuditOutput
+		response.Preflight.CheckCount = len(preflightResult.Spec.Checks)
+		for _, check := range preflightResult.Spec.Checks {
+			switch check.Status {
+			case "passed":
+				response.Preflight.PassedChecks++
+			case "blocked":
+				response.Preflight.BlockedChecks++
+			case "failed":
+				response.Preflight.FailedChecks++
+			}
+		}
+		writeServeJSON(writer, workflowPreflightStatus(exitCode), response)
+	})
+	apiMux.HandleFunc("/api/v1/workflow/changeset", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow changeset requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowChangeSetRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-017", err.Error())
+			return
+		}
+		outputPath, err := ensureWorkspaceFilePath(workspacePath, payload.OutputPath, "outputPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-017", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-017", err.Error())
+			return
+		}
+		if strings.EqualFold(outputPath, auditPath) {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-017", "outputPath and auditPath must be different files")
+			return
+		}
+		var commandStdout bytes.Buffer
+		var commandStderr bytes.Buffer
+		changeSetArgs := []string{
+			"--bundle", payload.BundlePath,
+			"--preflight", payload.PreflightPath,
+			"--name", payload.Name,
+			"--output", outputPath,
+			"--audit-output", auditPath,
+		}
+		if payload.Kubeconfig != "" {
+			changeSetArgs = append(changeSetArgs, "--kubeconfig", payload.Kubeconfig)
+		}
+		if payload.ContextName != "" {
+			changeSetArgs = append(changeSetArgs, "--context", payload.ContextName)
+		}
+		if payload.Timeout != "" {
+			changeSetArgs = append(changeSetArgs, "--timeout", payload.Timeout)
+		}
+		exitCode := workflowChangeSetRunner(changeSetArgs, &commandStdout, &commandStderr)
+		var changeSetCommandResult struct {
+			Valid       bool   `json:"valid"`
+			Outcome     string `json:"outcome"`
+			ChangeSetID string `json:"changeSetId"`
+			Output      string `json:"output"`
+			AuditOutput string `json:"auditOutput"`
+		}
+		if err := json.Unmarshal(commandStdout.Bytes(), &changeSetCommandResult); err != nil {
+			if exitCode != ExitSuccess {
+				var failurePayload any
+				if unmarshalErr := json.Unmarshal(commandStdout.Bytes(), &failurePayload); unmarshalErr == nil {
+					writeServeJSON(writer, workflowChangeSetStatus(exitCode), failurePayload)
+					return
+				}
+				writeServeError(writer, workflowChangeSetStatus(exitCode), "YARA-SRV-018", strings.TrimSpace(commandStderr.String()))
+				return
+			}
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("decode changeset workflow output: %v", err))
+			return
+		}
+		if !changeSetCommandResult.Valid || changeSetCommandResult.Output == "" || changeSetCommandResult.AuditOutput == "" {
+			if exitCode != ExitSuccess {
+				var failurePayload any
+				if unmarshalErr := json.Unmarshal(commandStdout.Bytes(), &failurePayload); unmarshalErr == nil {
+					writeServeJSON(writer, workflowChangeSetStatus(exitCode), failurePayload)
+					return
+				}
+				writeServeError(writer, workflowChangeSetStatus(exitCode), "YARA-SRV-018", strings.TrimSpace(commandStderr.String()))
+				return
+			}
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", "changeset workflow output omitted deterministic result metadata")
+			return
+		}
+		changeSet, err := resources.LoadKubernetesChangeSet(changeSetCommandResult.Output)
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("load generated change set: %v", err))
+			return
+		}
+		report := changeSet.Validate()
+		if !report.Valid {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("generated change set failed validation: %s", report.Diagnostics[0].Code))
+			return
+		}
+		response := workflowChangeSetResponse{Valid: true}
+		response.ChangeSet.ChangeSetID = changeSet.Metadata.ChangeSetID
+		response.ChangeSet.Outcome = changeSet.Spec.Outcome
+		response.ChangeSet.ChangeSetPath = changeSetCommandResult.Output
+		response.ChangeSet.AuditPath = changeSetCommandResult.AuditOutput
+		response.ChangeSet.Summary = changeSet.Spec.Summary
+		response.ChangeSet.OperationCount = len(changeSet.Spec.Operations)
+		response.ChangeSet.Operations = make([]workflowChangeSetOperation, 0, len(changeSet.Spec.Operations))
+		for _, operation := range changeSet.Spec.Operations {
+			if operation.Action == "conflict" || operation.Action == "unresolved" {
+				response.ChangeSet.BlockedCount++
+			}
+			response.ChangeSet.Operations = append(response.ChangeSet.Operations, workflowChangeSetOperation{
+				Resource:       formatKubernetesResource(operation.Resource),
+				Action:         operation.Action,
+				Ownership:      operation.Ownership,
+				Severity:       workflowChangeSetSeverity(operation.Action),
+				RiskClasses:    append([]string(nil), operation.RiskClasses...),
+				DiagnosticCode: mapValueOrDefault(operation.DiagnosticCode, "none"),
+			})
+		}
+		writeServeJSON(writer, workflowChangeSetStatus(exitCode), response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -548,6 +769,68 @@ type workflowRenderResponse struct {
 		OperationCount int    `json:"operationCount"`
 	} `json:"render"`
 }
+
+type workflowPreflightRequest struct {
+	BundlePath  string `json:"bundlePath"`
+	Name        string `json:"name"`
+	OutputPath  string `json:"outputPath"`
+	AuditPath   string `json:"auditPath"`
+	Kubeconfig  string `json:"kubeconfig,omitempty"`
+	ContextName string `json:"context,omitempty"`
+	Timeout     string `json:"timeout,omitempty"`
+}
+
+type workflowPreflightResponse struct {
+	Valid     bool `json:"valid"`
+	Preflight struct {
+		ResultID              string `json:"resultId"`
+		Outcome               string `json:"outcome"`
+		TargetReferenceDigest string `json:"targetReferenceDigest"`
+		ResultPath            string `json:"resultPath"`
+		AuditPath             string `json:"auditPath"`
+		CheckCount            int    `json:"checkCount"`
+		PassedChecks          int    `json:"passedChecks"`
+		BlockedChecks         int    `json:"blockedChecks"`
+		FailedChecks          int    `json:"failedChecks"`
+	} `json:"preflight"`
+}
+
+type workflowChangeSetRequest struct {
+	BundlePath    string `json:"bundlePath"`
+	PreflightPath string `json:"preflightPath"`
+	Name          string `json:"name"`
+	OutputPath    string `json:"outputPath"`
+	AuditPath     string `json:"auditPath"`
+	Kubeconfig    string `json:"kubeconfig,omitempty"`
+	ContextName   string `json:"context,omitempty"`
+	Timeout       string `json:"timeout,omitempty"`
+}
+
+type workflowChangeSetOperation struct {
+	Resource       string   `json:"resource"`
+	Action         string   `json:"action"`
+	Ownership      string   `json:"ownership"`
+	Severity       string   `json:"severity"`
+	RiskClasses    []string `json:"riskClasses"`
+	DiagnosticCode string   `json:"diagnosticCode,omitempty"`
+}
+
+type workflowChangeSetResponse struct {
+	Valid     bool `json:"valid"`
+	ChangeSet struct {
+		ChangeSetID    string                            `json:"changeSetId"`
+		Outcome        string                            `json:"outcome"`
+		ChangeSetPath  string                            `json:"changeSetPath"`
+		AuditPath      string                            `json:"auditPath"`
+		OperationCount int                               `json:"operationCount"`
+		BlockedCount   int                               `json:"blockedCount"`
+		Summary        resources.KubernetesChangeSummary `json:"summary"`
+		Operations     []workflowChangeSetOperation      `json:"operations"`
+	} `json:"changeSet"`
+}
+
+var workflowPreflightRunner = kubernetesTargetPreflight
+var workflowChangeSetRunner = kubernetesChangeSet
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
 	entries, err := os.ReadDir(workspacePath)
@@ -698,9 +981,37 @@ func workflowPlanCreateStatus(exitCode int) int {
 
 func workflowRenderStatus(exitCode int) int {
 	switch exitCode {
+	case ExitSuccess:
+		return http.StatusOK
 	case ExitInvalidInput:
 		return http.StatusBadRequest
 	case ExitUnsupported:
+		return http.StatusUnprocessableEntity
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func workflowPreflightStatus(exitCode int) int {
+	switch exitCode {
+	case ExitSuccess:
+		return http.StatusOK
+	case ExitInvalidInput:
+		return http.StatusBadRequest
+	case ExitInfeasible, ExitUnsupported:
+		return http.StatusUnprocessableEntity
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func workflowChangeSetStatus(exitCode int) int {
+	switch exitCode {
+	case ExitSuccess:
+		return http.StatusOK
+	case ExitInvalidInput:
+		return http.StatusBadRequest
+	case ExitInfeasible, ExitUnsupported:
 		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusInternalServerError
@@ -728,6 +1039,72 @@ func decodeWorkflowRenderRequest(request *http.Request) (workflowRenderRequest, 
 		return payload, errors.New("target must be either kubernetes-gitops or docker-compose")
 	}
 	return payload, nil
+}
+
+func decodeWorkflowPreflightRequest(request *http.Request) (workflowPreflightRequest, error) {
+	var payload workflowPreflightRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.BundlePath) == "" || strings.TrimSpace(payload.Name) == "" || strings.TrimSpace(payload.OutputPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("bundlePath, name, outputPath and auditPath are required")
+	}
+	if payload.OutputPath == payload.AuditPath {
+		return payload, errors.New("outputPath and auditPath must be different files")
+	}
+	if payload.Timeout != "" {
+		if _, err := time.ParseDuration(payload.Timeout); err != nil {
+			return payload, errors.New("timeout must be a valid Go duration string")
+		}
+	}
+	return payload, nil
+}
+
+func decodeWorkflowChangeSetRequest(request *http.Request) (workflowChangeSetRequest, error) {
+	var payload workflowChangeSetRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.BundlePath) == "" || strings.TrimSpace(payload.PreflightPath) == "" || strings.TrimSpace(payload.Name) == "" || strings.TrimSpace(payload.OutputPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("bundlePath, preflightPath, name, outputPath and auditPath are required")
+	}
+	if payload.OutputPath == payload.AuditPath {
+		return payload, errors.New("outputPath and auditPath must be different files")
+	}
+	if payload.Timeout != "" {
+		if _, err := time.ParseDuration(payload.Timeout); err != nil {
+			return payload, errors.New("timeout must be a valid Go duration string")
+		}
+	}
+	return payload, nil
+}
+
+func formatKubernetesResource(reference resources.KubernetesObjectReference) string {
+	if reference.Namespace == "" {
+		return fmt.Sprintf("%s/%s %s", reference.APIVersion, reference.Kind, reference.Name)
+	}
+	return fmt.Sprintf("%s/%s %s/%s", reference.APIVersion, reference.Kind, reference.Namespace, reference.Name)
+}
+
+func workflowChangeSetSeverity(action string) string {
+	switch action {
+	case "conflict", "unresolved":
+		return "blocker"
+	default:
+		return "review"
+	}
 }
 
 func serveUIIndex(writer http.ResponseWriter, uiFileSystem fs.FS) {
