@@ -1368,6 +1368,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.index.export.audit.jsonl` : "",
   }));
   const [publicationIndexSubmitState, setPublicationIndexSubmitState] = useState({ loading: false, error: "", result: null });
+  const [publicationPackageForm, setPublicationPackageForm] = useState(() => ({
+    packageReference: "",
+    publicationWindowReference: "",
+    operatorReference: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.release-publication.package.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.package.export.audit.jsonl` : "",
+  }));
+  const [publicationPackageSubmitState, setPublicationPackageSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1415,6 +1423,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.release-publication.index.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.index.export.audit.jsonl`,
+    }));
+    setPublicationPackageForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.release-publication.package.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.package.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1658,6 +1671,36 @@ function CapsuleView({ payload }) {
       setPublicationIndexSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setPublicationIndexSubmitState({ loading: false, error: error.message || "Release publication index export failed", result: null });
+    }
+  };
+  const updatePublicationPackage = (key) => (event) => {
+    setPublicationPackageForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportPublicationPackage = publicationPackageForm.packageReference.trim() !== "" &&
+    publicationPackageForm.publicationWindowReference.trim() !== "" &&
+    publicationPackageForm.operatorReference.trim() !== "" &&
+    publicationPackageForm.manifestPath !== "" &&
+    publicationPackageForm.auditPath !== "" &&
+    publicationPackageForm.manifestPath !== publicationPackageForm.auditPath;
+  const submitPublicationPackage = async (event) => {
+    event.preventDefault();
+    if (!canExportPublicationPackage) {
+      return;
+    }
+    setPublicationPackageSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/release-publication/package/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(publicationPackageForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Release publication package export failed");
+      }
+      setPublicationPackageSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setPublicationPackageSubmitState({ loading: false, error: error.message || "Release publication package export failed", result: null });
     }
   };
   return (
@@ -1991,6 +2034,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{publicationIndexSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Index readiness</dt><dd>{publicationIndexSubmitState.result.indexState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{publicationIndexSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export release publication package</h3>
+      <form onSubmit={submitPublicationPackage}>
+        <div className="formRow">
+          <label htmlFor="publication-package-reference">Package reference</label>
+          <input id="publication-package-reference" value={publicationPackageForm.packageReference} onChange={updatePublicationPackage("packageReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-package-window-reference">Publication window reference</label>
+          <input id="publication-package-window-reference" value={publicationPackageForm.publicationWindowReference} onChange={updatePublicationPackage("publicationWindowReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-package-operator-reference">Publication package operator reference</label>
+          <input id="publication-package-operator-reference" value={publicationPackageForm.operatorReference} onChange={updatePublicationPackage("operatorReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-package-manifest-path">Manifest output path</label>
+          <input id="publication-package-manifest-path" value={publicationPackageForm.manifestPath} onChange={updatePublicationPackage("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-package-audit-path">Audit output path</label>
+          <input id="publication-package-audit-path" value={publicationPackageForm.auditPath} onChange={updatePublicationPackage("auditPath")} />
+        </div>
+        <button type="submit" disabled={publicationPackageSubmitState.loading || !canExportPublicationPackage}>
+          {publicationPackageSubmitState.loading ? "Exporting publication package..." : "Export publication package"}
+        </button>
+      </form>
+      {!canExportPublicationPackage && <p className="error">Publication package export requires package reference, publication window reference, operator reference, and distinct manifest/audit paths.</p>}
+      {publicationPackageSubmitState.error && <p className="error">Package readiness: blocked ({publicationPackageSubmitState.error})</p>}
+      {publicationPackageSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{publicationPackageSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{publicationPackageSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Package readiness</dt><dd>{publicationPackageSubmitState.result.packageState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{publicationPackageSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>
