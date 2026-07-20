@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/publication-chain-rehearsal.schema.json",
+  "title": "YARA PublicationChainRehearsal v1alpha1",
+  "description": "Immutable non-mutating rehearsal evidence for one publication chain identity set.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "PublicationChainRehearsal" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "rehearsalId"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "rehearsalId": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rehearsedAt", "catalogDigest", "assertionRef", "lifecycleProofApprovalId", "integrationPublicationAttestationId", "coverageReportId", "trustPolicyId", "boundaryAuditHead", "authorizationIds", "reviewer", "decision", "reasonReference", "maxEvidenceAge", "limitations"],
+      "properties": {
+        "rehearsedAt": { "type": "string", "format": "date-time" },
+        "catalogDigest": { "$ref": "#/$defs/digest" },
+        "assertionRef": { "type": "string", "minLength": 1 },
+        "lifecycleProofApprovalId": { "$ref": "#/$defs/digest" },
+        "integrationPublicationAttestationId": { "$ref": "#/$defs/digest" },
+        "coverageReportId": { "$ref": "#/$defs/digest" },
+        "trustPolicyId": { "$ref": "#/$defs/digest" },
+        "boundaryAuditHead": { "$ref": "#/$defs/digest" },
+        "authorizationIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/digest" }
+        },
+        "reviewer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["identity", "role", "assurance"],
+          "properties": {
+            "identity": { "type": "string", "minLength": 1 },
+            "role": { "type": "string", "minLength": 1 },
+            "assurance": { "type": "string", "minLength": 1 }
+          }
+        },
+        "decision": { "enum": ["approved", "changes-required", "abstained"] },
+        "reasonReference": { "type": "string", "minLength": 1 },
+        "maxEvidenceAge": { "type": "string", "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)([0-9]+(ns|us|µs|ms|s|m|h))*$" },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "name": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$" }
+  }
+}

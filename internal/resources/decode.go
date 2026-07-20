@@ -135,6 +135,10 @@ func LoadIntegrationPublicationAttestation(path string) (IntegrationPublicationA
 	return loadResource[IntegrationPublicationAttestation](path)
 }
 
+func LoadPublicationChainRehearsal(path string) (PublicationChainRehearsal, error) {
+	return loadResource[PublicationChainRehearsal](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

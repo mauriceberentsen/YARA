@@ -169,6 +169,31 @@ The boundary command fails closed when:
 
 Both commands fail closed when signing-authority boundary limitation records are missing, duplicated, malformed, or internally inconsistent.
 
+Phase 5 kickoff adds a bounded non-mutating publication-chain rehearsal:
+
+```bash
+go run ./cmd/yara publication chain rehearse \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --lifecycle-proof-approval lifecycle-proof-approval.yaml \
+  --confirm-lifecycle-proof-approval sha256:<approval-id> \
+  --integration-publication-attestation integration-publication-attestation.yaml \
+  --confirm-integration-publication-attestation sha256:<attestation-id> \
+  --coverage-report catalog-v0.2-coverage.yaml \
+  --confirm-coverage-report sha256:<report-id> \
+  --trust-policy airgap-gate-trust-policy.yaml \
+  --confirm-trust-policy sha256:<policy-id> \
+  --signing-boundary-audit signing-authority-boundary.audit.jsonl \
+  --authorization deployment-authorization.yaml \
+  --reviewer-role release-manager \
+  --decision approved \
+  --reason-reference ticket-publication-chain-rehearsal-123 \
+  --max-evidence-age 720h \
+  --name publication-chain-rehearsal \
+  --output publication-chain-rehearsal.yaml \
+  --audit-output publication-chain-rehearsal.audit.jsonl
+```
+
 Canonical lifecycle publication blocker taxonomy:
 
 - `lifecycle-proof-approval-not-recorded` -> `record-lifecycle-proof-approval`

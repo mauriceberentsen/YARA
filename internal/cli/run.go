@@ -157,6 +157,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 3 && args[0] == "lifecycle" && args[1] == "proof" && args[2] == "approve-publication" {
 		return approveLifecycleProofPublication(args[3:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "publication" && args[1] == "chain" && args[2] == "rehearse" {
+		return rehearsePublicationChain(args[3:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "integration" && args[1] == "component-smoke" {
 		return runIntegrationComponentSmoke(args[2:], stdout, stderr)
 	}
@@ -523,6 +526,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "LifecycleProofApproval", Digest: result.Metadata.ApprovalID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "lifecycle.proof-approval.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "publication-chain-rehearsal":
+		result, err := resources.LoadPublicationChainRehearsal(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "publication.chain.rehearsal.validate", "PublicationChainRehearsal", options.inputPath, "YARA-PCR-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("PublicationChainRehearsal", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "PublicationChainRehearsal", Digest: result.Metadata.RehearsalID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "publication.chain.rehearsal.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -629,12 +646,14 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara airgap gate-trust-policy review-transition --policy-diff <file> --decision <approved|changes-required|abstained> --reviewer-role <role> --reason-reference <ref> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara lifecycle proof record --apply-receipt <file> --retirement-receipt <file> --rollback-receipt <file> --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --name <name> --output <file> --audit-output <file> [--max-receipt-age <duration>]")
 	fmt.Fprintln(output, "  yara lifecycle proof approve-publication --catalog <file> --assertion <id> --lifecycle-proof-ledger <file> --confirm-lifecycle-proof-ledger <sha256:id> --evidence <sha256:id> [--evidence <sha256:id> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --max-ledger-age <duration> [--valid-for <duration>] --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara publication chain rehearse --catalog <file> --assertion <id> --lifecycle-proof-approval <file> --confirm-lifecycle-proof-approval <sha256:id> --integration-publication-attestation <file> --confirm-integration-publication-attestation <sha256:id> --coverage-report <file> --confirm-coverage-report <sha256:id> --trust-policy <file> --confirm-trust-policy <sha256:id> --signing-boundary-audit <file> --authorization <file> [--authorization <file> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --max-evidence-age <duration> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara airgap-provenance-gate-result validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-gate-trust-policy validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-gate-trust-policy-diff validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-gate-transition-review validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara lifecycle-proof-ledger validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara lifecycle-proof-approval validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara publication-chain-rehearsal validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara integration component-smoke --catalog <file> --target <local|user@host> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration topology-end-to-end --catalog <file> --target <local|user@host> --topology <id@version> --component <id@version> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration execute <component-smoke|topology-end-to-end> [mode-flags]")

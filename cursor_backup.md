@@ -14,7 +14,8 @@
   - `AirgapGateTransitionReview` (`schemas/yara.dev/v1alpha1/airgap-gate-transition-review.schema.json`);
   - `LifecycleProofLedger` (`schemas/yara.dev/v1alpha1/lifecycle-proof-ledger.schema.json`);
   - `LifecycleProofApproval` (`schemas/yara.dev/v1alpha1/lifecycle-proof-approval.schema.json`);
-  - `IntegrationPublicationAttestation` (`schemas/yara.dev/v1alpha1/integration-publication-attestation.schema.json`).
+  - `IntegrationPublicationAttestation` (`schemas/yara.dev/v1alpha1/integration-publication-attestation.schema.json`);
+  - `PublicationChainRehearsal` (`schemas/yara.dev/v1alpha1/publication-chain-rehearsal.schema.json`).
 - Latest archived catalog coverage artifact remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`.
 
 ## Current product boundary
@@ -62,6 +63,8 @@
   - catalog coverage report limitations now encode deterministic signing-authority boundary state (`signing-authority-boundary:status=...,overlap-count=...,ambiguity-count=...`);
   - `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now emit one shared explainability surface covering lifecycle readiness, integration convergence, and signing-authority boundary limitation state;
   - policy diagnostics now fail closed when signing-authority boundary limitation records are missing, duplicated, malformed, or internally inconsistent.
+  - `publication chain rehearse` now emits immutable `PublicationChainRehearsal` evidence for one assertion-scoped publication identity set (lifecycle approval + integration attestation + coverage report + trust policy + signing-boundary audit + authorization IDs) without mutation authority;
+  - publication-chain rehearsal now fails closed on stale evidence windows, foreign catalog/assertion bindings, approval/attestation confirmation mismatches, malformed signing-boundary audits, or non-independent signer-boundary evidence.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -103,6 +106,8 @@
   - publication-facing signing-authority boundary diagnostics are now available through a bounded audited CLI path requiring immutable coverage report, trust-policy, and execution-authorization evidence;
   - signing-authority boundary diagnostics remain deterministic and non-secret while rejecting overlapping or ambiguous signer/issuer role bindings;
   - publication diagnostics now preserve deterministic parity between create and lifecycle-policy outputs for lifecycle, integration convergence, and signing-authority boundary explainability fields;
+  - publication-chain rehearsals are content-addressed (`rehearsalId`), bind exact publication-chain identity subjects plus verified signing-boundary audit head, and record non-mutating reviewer readiness decisions;
+  - `publication chain rehearse` plus `publication-chain-rehearsal validate` provide bounded pre-live publication readiness checks with deterministic audit chains;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -139,13 +144,13 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by nine commits before this uncommitted work).
-- Recent commits before this slice (newest first): `3ff1b5d`, `10de4ec`, `86c7a32`, `07b8dba`, `f3ddebb`.
-- This slice closes Phase 4 publication policy explainability and report-limitation diagnostics convergence.
-- Phase 4 milestone plan now tracks three ordered slices:
-  - slice 1 completed: audited integration publication attestation closure for required publication diagnostics;
-  - slice 2 completed: independent signing-authority boundary diagnostics closure with fail-closed overlap/ambiguity rejection;
-  - slice 3 completed in this run: publication policy explainability and report-limitation diagnostics convergence.
+- Branch: `main` tracking `origin/main` (local ahead by ten commits before this uncommitted work).
+- Recent commits before this slice (newest first): `cdf8393`, `3ff1b5d`, `10de4ec`, `86c7a32`, `07b8dba`.
+- This slice starts Phase 5 by closing publication-chain active verification rehearsal kickoff.
+- Phase 5 milestone plan now tracks three ordered slices:
+  - slice 1 completed in this run: publication-chain rehearsal resource/command/validation closure with fail-closed chain binding checks;
+  - slice 2 pending: assertion-scoped publication-chain policy diagnostics parity in coverage policy output;
+  - slice 3 pending: publication-chain reviewer decision convergence for promotion-review entry points.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -158,16 +163,16 @@
 
 ## Next implementation slice
 
-Implement **Phase 5 milestone kickoff: publication-chain active verification rehearsal closure**:
+Implement **Phase 5 milestone continuation: assertion-scoped publication-chain policy diagnostics parity**:
 
-- add a bounded rehearsal command that verifies one complete publication chain identity set (lifecycle proof approval + integration publication attestation + signing-authority boundary evidence) without mutation authority;
-- emit immutable rehearsal evidence with deterministic fail-closed checks for stale, foreign, or inconsistent publication-chain bindings;
-- surface concise publication-chain readiness diagnostics suitable for pre-live promotion review while preserving non-secret durable evidence boundaries.
+- extend `catalog coverage lifecycle-publication-policy` diagnostics to include assertion-scoped publication-chain rehearsal readiness state for selected assertions;
+- fail closed when rehearsal evidence is missing, stale, foreign, or unbound to the selected assertion scope;
+- preserve deterministic non-secret explainability output parity with existing lifecycle/integration/signing-boundary diagnostics.
 
 Acceptance criteria:
 
-- publication-chain rehearsal fails closed when lifecycle, integration, or signer-boundary evidence is stale, foreign, or unbound to one catalog assertion scope;
-- publication diagnostics remain deterministic and non-secret while exposing bounded publication-chain readiness state for review;
+- policy diagnostics fail closed when assertion-scoped rehearsal evidence is missing, stale, foreign, or mismatched to selected assertion scope;
+- publication diagnostics remain deterministic and non-secret while exposing bounded assertion-scoped rehearsal readiness state for review;
 - lifecycle and integration publication diagnostics remain deterministic and non-secret with no mutation authority added;
 - lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
