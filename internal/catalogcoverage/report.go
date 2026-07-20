@@ -674,6 +674,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 	}
 	pendingPromotionReviewPaths := []string{}
 	pendingLifecycleProofApprovalPaths := []string{}
+	acceptedIntegrationByID := map[string]acceptedIntegrationEvidence{}
 	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -713,6 +714,13 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 			}
 			terminal := events[len(events)-1]
 			accepted := acceptedIntegrationEvidence{Result: integrationResult, AuditHead: head, OccurredAt: terminal.Metadata.OccurredAt}
+			if existing, exists := acceptedIntegrationByID[integrationResult.Metadata.ResultID]; exists {
+				if existing.AuditHead != accepted.AuditHead {
+					return fmt.Errorf("integration evidence %s reuses result identity with mismatched audit binding", filepath.Base(path))
+				}
+				return nil
+			}
+			acceptedIntegrationByID[integrationResult.Metadata.ResultID] = accepted
 			for _, reference := range integrationResult.Spec.ComponentRefs {
 				result.ComponentEvidence[reference] = append(result.ComponentEvidence[reference], accepted)
 			}

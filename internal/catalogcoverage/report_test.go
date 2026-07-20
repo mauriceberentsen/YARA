@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -95,6 +96,52 @@ func TestIntegrationValidationAuditIsNotExecutionEvidence(t *testing.T) {
 	}}}
 	if err := verifyIntegrationEvidenceAudit(events, result, result.Spec.CatalogDigest); err == nil {
 		t.Fatal("validation-only audit was accepted as integration execution evidence")
+	}
+}
+
+func TestBuildDeduplicatesEquivalentIntegrationEvidenceByResultIdentity(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	directory := t.TempDir()
+	result := deterministicIntegrationResultFixture(t, catalogDigest)
+	writeYAML(t, filepath.Join(directory, "integration-one.yaml"), result)
+	writeYAML(t, filepath.Join(directory, "integration-two.yaml"), result)
+	writeIntegrationExecutionAudit(t, filepath.Join(directory, "integration-one.audit.jsonl"), catalogDigest, result.Metadata.ResultID, result.Spec.Environment.ReferenceDigest, "2026-07-20T12:15:00Z")
+	writeIntegrationExecutionAudit(t, filepath.Join(directory, "integration-two.audit.jsonl"), catalogDigest, result.Metadata.ResultID, result.Spec.Environment.ReferenceDigest, "2026-07-20T12:15:00Z")
+	report, err := Build("coverage", snapshot, directory)
+	if err != nil {
+		t.Fatalf("build coverage with duplicate integration evidence: %v", err)
+	}
+	if report.Spec.Summary.AcceptedEvidenceCount != 1 || report.Spec.Summary.VerifiedAuditChainCount != 1 {
+		t.Fatalf("duplicate integration evidence inflated coverage summary counts: %#v", report.Spec.Summary)
+	}
+}
+
+func TestBuildRejectsIntegrationEvidenceIdentityReuseWithAuditBindingDrift(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	directory := t.TempDir()
+	result := deterministicIntegrationResultFixture(t, catalogDigest)
+	writeYAML(t, filepath.Join(directory, "integration-one.yaml"), result)
+	writeYAML(t, filepath.Join(directory, "integration-two.yaml"), result)
+	writeIntegrationExecutionAudit(t, filepath.Join(directory, "integration-one.audit.jsonl"), catalogDigest, result.Metadata.ResultID, result.Spec.Environment.ReferenceDigest, "2026-07-20T12:20:00Z")
+	writeIntegrationExecutionAudit(t, filepath.Join(directory, "integration-two.audit.jsonl"), catalogDigest, result.Metadata.ResultID, result.Spec.Environment.ReferenceDigest, "2026-07-20T12:21:00Z")
+	if _, err := Build("coverage", snapshot, directory); err == nil {
+		t.Fatal("integration evidence identity reuse with audit-binding drift was accepted")
 	}
 }
 
@@ -587,6 +634,44 @@ func contains(values []string, expected string) bool {
 	return false
 }
 
+func deterministicIntegrationResultFixture(t *testing.T, catalogDigest string) resources.IntegrationTestResult {
+	t.Helper()
+	result := resources.IntegrationTestResult{
+		APIVersion: resources.APIVersion,
+		Kind:       "IntegrationTestResult",
+		Metadata: resources.IntegrationTestResultMetadata{
+			Name: "integration-identity-fixture",
+		},
+		Spec: resources.IntegrationTestResultSpec{
+			Mode:          "component-smoke",
+			Outcome:       "passed",
+			CatalogDigest: catalogDigest,
+			ComponentRefs: []string{"core.litellm@1.93.0"},
+			Environment: resources.ContractTestEnvironment{
+				Transport:       "local",
+				ReferenceDigest: "sha256:" + strings.Repeat("a", 64),
+				OperatingSystem: "linux",
+				Architecture:    "amd64",
+				Docker: resources.ContractTestDocker{
+					Available: true, Version: "27.0.0", OperatingSystem: "linux", Architecture: "amd64",
+				},
+				Accelerators: []resources.ContractTestAccelerator{},
+			},
+			Checks: []resources.ContractTestCheck{
+				{ID: "integration.fixture.check", Status: "passed", EvidenceDigest: "sha256:" + strings.Repeat("b", 64)},
+			},
+			Limitations: []string{"bounded integration fixture"},
+		},
+	}
+	slices.Sort(result.Spec.ComponentRefs)
+	slices.Sort(result.Spec.Limitations)
+	result, err := result.AssignResultID()
+	if err != nil {
+		t.Fatalf("assign integration fixture result id: %v", err)
+	}
+	return result
+}
+
 func writeYAML(t *testing.T, path string, value any) {
 	t.Helper()
 	data, err := yaml.Marshal(value)
@@ -698,5 +783,51 @@ func writeLifecycleProofApprovalAuditCustom(t *testing.T, path, catalogDigest, l
 	}
 	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
 		t.Fatalf("write lifecycle-proof approval audit: %v", err)
+	}
+}
+
+func writeIntegrationExecutionAudit(t *testing.T, path, catalogDigest, resultID, targetDigest, occurredAt string) {
+	t.Helper()
+	chain := audit.NewChain()
+	started, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "integration-started", OccurredAt: occurredAt},
+		Spec: audit.Spec{
+			CorrelationID: "integration-execution",
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "integration.component-smoke.started",
+			Subjects:      []audit.Subject{{Kind: "CatalogSnapshot", Digest: catalogDigest}},
+			Reason:        audit.Reason{Type: "user-request", Reference: "test"},
+			Target:        "local:" + targetDigest,
+			Outcome:       "started",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append started integration audit: %v", err)
+	}
+	terminal, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "integration-terminal", OccurredAt: occurredAt},
+		Spec: audit.Spec{
+			CorrelationID: "integration-execution",
+			CausationID:   started.Metadata.ID,
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "integration.component-smoke.completed",
+			Subjects: []audit.Subject{
+				{Kind: "CatalogSnapshot", Digest: catalogDigest},
+				{Kind: "IntegrationTestResult", Digest: resultID},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "local:" + targetDigest,
+			Outcome: "success",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append terminal integration audit: %v", err)
+	}
+	var buffer bytes.Buffer
+	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, terminal}); err != nil {
+		t.Fatalf("encode integration audit: %v", err)
+	}
+	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
+		t.Fatalf("write integration audit: %v", err)
 	}
 }

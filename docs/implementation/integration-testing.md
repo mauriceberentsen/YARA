@@ -85,6 +85,12 @@ Operator remediation guidance for generic execute failures:
 - `YARA-INT-109`: selected topology components are not bound to a supported compatibility runtime assertion; remediation is to include an assertion-bound runtime component.
 - `YARA-INT-110`: selected components do not satisfy every topology role; remediation is to select components that satisfy all topology roles declared in the topology reference.
 
+Catalog coverage convergence rules for direct and generic integration evidence:
+
+- accepted integration evidence is deduplicated by immutable `IntegrationTestResult` identity;
+- reused result identities must bind the same verified audit-chain head, otherwise coverage fails closed;
+- mixed direct-mode and `integration execute` evidence cannot inflate accepted evidence counts.
+
 ## Coverage semantics
 
 A component can be partially covered by compatibility-contract evidence or an observed integration attempt. Complete integration coverage requires the selected component-smoke and topology-end-to-end observations to pass. Related compatibility assertions must also be promotion-eligible before the component can be reported complete.
