@@ -139,6 +139,10 @@ func LoadPublicationChainRehearsal(path string) (PublicationChainRehearsal, erro
 	return loadResource[PublicationChainRehearsal](path)
 }
 
+func LoadPublicationChainRenewalReview(path string) (PublicationChainRenewalReview, error) {
+	return loadResource[PublicationChainRenewalReview](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

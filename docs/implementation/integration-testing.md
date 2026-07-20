@@ -199,6 +199,36 @@ go run ./cmd/yara publication chain retention-diagnostics \
   --audit-output publication-chain.retention.audit.jsonl
 ```
 
+To record an immutable publication-chain renewal review that binds rehearsal and retention identities:
+
+```bash
+go run ./cmd/yara publication chain renewal-review \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --publication-chain-rehearsal publication-chain-rehearsal.yaml \
+  --confirm-publication-chain-rehearsal sha256:<publication-chain-rehearsal-id> \
+  --publication-chain-retention-audit publication-chain.retention.audit.jsonl \
+  --confirm-publication-chain-retention-audit sha256:<publication-chain-retention-audit-head> \
+  --promotion-review promotion-review.yaml \
+  --confirm-promotion-review sha256:<promotion-review-id> \
+  --lifecycle-proof-approval lifecycle-proof-approval.yaml \
+  --confirm-lifecycle-proof-approval sha256:<lifecycle-proof-approval-id> \
+  --integration-publication-attestation integration-publication-attestation.yaml \
+  --confirm-integration-publication-attestation sha256:<integration-publication-attestation-id> \
+  --evidence sha256:<publication-chain-rehearsal-id> \
+  --evidence sha256:<publication-chain-retention-audit-head> \
+  --evidence sha256:<promotion-review-id> \
+  --evidence sha256:<lifecycle-proof-approval-id> \
+  --evidence sha256:<integration-publication-attestation-id> \
+  --reviewer-role release-manager \
+  --decision approved \
+  --reason-reference ticket-publication-chain-renewal-review-123 \
+  --max-evidence-age 720h \
+  --name publication-chain-renewal-review \
+  --output publication-chain-renewal-review.yaml \
+  --audit-output publication-chain-renewal-review.audit.jsonl
+```
+
 `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now emit a shared deterministic explainability surface across:
 
 - lifecycle publication readiness and blocker taxonomy;
