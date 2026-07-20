@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -169,6 +170,95 @@ func TestIssueRetirementAuthorizationDeleteOnly(t *testing.T) {
 	}
 	if !authorization.Spec.Constraints.AllowDelete || authorization.Spec.Constraints.MaxOperations != len(desired)-1 || len(authorization.Spec.Constraints.AllowedActions) != 1 || authorization.Spec.Constraints.AllowedActions[0] != "delete" {
 		t.Fatalf("retirement constraints not delete-only: %#v", authorization.Spec.Constraints)
+	}
+}
+
+func TestIssueRollbackAuthorizationRequiresPassedPreflightAndNonDeleteActions(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC)
+	bundlePath := writeKubernetesBundle(t, directory)
+	bundle, _ := resources.LoadDeploymentBundle(bundlePath)
+	target := resources.TargetIdentity{Type: "kubernetes", ReferenceDigest: testCLIDigest('c'), ServerVersion: "v1.35.2"}
+	preflightPath := writeFreshPreflight(t, directory, bundle, target, now)
+	preflight, _ := resources.LoadTargetPreflightResult(preflightPath)
+	desired, err := changeset.DesiredObjects(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := make([]resources.KubernetesChangeOperation, 0, len(desired))
+	for _, object := range desired {
+		action, current, ownership := "create", "", "absent"
+		if object.Reference.Kind == "Namespace" {
+			action, current, ownership = "no-op", object.Digest, "owned"
+		}
+		operations = append(operations, resources.KubernetesChangeOperation{
+			Resource:      object.Reference,
+			Action:        action,
+			Ownership:     ownership,
+			DesiredDigest: object.Digest,
+			CurrentDigest: current,
+			RiskClasses:   []string{"workload"},
+		})
+	}
+	changeSet := resources.KubernetesChangeSet{
+		APIVersion: resources.APIVersion,
+		Kind:       "KubernetesChangeSet",
+		Metadata: resources.KubernetesChangeSetMetadata{
+			Name: "rollback-change-set",
+		},
+		Spec: resources.KubernetesChangeSetSpec{
+			Outcome:           "review-required",
+			ObservedAt:        now.Add(time.Minute).Format(time.RFC3339Nano),
+			BundleID:          bundle.Metadata.BundleID,
+			PlanID:            bundle.Spec.PlanID,
+			PreflightResultID: preflight.Metadata.ResultID,
+			Observer:          resources.TargetPreflightObserver{Name: "observer", Version: "0.2.0", Mode: "read-only"},
+			Target:            target,
+			Operations:        operations,
+			Summary: resources.KubernetesChangeSummary{
+				Creates: len(desired) - 1,
+				NoOps:   1,
+			},
+			Limitations: []string{"rollback baseline"},
+		},
+	}
+	changeSet, err = changeSet.AssignChangeSetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	changeSetPath := filepath.Join(directory, "rollback-change-set.yaml")
+	writeYAMLFixture(t, changeSetPath, changeSet)
+	approval := resources.DeploymentApproval{APIVersion: resources.APIVersion, Kind: "DeploymentApproval", Metadata: resources.DeploymentApprovalMetadata{Name: "rollback-approval"}, Spec: resources.DeploymentApprovalSpec{
+		Decision: "approved", Effect: "review-only", RecordedAt: now.Add(time.Minute).Format(time.RFC3339Nano), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339Nano),
+		PlanID: bundle.Spec.PlanID, BundleID: bundle.Metadata.BundleID, PreflightResultID: preflight.Metadata.ResultID, ChangeSetID: changeSet.Metadata.ChangeSetID, Target: target,
+		Actor: resources.ApprovalActor{ID: "local:reviewer", Type: "user", Assurance: "self-asserted-local"}, Reason: resources.ApprovalReason{Type: "user-review", Reference: "ticket-rbk"}, Limitations: []string{"Review only."},
+	}}
+	approval, err = approval.AssignApprovalID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvalPath := filepath.Join(directory, "rollback-approval.yaml")
+	writeYAMLFixture(t, approvalPath, approval)
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privatePath, _ := writeAuthorizationKeys(t, directory, publicKey, privateKey)
+	authorizationPath, auditPath := filepath.Join(directory, "rollback-authorization.yaml"), filepath.Join(directory, "rollback-authorization.audit.jsonl")
+	args := []string{"--bundle", bundlePath, "--preflight", preflightPath, "--change-set", changeSetPath, "--approval", approvalPath, "--private-key", privatePath, "--key-id", "operations-key-1", "--name", "rollback-authorization", "--output", authorizationPath, "--audit-output", auditPath, "--valid-for", "10m"}
+	var stdout, stderr bytes.Buffer
+	if exit := issueRollbackAuthorizationAt(args, &stdout, &stderr, func() time.Time { return now.Add(2 * time.Minute) }); exit != ExitSuccess {
+		t.Fatalf("issue rollback authorization: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	authorization, err := resources.LoadExecutionAuthorization(authorizationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorization.Spec.Constraints.AllowDelete || authorization.Spec.Constraints.AllowActiveVerification || len(authorization.Spec.Constraints.AcceptedPreflightBlockers) != 0 {
+		t.Fatalf("rollback constraints unexpectedly permissive: %#v", authorization.Spec.Constraints)
+	}
+	if !slices.Contains(authorization.Spec.Constraints.AllowedActions, "create") || !slices.Contains(authorization.Spec.Constraints.AllowedActions, "no-op") {
+		t.Fatalf("rollback actions not bound to reviewed change set: %#v", authorization.Spec.Constraints)
 	}
 }
 

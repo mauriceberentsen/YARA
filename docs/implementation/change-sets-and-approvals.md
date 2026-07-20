@@ -168,6 +168,37 @@ Retirement authorization requires an exact fresh no-op owned baseline and issues
 
 The initial apply-capable executor now produces this receipt after rechecking target identity, signed authorization, audit availability and operation state under a Lease. See [Authorized Kubernetes apply](kubernetes-apply.md).
 
+## Separate authorized rollback
+
+Rollback is a separate bounded restore path and is never inferred from drift:
+
+```bash
+go run ./cmd/yara authorization issue-rollback \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --preflight reference-stack.preflight.yaml \
+  --change-set reference-stack.change-set.yaml \
+  --approval reference-stack.approval.yaml \
+  --private-key execution-private.pem \
+  --key-id operations-key-1 \
+  --name reference-stack-rollback-authorization \
+  --output reference-stack.rollback.authorization.yaml \
+  --audit-output reference-stack.rollback.authorization.audit.jsonl
+
+go run ./cmd/yara deployment rollback kubernetes \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --preflight reference-stack.preflight.yaml \
+  --change-set reference-stack.change-set.yaml \
+  --approval reference-stack.approval.yaml \
+  --authorization reference-stack.rollback.authorization.yaml \
+  --public-key execution-public.pem \
+  --confirm-authorization 'sha256:<full-authorization-id>' \
+  --name reference-stack-rollback \
+  --receipt-output reference-stack.rollback.receipt.yaml \
+  --audit-output reference-stack.rollback.audit.jsonl
+```
+
+Rollback authorization requires fresh exact reviewed inputs and non-delete constraints bound to the reviewed action set and operation count. The executor rechecks ownership/state under lock, applies only reviewed `create`/`update` operations, and emits a content-addressed `RollbackReceipt`.
+
 ## Audit and privacy
 
 Change-set generation and approval recording require audit output and remove generated resources if terminal audit persistence fails. Events bind immutable resource and pseudonymous target digests. They exclude kubeconfig paths, contexts, API endpoints and full Kubernetes objects. Approval reasons are non-secret references, not free-form justifications or credentials.
@@ -177,5 +208,5 @@ Change-set generation and approval recording require audit output and remove gen
 - short-lived Kubernetes credential issuance remains operator-managed;
 - acquisition/import execution remains out of scope; apply only consumes a separate import receipt and re-verifies model-PVC file digests;
 - verifier-label admission governance remains an explicit limitation;
-- owned rollback remains unimplemented; safe owned-resource retirement is implemented as a separate authorization and executor path;
+- safe owned rollback and retirement are implemented as separate authorization and executor paths;
 - clean-cluster namespace, storage and model provisioning remain outside the first executor.

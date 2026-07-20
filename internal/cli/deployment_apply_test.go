@@ -18,8 +18,9 @@ import (
 )
 
 type fixedKubernetesExecutor struct {
-	execute func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
-	retire  func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RetirementResult, error)
+	execute  func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
+	retire   func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RetirementResult, error)
+	rollback func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RollbackResult, error)
 }
 
 func (f fixedKubernetesExecutor) Execute(ctx context.Context, bundle resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, started time.Time) (executor.ExecutionResult, error) {
@@ -31,6 +32,13 @@ func (f fixedKubernetesExecutor) Retire(ctx context.Context, bundle resources.De
 		return executor.RetirementResult{}, nil
 	}
 	return f.retire(ctx, bundle, changeSet, authorization, started)
+}
+
+func (f fixedKubernetesExecutor) Rollback(ctx context.Context, bundle resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, started time.Time) (executor.RollbackResult, error) {
+	if f.rollback == nil {
+		return executor.RollbackResult{}, nil
+	}
+	return f.rollback(ctx, bundle, changeSet, authorization, started)
 }
 
 func TestDeploymentApplyDurablyAuditsBeforeMutationAndBindsReceipt(t *testing.T) {

@@ -261,6 +261,52 @@ func TestKubernetesExecutorRejectsChangeSetNotMatchingBundleBeforeTargetAccess(t
 	}
 }
 
+func TestKubernetesRollbackAppliesReviewedRollbackSetUnderLock(t *testing.T) {
+	bundle, desired, changeSet, authorization, _, fake := executorFixture(t, false)
+	authorization.Metadata.AuthorizationID = testDigest('c')
+	authorization.Spec.Constraints.AllowedActions = []string{"create", "no-op"}
+	authorization.Spec.Constraints.AllowDelete = false
+	authorization.Spec.Constraints.AllowActiveVerification = false
+	authorization.Spec.Constraints.AcceptedPreflightBlockers = nil
+	authorization.Spec.Constraints.MaxOperations = len(desired)
+	engine := Kubernetes{Executable: "kubectl", Runner: fake}
+	result, err := engine.Rollback(t.Context(), bundle, changeSet, authorization, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.MutationStarted || len(result.Operations) != len(desired) {
+		t.Fatalf("rollback did not complete: %#v", result)
+	}
+	leaseCreate, firstApply, leaseDelete := callIndex(fake.calls, "create -f -"), callIndex(fake.calls, "apply --server-side"), callIndex(fake.calls, "delete lease")
+	if leaseCreate < 0 || firstApply <= leaseCreate || leaseDelete <= firstApply {
+		t.Fatalf("rollback escaped lock ordering: %#v", fake.calls)
+	}
+}
+
+func TestKubernetesRollbackRejectsStaleForeignStateBeforeApply(t *testing.T) {
+	bundle, desired, changeSet, authorization, _, fake := executorFixture(t, false)
+	foreign := cloneObject(desired[1].Object)
+	metadata := foreign["metadata"].(map[string]any)
+	metadata["labels"] = map[string]any{"app.kubernetes.io/managed-by": "foreign"}
+	fake.objects[keyOf(desired[1].Reference)] = foreign
+	authorization.Metadata.AuthorizationID = testDigest('d')
+	authorization.Spec.Constraints.AllowedActions = []string{"create", "no-op"}
+	authorization.Spec.Constraints.AllowDelete = false
+	authorization.Spec.Constraints.AllowActiveVerification = false
+	authorization.Spec.Constraints.AcceptedPreflightBlockers = nil
+	authorization.Spec.Constraints.MaxOperations = len(desired)
+	engine := Kubernetes{Executable: "kubectl", Runner: fake}
+	result, err := engine.Rollback(t.Context(), bundle, changeSet, authorization, time.Now().UTC())
+	if err == nil || !result.MutationStarted {
+		t.Fatalf("rollback stale state was not rejected: result=%#v err=%v", result, err)
+	}
+	for _, call := range fake.calls {
+		if strings.HasPrefix(call, "apply --server-side") {
+			t.Fatalf("rollback applied objects after stale-state detection: %s", call)
+		}
+	}
+}
+
 func TestKubernetesRetirementDeletesOwnedReviewedResourcesUnderLock(t *testing.T) {
 	bundle, desired, changeSet, authorization, _, fake := executorFixture(t, false)
 	retireSet := changeSet

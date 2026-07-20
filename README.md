@@ -212,6 +212,16 @@ go run ./cmd/yara authorization issue-retirement \
   --name reference-stack-retirement-execution \
   --output reference-stack.retirement.authorization.yaml \
   --audit-output reference-stack.retirement.authorization.audit.jsonl
+go run ./cmd/yara authorization issue-rollback \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --preflight reference-stack.preflight.yaml \
+  --change-set reference-stack.change-set.yaml \
+  --approval reference-stack.approval.yaml \
+  --private-key execution-private.pem \
+  --key-id operations-key-1 \
+  --name reference-stack-rollback-execution \
+  --output reference-stack.rollback.authorization.yaml \
+  --audit-output reference-stack.rollback.authorization.audit.jsonl
 go run ./cmd/yara deployment apply kubernetes \
   --bundle reference-stack.kubernetes.bundle.yaml \
   --preflight reference-stack.preflight.yaml \
@@ -235,6 +245,18 @@ go run ./cmd/yara deployment retire kubernetes \
   --name reference-stack-retirement \
   --receipt-output reference-stack.retirement.receipt.yaml \
   --audit-output reference-stack.retirement.audit.jsonl
+go run ./cmd/yara deployment rollback kubernetes \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --preflight reference-stack.preflight.yaml \
+  --change-set reference-stack.change-set.yaml \
+  --approval reference-stack.approval.yaml \
+  --authorization reference-stack.rollback.authorization.yaml \
+  --public-key execution-public.pem \
+  --confirm-authorization 'sha256:<full-authorization-id>' \
+  --name reference-stack-rollback \
+  --receipt-output reference-stack.rollback.receipt.yaml \
+  --audit-output reference-stack.rollback.audit.jsonl
+go run ./cmd/yara rollback-receipt validate reference-stack.rollback.receipt.yaml
 go run ./cmd/yara plan diff docs/examples/platform-plan.yaml plan.yaml \
   --audit-output plan-diff.audit.jsonl
 go run ./cmd/yara debug bundle \
@@ -307,6 +329,7 @@ Currently implemented:
 - review-only deployment approvals, short-lived signed execution authorization and a fail-closed direct Kubernetes executor producing deployment receipts;
 - strict artifact-import receipts bound to plan/bundle/target and required before Kubernetes apply;
 - safe owned-resource retirement as a separate signed delete-only command and receipt path;
+- safe owned-state rollback as a separate signed non-delete command and receipt path;
 - short-lived Ed25519-signed execution authorization bound to exact reviewed inputs and an explicitly trusted public key;
 - a catalog-authored abstract topology template resolved into gateway and inference component instances;
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;

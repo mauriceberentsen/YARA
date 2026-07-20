@@ -91,6 +91,10 @@ func LoadRetirementReceipt(path string) (RetirementReceipt, error) {
 	return loadResource[RetirementReceipt](path)
 }
 
+func LoadRollbackReceipt(path string) (RollbackReceipt, error) {
+	return loadResource[RollbackReceipt](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

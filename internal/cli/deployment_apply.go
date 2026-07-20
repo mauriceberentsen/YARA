@@ -33,6 +33,7 @@ type deploymentApplyOptions struct {
 type kubernetesExecutor interface {
 	Execute(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
 	Retire(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RetirementResult, error)
+	Rollback(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RollbackResult, error)
 }
 
 var newKubernetesExecutor = func(kubeconfig, contextName string) (kubernetesExecutor, error) {

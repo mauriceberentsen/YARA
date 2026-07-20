@@ -83,6 +83,15 @@ type RetirementResult struct {
 	Limitations     []string
 }
 
+type RollbackResult struct {
+	StartedAt       time.Time
+	CompletedAt     time.Time
+	Target          resources.TargetIdentity
+	MutationStarted bool
+	Operations      []resources.RollbackOperationReceipt
+	Limitations     []string
+}
+
 func NewKubernetes(kubeconfig, contextName string) (Kubernetes, error) {
 	executable, err := exec.LookPath("kubectl")
 	if err != nil {
@@ -331,6 +340,111 @@ func (k Kubernetes) Execute(ctx context.Context, bundle resources.DeploymentBund
 	return result, nil
 }
 
+func (k Kubernetes) Rollback(ctx context.Context, bundle resources.DeploymentBundle, approved resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, startedAt time.Time) (result RollbackResult, err error) {
+	result.StartedAt = startedAt.UTC()
+	if k.Executable == "" || k.Runner == nil {
+		return result, errors.New("Kubernetes executor is incomplete")
+	}
+	desired, err := changeset.DesiredObjects(bundle)
+	if err != nil {
+		return result, err
+	}
+	desiredByKey := make(map[string]changeset.DesiredObject, len(desired))
+	for _, object := range desired {
+		desiredByKey[objectKey(object.Reference)] = object
+	}
+	if len(desired) != len(approved.Spec.Operations) || !strings.HasPrefix(authorization.Metadata.AuthorizationID, "sha256:") || len(authorization.Metadata.AuthorizationID) != 71 || authorization.Spec.Constraints.AllowDelete || authorization.Spec.Constraints.AllowActiveVerification || len(authorization.Spec.Constraints.AcceptedPreflightBlockers) != 0 || authorization.Spec.Constraints.MaxOperations != len(desired) {
+		return result, errors.New("rollback authorization identity or constraints are invalid")
+	}
+	for _, operation := range approved.Spec.Operations {
+		if !slices.Contains([]string{"create", "update", "no-op"}, operation.Action) || !slices.Contains(authorization.Spec.Constraints.AllowedActions, operation.Action) {
+			return result, errors.New("change set contains an unauthorized rollback action")
+		}
+		object, exists := desiredByKey[objectKey(operation.Resource)]
+		if !exists || operation.DesiredDigest != object.Digest {
+			return result, errors.New("change set does not match exact rollback bundle objects")
+		}
+	}
+	if namespaceAction(approved) != "no-op" {
+		return result, errors.New("rollback requires an existing exact YARA-owned namespace")
+	}
+	target, err := k.identify(ctx)
+	if err != nil {
+		return result, err
+	}
+	result.Target = target
+	if target != authorization.Spec.Target || target != approved.Spec.Target {
+		return result, errors.New("target identity changed before rollback")
+	}
+	lockName := "yara-rollback-lock-" + bundle.Metadata.Name
+	holder := strings.TrimPrefix(authorization.Metadata.AuthorizationID, "sha256:")[:24]
+	if err := k.acquireLock(ctx, bundle.Metadata.Name, lockName, holder, authorization.Metadata.AuthorizationID); err != nil {
+		return result, err
+	}
+	result.MutationStarted = true
+	locked := true
+	defer func() {
+		if locked {
+			if releaseErr := k.releaseLock(context.WithoutCancel(ctx), bundle.Metadata.Name, lockName, holder, authorization.Metadata.AuthorizationID); releaseErr != nil && err == nil {
+				err = releaseErr
+			}
+		}
+		if result.MutationStarted {
+			completeRollbackResult(&result, desired, approved)
+		}
+	}()
+	if err := k.assertApprovedState(ctx, desired, approved, bundle.Spec.PlanID); err != nil {
+		return result, err
+	}
+	ordered := append([]changeset.DesiredObject(nil), desired...)
+	slices.SortFunc(ordered, func(left, right changeset.DesiredObject) int {
+		leftPriority, rightPriority := applyPriority(left.Reference.Kind), applyPriority(right.Reference.Kind)
+		if leftPriority != rightPriority {
+			return leftPriority - rightPriority
+		}
+		return strings.Compare(objectKey(left.Reference), objectKey(right.Reference))
+	})
+	approvedByKey := map[string]resources.KubernetesChangeOperation{}
+	for _, operation := range approved.Spec.Operations {
+		approvedByKey[objectKey(operation.Resource)] = operation
+	}
+	failed := false
+	for _, object := range ordered {
+		operation := approvedByKey[objectKey(object.Reference)]
+		receipt := resources.RollbackOperationReceipt{Resource: object.Reference, Action: operation.Action, BeforeDigest: operation.CurrentDigest}
+		if failed {
+			receipt.Outcome = "skipped"
+			result.Operations = append(result.Operations, receipt)
+			continue
+		}
+		if operation.Action == "no-op" {
+			receipt.Outcome, receipt.AfterDigest = "unchanged", object.Digest
+			result.Operations = append(result.Operations, receipt)
+			continue
+		}
+		manifest, marshalErr := yaml.Marshal(object.Object)
+		if marshalErr != nil || k.applyObject(ctx, manifest) != nil {
+			receipt.Outcome, receipt.DiagnosticCode = "failed", "YARA-RBK-201"
+			failed = true
+			result.Operations = append(result.Operations, receipt)
+			continue
+		}
+		observed, observeErr := k.observeObject(ctx, object.Reference, bundle.Spec.PlanID)
+		if observeErr != nil || !observed.Exists || !observed.Owned || !observed.PlanMatch || observed.Digest != object.Digest {
+			receipt.Outcome, receipt.DiagnosticCode = "failed", "YARA-RBK-202"
+			failed = true
+		} else {
+			receipt.Outcome, receipt.AfterDigest = "reverted", observed.Digest
+		}
+		result.Operations = append(result.Operations, receipt)
+	}
+	if releaseErr := k.releaseLock(ctx, bundle.Metadata.Name, lockName, holder, authorization.Metadata.AuthorizationID); releaseErr != nil {
+		return result, releaseErr
+	}
+	locked = false
+	return result, nil
+}
+
 func appendPostflightOnce(result *ExecutionResult, check resources.DeploymentPostflightCheck) {
 	for _, existing := range result.Postflight {
 		if existing.ID == check.ID {
@@ -396,6 +510,36 @@ func completeRetirementResult(result *RetirementResult, targets []changeset.Desi
 		"Retirement never deletes Namespace, PVCs, storage classes or unmanaged resources.",
 		"Retirement runs only from a fresh exact no-op baseline and fails closed on any observed drift.",
 		"Retirement does not implement rollback or re-provisioning.",
+	}
+	slices.Sort(result.Limitations)
+	result.CompletedAt = time.Now().UTC()
+}
+
+func completeRollbackResult(result *RollbackResult, desired []changeset.DesiredObject, approved resources.KubernetesChangeSet) {
+	if len(result.Operations) < len(desired) {
+		recorded := map[string]struct{}{}
+		for _, operation := range result.Operations {
+			recorded[objectKey(operation.Resource)] = struct{}{}
+		}
+		approvedByKey := map[string]resources.KubernetesChangeOperation{}
+		for _, operation := range approved.Spec.Operations {
+			approvedByKey[objectKey(operation.Resource)] = operation
+		}
+		for _, object := range desired {
+			if _, exists := recorded[objectKey(object.Reference)]; exists {
+				continue
+			}
+			operation := approvedByKey[objectKey(object.Reference)]
+			result.Operations = append(result.Operations, resources.RollbackOperationReceipt{Resource: object.Reference, Action: operation.Action, Outcome: "skipped", BeforeDigest: operation.CurrentDigest})
+		}
+	}
+	slices.SortFunc(result.Operations, func(left, right resources.RollbackOperationReceipt) int {
+		return strings.Compare(objectKey(left.Resource), objectKey(right.Resource))
+	})
+	result.Limitations = []string{
+		"Rollback applies only the explicitly reviewed rollback bundle object set and never prunes or adopts resources.",
+		"Rollback requires a fresh reviewed change set and signed authorization; it fails closed on stale or foreign state.",
+		"Rollback does not restore external artifact import state or execute retirement.",
 	}
 	slices.Sort(result.Limitations)
 	result.CompletedAt = time.Now().UTC()

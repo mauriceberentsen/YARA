@@ -85,6 +85,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "authorization" && args[1] == "issue-retirement" {
 		return issueRetirementAuthorization(args[2:], stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "authorization" && args[1] == "issue-rollback" {
+		return issueRollbackAuthorization(args[2:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "authorization" && args[1] == "verify" {
 		return verifyExecutionAuthorization(args[2:], stdout, stderr)
 	}
@@ -93,6 +96,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(args) >= 3 && args[0] == "deployment" && args[1] == "retire" && args[2] == "kubernetes" {
 		return retireKubernetesDeployment(args[3:], stdout, stderr)
+	}
+	if len(args) >= 3 && args[0] == "deployment" && args[1] == "rollback" && args[2] == "kubernetes" {
+		return rollbackKubernetesDeployment(args[3:], stdout, stderr)
 	}
 	if len(args) >= 2 && args[0] == "scenario" && args[1] == "validate" {
 		return validateScenario(args[2:], stdout, stderr)
@@ -315,6 +321,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "RetirementReceipt", Digest: result.Metadata.ReceiptID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "deployment.retirement-receipt.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "rollback-receipt":
+		result, err := resources.LoadRollbackReceipt(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "deployment.rollback-receipt.validate", "RollbackReceipt", options.inputPath, "YARA-RBK-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("RollbackReceipt", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "RollbackReceipt", Digest: result.Metadata.ReceiptID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "deployment.rollback-receipt.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -388,11 +408,14 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara import-receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara authorization issue --bundle <file> --preflight <file> --change-set <file> --approval <file> --private-key <file> --key-id <id> --name <name> --output <file> --audit-output <file> [--valid-for <duration>]")
 	fmt.Fprintln(output, "  yara authorization issue-retirement --bundle <file> --preflight <file> --change-set <file> --approval <file> --private-key <file> --key-id <id> --name <name> --output <file> --audit-output <file> [--valid-for <duration>]")
+	fmt.Fprintln(output, "  yara authorization issue-rollback --bundle <file> --preflight <file> --change-set <file> --approval <file> --private-key <file> --key-id <id> --name <name> --output <file> --audit-output <file> [--valid-for <duration>]")
 	fmt.Fprintln(output, "  yara authorization verify --authorization <file> --public-key <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara deployment apply kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --import-receipt <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
 	fmt.Fprintln(output, "  yara deployment retire kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
+	fmt.Fprintln(output, "  yara deployment rollback kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
 	fmt.Fprintln(output, "  yara receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara retirement-receipt validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara rollback-receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate-all <directory> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara contract preflight --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
