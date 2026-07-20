@@ -135,6 +135,13 @@ yara contract sustained-capacity --catalog catalog/v0.2/snapshot.yaml \
   --output gb10-sustained-capacity.yaml --audit-output gb10-sustained-capacity.audit.jsonl
 yara contract lifecycle --catalog catalog/v0.2/snapshot.yaml \
   --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --lifecycle-proof-ledger reference-stack.lifecycle-proof-ledger.yaml \
+  --confirm-lifecycle-proof-ledger 'sha256:<full-ledger-id>' \
+  --lifecycle-apply-receipt reference-stack.receipt.yaml \
+  --lifecycle-retirement-receipt reference-stack.retirement.receipt.yaml \
+  --lifecycle-rollback-receipt reference-stack.rollback.receipt.yaml \
+  --confirm-lifecycle-reason-reference ticket-lifecycle-proof-123 \
+  --lifecycle-proof-max-age 720h \
   --target user@gb10-runner.example --name gb10-lifecycle \
   --output gb10-lifecycle.yaml --audit-output gb10-lifecycle.audit.jsonl
 yara contract validate contract-result.yaml

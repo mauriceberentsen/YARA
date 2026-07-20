@@ -318,6 +318,13 @@ go run ./cmd/yara contract lifecycle \
   --catalog catalog/v0.2/snapshot.yaml \
   --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
   --target user@gb10-runner.example \
+  --lifecycle-proof-ledger reference-stack.lifecycle-proof-ledger.yaml \
+  --confirm-lifecycle-proof-ledger 'sha256:<full-ledger-id>' \
+  --lifecycle-apply-receipt reference-stack.receipt.yaml \
+  --lifecycle-retirement-receipt reference-stack.retirement.receipt.yaml \
+  --lifecycle-rollback-receipt reference-stack.rollback.receipt.yaml \
+  --confirm-lifecycle-reason-reference ticket-lifecycle-proof-123 \
+  --lifecycle-proof-max-age 720h \
   --name gb10-qwen-coder-lifecycle \
   --output gb10-qwen-coder-lifecycle.yaml \
   --audit-output gb10-qwen-coder-lifecycle.audit.jsonl

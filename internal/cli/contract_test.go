@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
@@ -576,7 +577,7 @@ func TestContractLifecyclePersistsScopedResultAndAuditEvidence(t *testing.T) {
 	temp := t.TempDir()
 	outputPath, auditPath := filepath.Join(temp, "lifecycle.yaml"), filepath.Join(temp, "audit.jsonl")
 	var stdout, stderr bytes.Buffer
-	if exitCode := Run(lifecycleContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitSuccess {
+	if exitCode := Run(lifecycleContractArgs(t, temp, outputPath, auditPath), &stdout, &stderr); exitCode != ExitSuccess {
 		t.Fatalf("lifecycle contract failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
 	}
 	result, err := resources.LoadContractTestResult(outputPath)
@@ -591,7 +592,7 @@ func TestContractLifecyclePersistsScopedResultAndAuditEvidence(t *testing.T) {
 		t.Fatalf("load audit: %v", err)
 	}
 	terminal := events[len(events)-1]
-	if terminal.Spec.Action != "contract.lifecycle.completed" || terminal.Spec.Subjects[1].Digest != result.Metadata.ResultID {
+	if terminal.Spec.Action != "contract.lifecycle.completed" || len(terminal.Spec.Subjects) < 2 || terminal.Spec.Subjects[len(terminal.Spec.Subjects)-1].Digest != result.Metadata.ResultID {
 		t.Fatalf("unexpected lifecycle audit: %#v", terminal.Spec)
 	}
 }
@@ -607,7 +608,7 @@ func TestContractLifecycleDoesNotStartWhenArtifactGateFails(t *testing.T) {
 	temp := t.TempDir()
 	outputPath, auditPath := filepath.Join(temp, "lifecycle.yaml"), filepath.Join(temp, "audit.jsonl")
 	var stdout, stderr bytes.Buffer
-	if exitCode := Run(lifecycleContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInfeasible {
+	if exitCode := Run(lifecycleContractArgs(t, temp, outputPath, auditPath), &stdout, &stderr); exitCode != ExitInfeasible {
 		t.Fatalf("expected failed gate, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
 	}
 	if called {
@@ -628,11 +629,64 @@ func TestContractLifecycleRollsBackResultWhenAuditCannotBeWritten(t *testing.T) 
 		t.Fatalf("prepare audit: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
-	if exitCode := Run(lifecycleContractArgs(outputPath, auditPath), &stdout, &stderr); exitCode != ExitInvalidInput {
+	if exitCode := Run(lifecycleContractArgs(t, temp, outputPath, auditPath), &stdout, &stderr); exitCode != ExitInvalidInput {
 		t.Fatalf("expected invalid input, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
 	}
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
 		t.Fatalf("lifecycle result must be rolled back after audit failure: %v", err)
+	}
+}
+
+func TestContractLifecycleRejectsStaleLifecycleProofLedger(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	called := false
+	setLifecycleContractDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedLifecycleContractRunner{called: &called},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "lifecycle.yaml"), filepath.Join(temp, "audit.jsonl")
+	args := append(lifecycleContractArgs(t, temp, outputPath, auditPath), "--lifecycle-proof-max-age", "1s")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(args, &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected stale lifecycle proof rejection, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if called {
+		t.Fatal("lifecycle workload started after stale lifecycle proof rejection")
+	}
+}
+
+func TestContractLifecycleRejectsForeignLifecycleReceiptSubstitution(t *testing.T) {
+	setContractProbe(t, fixedContractProbe{environment: contractEnvironment("NVIDIA GB10", "arm64")})
+	evidence := "sha256:" + strings.Repeat("d", 64)
+	called := false
+	setLifecycleContractDependencies(t,
+		fixedArtifactVerifier{checks: []resources.ContractTestCheck{{ID: "artifact.runtime.0.digest", Status: "passed", EvidenceDigest: evidence}}},
+		fixedLifecycleContractRunner{called: &called},
+	)
+	temp := t.TempDir()
+	outputPath, auditPath := filepath.Join(temp, "lifecycle.yaml"), filepath.Join(temp, "audit.jsonl")
+	args := lifecycleContractArgs(t, temp, outputPath, auditPath)
+	rollbackPath := argValue(t, args, "--lifecycle-rollback-receipt")
+	rollback, err := resources.LoadRollbackReceipt(rollbackPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollback.Spec.PlanID = "sha256:" + strings.Repeat("9", 64)
+	rollback, err = rollback.AssignReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignPath := filepath.Join(temp, "foreign-rollback.yaml")
+	writeYAMLFixture(t, foreignPath, rollback)
+	args = setArgValue(t, args, "--lifecycle-rollback-receipt", foreignPath)
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run(args, &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected foreign lifecycle receipt rejection, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+	if called {
+		t.Fatal("lifecycle workload started after foreign receipt substitution")
 	}
 }
 
@@ -740,14 +794,182 @@ func setLifecycleContractDependencies(t *testing.T, verifier fixedArtifactVerifi
 	})
 }
 
-func lifecycleContractArgs(outputPath, auditPath string) []string {
+func lifecycleContractArgs(t *testing.T, directory, outputPath, auditPath string) []string {
+	ledgerPath, applyPath, retirementPath, rollbackPath, ledgerID, reasonRef := writeLifecycleProofLedgerFixtures(t, directory)
 	return []string{
 		"contract", "lifecycle",
 		"--catalog", filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
 		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
 		"--target", "tester@gpu-runner.example", "--name", "gb10-lifecycle-contract",
+		"--lifecycle-proof-ledger", ledgerPath,
+		"--confirm-lifecycle-proof-ledger", ledgerID,
+		"--lifecycle-apply-receipt", applyPath,
+		"--lifecycle-retirement-receipt", retirementPath,
+		"--lifecycle-rollback-receipt", rollbackPath,
+		"--confirm-lifecycle-reason-reference", reasonRef,
 		"--output", outputPath, "--audit-output", auditPath,
 	}
+}
+
+func writeLifecycleProofLedgerFixtures(t *testing.T, directory string) (string, string, string, string, string, string) {
+	t.Helper()
+	now := time.Now().UTC().Add(-10 * time.Minute)
+	target := resources.TargetIdentity{Type: "kubernetes", ReferenceDigest: "sha256:" + strings.Repeat("a", 64), ServerVersion: "v1.35.2"}
+	apply := resources.DeploymentReceipt{
+		APIVersion: resources.APIVersion,
+		Kind:       "DeploymentReceipt",
+		Metadata:   resources.DeploymentReceiptMetadata{Name: "apply-receipt"},
+		Spec: resources.DeploymentReceiptSpec{
+			Outcome:                "succeeded",
+			StartedAt:              now.Add(-4 * time.Minute).Format(time.RFC3339Nano),
+			CompletedAt:            now.Add(-3 * time.Minute).Format(time.RFC3339Nano),
+			ExecutionCorrelationID: "apply-correlation",
+			PlanID:                 "sha256:" + strings.Repeat("b", 64),
+			BundleID:               "sha256:" + strings.Repeat("c", 64),
+			PreflightResultID:      "sha256:" + strings.Repeat("d", 64),
+			ChangeSetID:            "sha256:" + strings.Repeat("e", 64),
+			ApprovalID:             "sha256:" + strings.Repeat("f", 64),
+			AuthorizationID:        "sha256:" + strings.Repeat("1", 64),
+			ImportReceiptID:        "sha256:" + strings.Repeat("2", 64),
+			Target:                 target,
+			Executor:               resources.DeploymentExecutorIdentity{Name: "yara-executor", Version: "0.1.0", BinaryDigest: "sha256:" + strings.Repeat("3", 64)},
+			Operations: []resources.DeploymentOperationReceipt{{
+				Resource: resources.KubernetesObjectReference{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "default", Name: "litellm"},
+				Action:   "update",
+				Outcome:  "applied",
+			}},
+			Postflight: []resources.DeploymentPostflightCheck{{
+				ID:             "workloads.available",
+				Status:         "passed",
+				EvidenceDigest: "sha256:" + strings.Repeat("4", 64),
+			}},
+			Limitations: []string{"Apply fixture."},
+		},
+	}
+	var err error
+	apply, err = apply.AssignReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	retire := resources.RetirementReceipt{
+		APIVersion: resources.APIVersion,
+		Kind:       "RetirementReceipt",
+		Metadata:   resources.RetirementReceiptMetadata{Name: "retire-receipt"},
+		Spec: resources.RetirementReceiptSpec{
+			Outcome:                "succeeded",
+			StartedAt:              now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+			CompletedAt:            now.Add(-90 * time.Second).Format(time.RFC3339Nano),
+			ExecutionCorrelationID: "retire-correlation",
+			PlanID:                 apply.Spec.PlanID,
+			BundleID:               apply.Spec.BundleID,
+			PreflightResultID:      apply.Spec.PreflightResultID,
+			ChangeSetID:            apply.Spec.ChangeSetID,
+			ApprovalID:             apply.Spec.ApprovalID,
+			AuthorizationID:        "sha256:" + strings.Repeat("5", 64),
+			Target:                 target,
+			Executor:               apply.Spec.Executor,
+			Operations: []resources.RetirementOperationReceipt{{
+				Resource: resources.KubernetesObjectReference{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "default", Name: "litellm"},
+				Action:   "delete",
+				Outcome:  "deleted",
+			}},
+			Limitations: []string{"Retire fixture."},
+		},
+	}
+	retire, err = retire.AssignReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollback := resources.RollbackReceipt{
+		APIVersion: resources.APIVersion,
+		Kind:       "RollbackReceipt",
+		Metadata:   resources.RollbackReceiptMetadata{Name: "rollback-receipt"},
+		Spec: resources.RollbackReceiptSpec{
+			Outcome:                "succeeded",
+			StartedAt:              now.Add(-80 * time.Second).Format(time.RFC3339Nano),
+			CompletedAt:            now.Add(-50 * time.Second).Format(time.RFC3339Nano),
+			ExecutionCorrelationID: "rollback-correlation",
+			PlanID:                 apply.Spec.PlanID,
+			BundleID:               apply.Spec.BundleID,
+			PreflightResultID:      apply.Spec.PreflightResultID,
+			ChangeSetID:            apply.Spec.ChangeSetID,
+			ApprovalID:             apply.Spec.ApprovalID,
+			AuthorizationID:        "sha256:" + strings.Repeat("6", 64),
+			Target:                 target,
+			Executor:               apply.Spec.Executor,
+			Operations: []resources.RollbackOperationReceipt{{
+				Resource: resources.KubernetesObjectReference{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "default", Name: "litellm"},
+				Action:   "update",
+				Outcome:  "reverted",
+			}},
+			Limitations: []string{"Rollback fixture."},
+		},
+	}
+	rollback, err = rollback.AssignReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerReason := "ticket-lifecycle-proof-123"
+	ledger := resources.LifecycleProofLedger{
+		APIVersion: resources.APIVersion,
+		Kind:       "LifecycleProofLedger",
+		Metadata:   resources.LifecycleProofLedgerMeta{Name: "lifecycle-proof"},
+		Spec: resources.LifecycleProofLedgerSpec{
+			RecordedAt:            now.Format(time.RFC3339Nano),
+			PlanID:                apply.Spec.PlanID,
+			BundleID:              apply.Spec.BundleID,
+			TargetReferenceDigest: target.ReferenceDigest,
+			Reviewer:              resources.ReviewerRecord{Identity: "local:reviewer", Role: "platform-security", Assurance: "self-asserted-local"},
+			Decision:              resources.PromotionDecisionApproved,
+			ReasonReference:       ledgerReason,
+			Stages: []resources.LifecycleProofLedgerStage{
+				{Stage: resources.LifecycleStageApply, ReceiptID: apply.Metadata.ReceiptID, ExecutionCorrelationID: apply.Spec.ExecutionCorrelationID, Outcome: "succeeded", CompletedAt: apply.Spec.CompletedAt},
+				{Stage: resources.LifecycleStageRetire, ReceiptID: retire.Metadata.ReceiptID, ExecutionCorrelationID: retire.Spec.ExecutionCorrelationID, Outcome: "succeeded", CompletedAt: retire.Spec.CompletedAt},
+				{Stage: resources.LifecycleStageRollback, ReceiptID: rollback.Metadata.ReceiptID, ExecutionCorrelationID: rollback.Spec.ExecutionCorrelationID, Outcome: "succeeded", CompletedAt: rollback.Spec.CompletedAt},
+			},
+			Limitations: []string{
+				"Lifecycle proof ledger does not execute mutations.",
+				"Lifecycle proof ledger links immutable receipt identities only.",
+			},
+		},
+	}
+	ledger, err = ledger.AssignLedgerID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyPath := filepath.Join(directory, "apply-receipt.yaml")
+	retirePath := filepath.Join(directory, "retire-receipt.yaml")
+	rollbackPath := filepath.Join(directory, "rollback-receipt.yaml")
+	ledgerPath := filepath.Join(directory, "lifecycle-proof-ledger.yaml")
+	writeYAMLFixture(t, applyPath, apply)
+	writeYAMLFixture(t, retirePath, retire)
+	writeYAMLFixture(t, rollbackPath, rollback)
+	writeYAMLFixture(t, ledgerPath, ledger)
+	return ledgerPath, applyPath, retirePath, rollbackPath, ledger.Metadata.LedgerID, ledgerReason
+}
+
+func argValue(t *testing.T, args []string, flag string) string {
+	t.Helper()
+	for index := 0; index < len(args)-1; index++ {
+		if args[index] == flag {
+			return args[index+1]
+		}
+	}
+	t.Fatalf("missing flag %s in args", flag)
+	return ""
+}
+
+func setArgValue(t *testing.T, args []string, flag, value string) []string {
+	t.Helper()
+	updated := append([]string(nil), args...)
+	for index := 0; index < len(updated)-1; index++ {
+		if updated[index] == flag {
+			updated[index+1] = value
+			return updated
+		}
+	}
+	t.Fatalf("missing flag %s in args", flag)
+	return nil
 }
 
 func setContractProbe(t *testing.T, probe fixedContractProbe) {

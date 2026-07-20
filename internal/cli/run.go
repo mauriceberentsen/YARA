@@ -569,7 +569,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara contract capacity-boundary --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara contract sustained-capacity --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara contract policy --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
-	fmt.Fprintln(output, "  yara contract lifecycle --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara contract lifecycle --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file> --lifecycle-proof-ledger <file> --confirm-lifecycle-proof-ledger <sha256:id> --lifecycle-apply-receipt <file> --lifecycle-retirement-receipt <file> --lifecycle-rollback-receipt <file> --confirm-lifecycle-reason-reference <ref> [--lifecycle-proof-max-age <duration>]")
 	fmt.Fprintln(output, "  yara contract validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara promotion review record --catalog <file> --assertion <id> --evidence <sha256:id> [--evidence <sha256:id> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara promotion-review validate <file> [--audit-output <file>]")

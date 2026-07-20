@@ -180,12 +180,19 @@ go run ./cmd/yara contract lifecycle \
   --catalog catalog/v0.2/snapshot.yaml \
   --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
   --target user@gb10-runner.example \
+  --lifecycle-proof-ledger reference-stack.lifecycle-proof-ledger.yaml \
+  --confirm-lifecycle-proof-ledger 'sha256:<full-ledger-id>' \
+  --lifecycle-apply-receipt reference-stack.receipt.yaml \
+  --lifecycle-retirement-receipt reference-stack.retirement.receipt.yaml \
+  --lifecycle-rollback-receipt reference-stack.rollback.receipt.yaml \
+  --confirm-lifecycle-reason-reference ticket-lifecycle-proof-123 \
+  --lifecycle-proof-max-age 720h \
   --name gb10-qwen-coder-lifecycle \
   --output .yara/contracts/gb10-qwen-coder-lifecycle.yaml \
   --audit-output .yara/audit/gb10-qwen-coder-lifecycle.jsonl
 ```
 
-No raw container ID, start timestamp, prompt, completion or configuration document is persisted. The evidence records only bounded response facts, content digests and boolean identity comparisons. A pass does not establish crash-loop recovery, host failure recovery, version upgrades, rollback, HA, traffic draining, zero downtime, backup/restore or stateful disaster recovery.
+No raw container ID, start timestamp, prompt, completion or configuration document is persisted. The evidence records only bounded response facts, content digests and boolean identity comparisons, plus explicit lifecycle-proof freshness policy metadata (`max age` + reviewed reason reference). A pass does not establish crash-loop recovery, host failure recovery, version upgrades, rollback, HA, traffic draining, zero downtime, backup/restore or stateful disaster recovery.
 
 ## Outcomes and exit codes
 
