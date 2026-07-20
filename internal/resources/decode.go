@@ -107,6 +107,10 @@ func LoadArtifactScanReceipt(path string) (ArtifactScanReceipt, error) {
 	return loadResource[ArtifactScanReceipt](path)
 }
 
+func LoadAirgapProvenanceGateResult(path string) (AirgapProvenanceGateResult, error) {
+	return loadResource[AirgapProvenanceGateResult](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

@@ -55,6 +55,12 @@ func TestDeploymentReceiptRejectsUnsortedScanReceiptIDs(t *testing.T) {
 	assertDiagnostic(t, receipt.Validate(), "YARA-RCP-025", "spec.scanReceiptIds")
 }
 
+func TestDeploymentReceiptRejectsInvalidAirgapGateResultID(t *testing.T) {
+	receipt := validReceipt(t)
+	receipt.Spec.AirgapGateResultID = "not-a-digest"
+	assertDiagnostic(t, receipt.Validate(), "YARA-RCP-027", "spec.airgapGateResultId")
+}
+
 func validChangeSet(t *testing.T) KubernetesChangeSet {
 	t.Helper()
 	result := KubernetesChangeSet{APIVersion: APIVersion, Kind: "KubernetesChangeSet", Metadata: KubernetesChangeSetMetadata{Name: "change-set"}, Spec: KubernetesChangeSetSpec{

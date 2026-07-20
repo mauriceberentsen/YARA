@@ -37,6 +37,7 @@ type DeploymentReceiptSpec struct {
 	ImportReceiptID        string                       `json:"importReceiptId" yaml:"importReceiptId"`
 	TransferReceiptIDs     []string                     `json:"transferReceiptIds,omitempty" yaml:"transferReceiptIds,omitempty"`
 	ScanReceiptIDs         []string                     `json:"scanReceiptIds,omitempty" yaml:"scanReceiptIds,omitempty"`
+	AirgapGateResultID     string                       `json:"airgapGateResultId,omitempty" yaml:"airgapGateResultId,omitempty"`
 	Target                 TargetIdentity               `json:"target" yaml:"target"`
 	Executor               DeploymentExecutorIdentity   `json:"executor" yaml:"executor"`
 	Operations             []DeploymentOperationReceipt `json:"operations" yaml:"operations"`
@@ -122,6 +123,9 @@ func (r DeploymentReceipt) Validate() diagnostics.Report {
 				items = append(items, diagnostics.Error("YARA-RCP-026", "Scan receipt IDs must be SHA-256 digests.", fmt.Sprintf("spec.scanReceiptIds[%d]", index)))
 			}
 		}
+	}
+	if r.Spec.AirgapGateResultID != "" && !sha256DigestPattern.MatchString(r.Spec.AirgapGateResultID) {
+		items = append(items, diagnostics.Error("YARA-RCP-027", "Air-gap gate result ID must be a SHA-256 digest when present.", "spec.airgapGateResultId"))
 	}
 	previous, derived := "", "succeeded"
 	for index, operation := range r.Spec.Operations {

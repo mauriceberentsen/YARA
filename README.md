@@ -341,6 +341,15 @@ go run ./cmd/yara artifact scan record \
   --name reference-stack-scan \
   --output reference-stack.scan-receipt.yaml \
   --audit-output reference-stack.scan-receipt.audit.jsonl
+go run ./cmd/yara airgap provenance-gate evaluate \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --import-receipt reference-stack.import-receipt.yaml \
+  --transfer-receipt reference-stack.transfer-receipt.yaml \
+  --scan-receipt reference-stack.scan-receipt.yaml \
+  --reason-reference ticket-gate-123 \
+  --name reference-stack-airgap-gate \
+  --output reference-stack.airgap-gate.yaml \
+  --audit-output reference-stack.airgap-gate.audit.jsonl
 ```
 
 Currently implemented:
@@ -359,6 +368,7 @@ Currently implemented:
 - independent promotion review records bound to exact catalog and selected evidence identities, with deterministic coverage-gate evaluation;
 - artifact transfer chain-of-custody receipts bound to exact bundle artifacts and prior immutable receipt identities, required by apply when embedded offline policy marks air-gapped execution;
 - artifact scan attestation receipts bound to exact transferred artifact identities and scanner policy/tool identities, required by apply for air-gapped policy bundles;
+- deterministic air-gap provenance gate results that bind exact import/transfer/scan receipt sets and can be consumed by apply for fail-closed policy enforcement;
 - a pure versioned Docker Compose renderer for the exact LiteLLM/vLLM topology, producing pinned files, artifact/license inventory, checks, limitations and a fail-closed render audit;
 - a pure Kubernetes/GitOps renderer for the same exact topology plus content-addressed read-only target preflight and object-level change-set observation;
 - review-only deployment approvals, short-lived signed execution authorization and a fail-closed direct Kubernetes executor producing deployment receipts;

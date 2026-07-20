@@ -184,6 +184,28 @@ go run ./cmd/yara artifact-scan-receipt validate reference-stack.scan-receipt.ya
 
 For air-gapped policy bundles, apply now additionally requires at least one passed scan receipt bound to the same plan/bundle/catalog/target, exact model artifact identities, and a prior-receipt chain that references accepted transfer receipts.
 
+`AirgapProvenanceGateResult` is a separate deterministic policy-evaluation resource that summarizes import+transfer+scan gate outcomes without mutating deployment state:
+
+```bash
+go run ./cmd/yara airgap provenance-gate evaluate \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --import-receipt reference-stack.import-receipt.yaml \
+  --transfer-receipt reference-stack.transfer-receipt.yaml \
+  --scan-receipt reference-stack.scan-receipt.yaml \
+  --reason-reference ticket-gate-123 \
+  --name reference-stack-airgap-gate \
+  --output reference-stack.airgap-gate.yaml \
+  --audit-output reference-stack.airgap-gate.audit.jsonl
+```
+
+Validate it through:
+
+```bash
+go run ./cmd/yara airgap-provenance-gate-result validate reference-stack.airgap-gate.yaml
+```
+
+When provided via `deployment apply kubernetes --airgap-gate-result`, apply can fail closed on this gate binding instead of recomputing provenance checks ad hoc. The gate result must be passed and must bind the exact plan/bundle/catalog/target/import identities and referenced receipt sets.
+
 ## Separate authorized retirement
 
 Retirement is a separate delete-only path and never extends ordinary apply with prune behavior:
@@ -255,7 +277,7 @@ Change-set generation and approval recording require audit output and remove gen
 ## Remaining lifecycle work after initial apply
 
 - short-lived Kubernetes credential issuance remains operator-managed;
-- acquisition/import/scanning execution remains out of scope; apply consumes separate import, transfer and scan receipts and re-verifies model-PVC file digests;
+- acquisition/import/scanning execution remains out of scope; apply consumes separate import, transfer and scan receipts (or a passed equivalent gate result binding) and re-verifies model-PVC file digests;
 - verifier-label admission governance remains an explicit limitation;
 - safe owned rollback and retirement are implemented as separate authorization and executor paths;
 - clean-cluster namespace, storage and model provisioning remain outside the first executor.

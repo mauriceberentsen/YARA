@@ -3,12 +3,13 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `a266358` (`Add transfer chain receipts for air-gapped apply provenance.`).
+- Branch baseline before this slice: `main` at `00671cb` (`Add scan attestation receipts to air-gap provenance checks.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
   - `ArtifactTransferReceipt` (`schemas/yara.dev/v1alpha1/artifact-transfer-receipt.schema.json`);
-  - `ArtifactScanReceipt` (`schemas/yara.dev/v1alpha1/artifact-scan-receipt.schema.json`).
+  - `ArtifactScanReceipt` (`schemas/yara.dev/v1alpha1/artifact-scan-receipt.schema.json`);
+  - `AirgapProvenanceGateResult` (`schemas/yara.dev/v1alpha1/airgap-provenance-gate-result.schema.json`).
 - Latest archived catalog coverage artifact remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`.
 
 ## Current product boundary
@@ -26,18 +27,20 @@
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
-  - `deployment apply kubernetes` requires transfer + scan provenance chains when embedded offline policy marks air-gapped execution.
+  - `airgap provenance-gate evaluate` emits immutable `AirgapProvenanceGateResult` evidence with deterministic per-gate status over exact import/transfer/scan bindings;
+  - `deployment apply kubernetes` can fail closed on a passed `--airgap-gate-result` binding instead of ad-hoc recomputation, and still requires equivalent provenance guarantees for air-gapped policy bundles.
 - Apply remains explicit and bounded to exact rendered objects; it still does not implicitly delete/prune/adopt.
 - Mutating commands still require durable started audit before mutation and fail closed when terminal audit/receipt persistence cannot complete.
 
 ## Verified capabilities
 
 - **Implemented + locally validated in repository tests/schemas/docs:**
-  - content-addressed resources and schema/Go validation for apply/import/transfer/scan/retire/rollback/integration/promotion review;
+  - content-addressed resources and schema/Go validation for apply/import/transfer/scan/air-gap gate/retire/rollback/integration/promotion review;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
-  - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles;
-  - deployment receipts now carry optional `transferReceiptIds` and `scanReceiptIds` provenance bindings;
+  - air-gap gate results bind exact plan/bundle/catalog/target/import identities, transfer/scan receipt sets, deterministic gate status, and non-secret reason reference;
+  - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/mismatched air-gap gate results when configured;
+  - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, and `airgapGateResultId` provenance bindings;
   - separate command paths:
     - `deployment apply kubernetes`,
     - `deployment retire kubernetes`,
@@ -46,7 +49,8 @@
     - `integration topology-end-to-end`,
     - `promotion review record`,
     - `artifact transfer record`,
-    - `artifact scan record`.
+    - `artifact scan record`,
+    - `airgap provenance-gate evaluate`.
 - **Validated on live environment (historical evidence already present):**
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
@@ -59,32 +63,32 @@
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `a266358`, `b0a2ce0`, `75da913`, `ce5b80d`, `3bde317`.
-- This slice adds artifact scan resource/CLI/apply provenance enforcement and related tests/docs as one coherent vertical change.
+- Recent commits before this slice (newest first): `00671cb`, `a266358`, `b0a2ce0`, `75da913`, `ce5b80d`.
+- This slice adds air-gap provenance gate resource/CLI/apply consumption and related tests/docs as one coherent vertical change.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## Open limitations and unproven claims
 
-- No live validation was executed for rollback, integration execution, promotion-review recording, transfer-receipt enforcement, or scan-receipt enforcement in this run.
+- No live validation was executed for rollback, integration execution, promotion-review recording, transfer/scan receipt enforcement, or air-gap gate-result enforcement in this run.
 - Air-gap completeness remains unproven end-to-end: acquisition execution, transfer medium attestation trust chain, and scanning attestations remain external.
 - Clean-cluster bootstrap (namespace/PVC/storage provisioning) remains out of scope.
 - Integration execution remains bounded to catalog/target contract checks and does not prove latency, throughput, availability, or production readiness.
 
 ## Next implementation slice
 
-Implement **deterministic air-gap provenance policy gate evaluation resource**:
+Implement **signed provenance gate attestation verification policy**:
 
-- add an explicit content-addressed `AirgapProvenanceGateResult` resource and CLI path that evaluates import+transfer+scan receipt completeness against exact bundle offline policy;
-- bind exact receipt IDs and deterministic per-gate outcomes (`passed`/`failed`/`blocked`) into durable evidence without mutating deployment state;
-- keep evaluation authority separate from execution/mutation authority and avoid embedding raw logs, scanner payloads, or secret-bearing metadata;
-- allow apply-time checks to consume this gate result instead of re-evaluating ad hoc, while remaining fail-closed on missing/mismatched bindings.
+- add explicit signer identity and signature envelope support for `AirgapProvenanceGateResult` verification under trusted public keys;
+- add CLI verification path that validates signature, trust key digest, expiry, and exact gate-result identity before apply consumption;
+- keep gate evaluation authority separate from execution/mutation authority while ensuring only trusted signed gate results can authorize fail-closed bypass of ad-hoc provenance recomputation;
+- preserve non-secret durable evidence boundaries (no raw scanner logs, payloads, secrets, kubeconfig, or host addresses).
 
 Acceptance criteria:
 
-- gate result references only immutable plan/bundle/catalog/receipt identities;
-- durable receipts/audit prove deterministic gate evaluation and non-secret reason references;
-- apply-side provenance can fail closed using gate-result bindings when configured;
+- signed gate result references only immutable plan/bundle/catalog/receipt identities;
+- durable receipts/audit prove deterministic gate evaluation plus trusted signature verification evidence;
+- apply-side provenance accepts only valid trusted signed gate results when configured and otherwise fails closed;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 
 ## Validation requirements

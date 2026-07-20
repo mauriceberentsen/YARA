@@ -253,6 +253,41 @@ func TestDeploymentApplyRejectsScanReceiptWithoutTransferLink(t *testing.T) {
 	}
 }
 
+func TestDeploymentApplyAcceptsPassedAirgapGateResultWithoutReceiptFlags(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, directory, now)
+	gatePath := filepath.Join(directory, "airgap-gate.yaml")
+	writeAirgapGateFixture(t, gatePath, paths)
+	paths = removeFlag(paths, "--transfer-receipt")
+	paths = removeFlag(paths, "--scan-receipt")
+	paths = append(paths, "--airgap-gate-result", gatePath)
+	originalFactory := newKubernetesExecutor
+	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
+	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
+		return fixedKubernetesExecutor{execute: func(_ context.Context, _ resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, _ resources.ArtifactImportReceipt, started time.Time) (executor.ExecutionResult, error) {
+			operations := make([]resources.DeploymentOperationReceipt, 0, len(changeSet.Spec.Operations))
+			for _, operation := range changeSet.Spec.Operations {
+				operations = append(operations, resources.DeploymentOperationReceipt{Resource: operation.Resource, Action: operation.Action, Outcome: "applied", AfterDigest: operation.DesiredDigest})
+			}
+			evidence, _ := canonical.Digest(struct{ Passed bool }{true})
+			return executor.ExecutionResult{StartedAt: started, CompletedAt: started.Add(time.Minute), Target: authorization.Spec.Target, MutationStarted: true, Operations: operations, Postflight: []resources.DeploymentPostflightCheck{{ID: "workloads.available", Status: "passed", EvidenceDigest: evidence}}, Limitations: []string{"Test executor."}}, nil
+		}}, nil
+	}
+	args := append(paths, "--confirm-authorization", authorization.Metadata.AuthorizationID, "--name", "receipt", "--receipt-output", filepath.Join(directory, "receipt.yaml"), "--audit-output", filepath.Join(directory, "apply.audit.jsonl"))
+	var stdout, stderr bytes.Buffer
+	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitSuccess {
+		t.Fatalf("gate-result apply exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	receipt, err := resources.LoadDeploymentReceipt(filepath.Join(directory, "receipt.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Spec.AirgapGateResultID == "" || len(receipt.Spec.TransferReceiptIDs) == 0 || len(receipt.Spec.ScanReceiptIDs) == 0 {
+		t.Fatalf("receipt missing gate-derived provenance bindings: %#v", receipt.Spec)
+	}
+}
+
 func writeExecutionInputs(t *testing.T, directory string, now time.Time) ([]string, resources.ExecutionAuthorization) {
 	t.Helper()
 	bundlePath := writeKubernetesBundle(t, directory)
@@ -398,4 +433,57 @@ func valueForFlag(args []string, flag string) string {
 		}
 	}
 	return ""
+}
+
+func writeAirgapGateFixture(t *testing.T, path string, args []string) {
+	t.Helper()
+	bundlePath := valueForFlag(args, "--bundle")
+	importPath := valueForFlag(args, "--import-receipt")
+	transferPath := valueForFlag(args, "--transfer-receipt")
+	scanPath := valueForFlag(args, "--scan-receipt")
+	bundle, err := resources.LoadDeploymentBundle(bundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	importReceipt, err := resources.LoadArtifactImportReceipt(importPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transferReceipt, err := resources.LoadArtifactTransferReceipt(transferPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanReceipt, err := resources.LoadArtifactScanReceipt(scanPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := resources.AirgapProvenanceGateResult{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapProvenanceGateResult",
+		Metadata: resources.AirgapProvenanceGateResultMetadata{
+			Name: "airgap-gate",
+		},
+		Spec: resources.AirgapProvenanceGateResultSpec{
+			RecordedAt:         time.Date(2026, 7, 19, 12, 2, 0, 0, time.UTC).Format(time.RFC3339Nano),
+			PlanID:             bundle.Spec.PlanID,
+			BundleID:           bundle.Metadata.BundleID,
+			CatalogDigest:      bundle.Spec.CatalogDigest,
+			Target:             importReceipt.Spec.Target,
+			ImportReceiptID:    importReceipt.Metadata.ImportReceiptID,
+			TransferReceiptIDs: []string{transferReceipt.Metadata.TransferReceiptID},
+			ScanReceiptIDs:     []string{scanReceipt.Metadata.ScanReceiptID},
+			Gates: []resources.ProvenanceGateEvaluation{
+				{ID: "scan-chain", Status: "passed"},
+				{ID: "transfer-chain", Status: "passed"},
+			},
+			Outcome:         "passed",
+			ReasonReference: "ticket-gate",
+			Limitations:     []string{"Gate remains bounded to immutable provenance receipts."},
+		},
+	}
+	result, err = result.AssignGateResultID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeYAMLFixture(t, path, result)
 }
