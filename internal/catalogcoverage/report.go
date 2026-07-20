@@ -42,22 +42,34 @@ var (
 )
 
 var lifecyclePublicationBlockerRemediations = map[string]string{
-	"lifecycle-proof-approval-not-recorded":                               "record-lifecycle-proof-approval",
-	"no-accepted-lifecycle-contract-evidence":                             "run-lifecycle-contract",
-	"selected-approval-catalog-mismatch":                                  "reissue-approval-for-catalog",
-	"selected-approval-decision-abstained":                                "collect-explicit-approval-decision",
-	"selected-approval-decision-changes-required":                         "address-review-feedback-and-reapprove",
-	"selected-approval-does-not-bind-lifecycle-evidence":                  "reissue-approval-with-lifecycle-evidence",
-	"selected-approval-expiry-invalid":                                    "reissue-approval-with-valid-expiry",
-	"selected-approval-expired-for-lifecycle-evidence":                    "renew-lifecycle-proof-approval",
-	"integration-publication-attestation-not-recorded":                    "record-integration-publication-attestation",
-	"no-accepted-integration-evidence":                                    "run-integration-execute",
-	"selected-integration-attestation-catalog-mismatch":                   "reissue-integration-attestation-for-catalog",
-	"selected-integration-attestation-decision-abstained":                 "collect-explicit-integration-attestation-decision",
-	"selected-integration-attestation-decision-changes-required":          "address-integration-review-feedback-and-reattest",
-	"selected-integration-attestation-does-not-bind-integration-evidence": "reissue-integration-attestation-with-bound-evidence",
-	"selected-integration-attestation-expiry-invalid":                     "reissue-integration-attestation-with-valid-expiry",
-	"selected-integration-attestation-expired-for-integration-evidence":   "renew-integration-publication-attestation",
+	"lifecycle-proof-approval-not-recorded":                                     "record-lifecycle-proof-approval",
+	"no-accepted-lifecycle-contract-evidence":                                   "run-lifecycle-contract",
+	"selected-approval-catalog-mismatch":                                        "reissue-approval-for-catalog",
+	"selected-approval-decision-abstained":                                      "collect-explicit-approval-decision",
+	"selected-approval-decision-changes-required":                               "address-review-feedback-and-reapprove",
+	"selected-approval-does-not-bind-lifecycle-evidence":                        "reissue-approval-with-lifecycle-evidence",
+	"selected-approval-expiry-invalid":                                          "reissue-approval-with-valid-expiry",
+	"selected-approval-expired-for-lifecycle-evidence":                          "renew-lifecycle-proof-approval",
+	"integration-publication-attestation-not-recorded":                          "record-integration-publication-attestation",
+	"no-accepted-integration-evidence":                                          "run-integration-execute",
+	"selected-integration-attestation-catalog-mismatch":                         "reissue-integration-attestation-for-catalog",
+	"selected-integration-attestation-decision-abstained":                       "collect-explicit-integration-attestation-decision",
+	"selected-integration-attestation-decision-changes-required":                "address-integration-review-feedback-and-reattest",
+	"selected-integration-attestation-does-not-bind-integration-evidence":       "reissue-integration-attestation-with-bound-evidence",
+	"selected-integration-attestation-expiry-invalid":                           "reissue-integration-attestation-with-valid-expiry",
+	"selected-integration-attestation-expired-for-integration-evidence":         "renew-integration-publication-attestation",
+	"publication-chain-renewal-review-not-recorded":                             "record-publication-chain-renewal-review",
+	"selected-renewal-review-catalog-mismatch":                                  "reissue-renewal-review-for-catalog",
+	"selected-renewal-review-decision-abstained":                                "collect-explicit-renewal-review-decision",
+	"selected-renewal-review-decision-changes-required":                         "address-renewal-review-feedback-and-rereview",
+	"selected-renewal-review-does-not-bind-publication-chain-rehearsal":         "reissue-renewal-review-with-bound-rehearsal",
+	"selected-renewal-review-does-not-bind-promotion-review":                    "reissue-renewal-review-with-bound-promotion-review",
+	"selected-renewal-review-does-not-bind-lifecycle-proof-approval":            "reissue-renewal-review-with-bound-lifecycle-proof-approval",
+	"selected-renewal-review-does-not-bind-integration-publication-attestation": "reissue-renewal-review-with-bound-integration-publication-attestation",
+	"selected-renewal-review-max-evidence-age-invalid":                          "reissue-renewal-review-with-valid-max-evidence-age",
+	"selected-renewal-review-reviewed-at-invalid":                               "reissue-renewal-review-with-valid-reviewed-at",
+	"selected-renewal-review-observed-at-invalid":                               "rebuild-renewal-review-from-valid-audit-evidence",
+	"selected-renewal-review-stale-for-bound-evidence":                          "renew-publication-chain-renewal-review",
 }
 
 type LifecyclePublicationBlockerDefinition struct {
@@ -376,13 +388,20 @@ func assertionCoverage(
 	}
 	slices.Sort(coverage.Blockers)
 	coverage.PromotionEligible = slices.Contains([]string{"known", "experimental", "supported"}, assertion.Status) && assertion.Compatibility == "supported" && len(coverage.Blockers) == 0
-	coverage.LifecyclePublicationReady = lifecycleGate.Status == "passed" && integrationGate.Status == "passed"
+	renewalRequired := requiresIntegrationPublicationAttestation(assertion)
+	coverage.LifecyclePublicationReady = lifecycleGate.Status == "passed" && integrationGate.Status == "passed" && (!renewalRequired || renewalReviewGate.Status == "passed")
 	if lifecycleGate.Status != "passed" {
 		coverage.LifecyclePublicationBlocker = lifecycleGate.Blocker
 	} else if integrationGate.Status != "passed" {
 		coverage.LifecyclePublicationBlocker = lifecyclePublicationBlocker(integrationGate.Blocker)
+	} else if renewalRequired && renewalReviewGate.Status != "passed" {
+		coverage.LifecyclePublicationBlocker = lifecyclePublicationBlocker(renewalReviewGate.Blocker)
 	}
 	return coverage
+}
+
+func requiresIntegrationPublicationAttestation(assertion catalog.AssertionDescriptor) bool {
+	return assertion.Compatibility == "supported" && slices.Contains([]string{"known", "experimental", "supported"}, assertion.Status)
 }
 
 func integrationEvidenceForAssertion(assertion catalog.AssertionDescriptor, evidenceByComponent map[string][]acceptedIntegrationEvidence) []acceptedIntegrationEvidence {

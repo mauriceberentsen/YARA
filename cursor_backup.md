@@ -78,6 +78,7 @@
   - `promotion review record` now requires explicit publication-chain renewal-review evidence binding for integration-required assertion scopes and fails closed on missing, stale, foreign, malformed, or unselected renewal-review identities.
 - `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now expose assertion-scoped publication-chain renewal-review posture (`status`, `selectedRenewalReview`, `blocker`) via deterministic report limitation records;
 - publication-policy diagnostics now fail closed when publication-chain renewal-review explainability records are missing, duplicated, malformed, or inconsistent with selected lifecycle/integration/rehearsal evidence identities.
+- lifecycle publication readiness now requires passing renewal-review evidence for assertion scopes that require integration publication evidence, with deterministic remediation-coded blockers.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -130,6 +131,7 @@
   - promotion-review entry points now require explicit publication-chain renewal-review binding (`PublicationChainRenewalReview`) in addition to rehearsal and retention bindings for integration-required assertions;
   - catalog coverage outputs now preserve deterministic parity for assertion-scoped renewal-review diagnostics across create and lifecycle-publication-policy entry points;
   - lifecycle publication policy diagnostics now fail closed when renewal-review explainability records drift from selected gate evidence state or use malformed limitation encoding;
+  - lifecycle publication gating now fails closed when integration-required assertions lack passing bound renewal-review evidence, and taxonomy-coded remediation stays deterministic across create/policy command paths;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -169,15 +171,102 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by eighteen commits before this slice commit).
-- Recent commits before this slice (newest first): `86aca55`, `499df6d`, `b01fd01`, `ef33988`, `91e2e78`.
-- This slice closes Phase 7 slice 3 for renewal-review diagnostics parity in catalog coverage publication outputs.
-- Phase 7 milestone currently tracks three ordered slices:
-  - slice 1 completed: publication-chain renewal review resource/command/validation closure with fail-closed scope/freshness/identity binding checks;
-  - slice 2 completed in this run: promotion-review entry points enforce explicit renewal-review identity binding with fail-closed scope/freshness/selection checks;
-  - slice 3 completed in this run: coverage create + lifecycle-publication-policy now expose deterministic renewal-review posture and fail closed on malformed or inconsistent renewal-review explainability records.
-- Working tree is expected to be clean after committing this slice.
+- Branch: `main` tracking `origin/main`.
+- Recent commits before this slice (newest first): `fe12a5c`, `991a865`, `86aca55`, `499df6d`, `b01fd01`.
+- This slice closes **Phase 8 slice 1** for renewal-review lifecycle-publication gating.
+- M1 (Publication gating closure / Phase 8) status:
+  - slice 1 completed in this run: lifecycle publication readiness now requires passing renewal-review evidence for integration-required assertion scopes, with deterministic taxonomy-coded blockers/remediation;
+  - slice 2 pending: require passing publication-chain rehearsal in lifecycle publication readiness (full four-pillar gating);
+  - slice 3 pending: acceptance proof fixture with all four pillars passing and deterministic blocker checks for each missing pillar.
+- Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
+
+## MVP milestone path
+
+The following ordered milestones define the shortest honest path from the current implementation to a public pre-alpha release that delivers the core YARA value proposition end-to-end. Each milestone has clear entry and exit criteria. Nothing here contradicts accepted ADRs or deferred decisions.
+
+---
+
+### M1 — Publication gating closure (current thread, Phase 8)
+
+**Goal:** complete the lifecycle-readiness gate so `lifecycle-publication-ready` requires all four publication-chain evidence pillars to pass.
+
+Slices:
+1. Completed: wired `publication-chain-renewal-review` into `LifecyclePublicationReady` for integration-required assertion scopes, including deterministic renewal-review blocker taxonomy/remediation.
+2. Pending: promote `LifecyclePublicationReady` to require passing lifecycle-proof approval + integration publication attestation + rehearsal + renewal-review gates simultaneously; reject partial-pass states fail-closed.
+3. Pending: acceptance proof fixture where all four gates pass, and where each omitted pillar yields deterministic taxonomy-coded blockers.
+
+Exit: the full publication-chain governance loop is closed and locally validated.
+
+---
+
+### M2 — Artifact import receipt chain
+
+**Goal:** complete the air-gap provenance story so acquisition → transfer → scan → import is fully traceable.
+
+Slices:
+1. `artifact import record` command — emit immutable `ArtifactImportReceipt` binding exact bundle artifact digests, transfer-receipt IDs, scan-receipt IDs, and import timestamp; content-addressed and audit-chained.
+2. Schema + Go validation for `ArtifactImportReceipt`; validate command; `LoadArtifactImportReceipt` decoder.
+3. Catalog coverage gates air-gap completeness claims on accepted import receipts; deployment receipt optionally binds `importReceiptIds`.
+
+Exit: the acquisition-to-deployment artifact chain has immutable receipts at every handoff stage.
+
+---
+
+### M3 — Bootstrap and first-use path
+
+**Goal:** a new operator can go from zero to a deployed, receipted stack without undocumented manual steps.
+
+Slices:
+1. `deployment bootstrap kubernetes` command — create a YARA-owned namespace and annotated model PVC with a bounded, audited, explicitly confirmed command; emits a `BootstrapReceipt` (no implicit delete).
+2. `deployment import kubernetes` command — stage a model artifact into the declared PVC from a local path or acquisition manifest, verify digest, emit an `ArtifactImportReceipt`.
+3. End-to-end reference walkthrough documented in `docs/implementation/quickstart.md`: PlatformRequest → plan → render → bootstrap → import → preflight → change-set → approval → apply → contract tests → receipt; every command listed with expected output.
+
+Exit: a new user can reproduce the reference walkthrough on a fresh cluster using only the documented commands.
+
+---
+
+### M4 — CI and binary release
+
+**Goal:** the project can be cloned, built, and released reproducibly without local Go environment setup.
+
+Slices:
+1. GitHub Actions CI: `make check`, `go test -race ./...`, schema validation (JSON Schema draft 2020-12), and `git diff --check` on every PR and push to main.
+2. goreleaser config: linux/amd64, linux/arm64, darwin/arm64 binaries; SHA-256 checksums; schema archive; attached to GitHub releases.
+3. Release notes template including: schema digest set, catalog version, known limitations, and support boundary statement; first release tagged `v0.1.0-alpha.1`.
+
+Exit: `gh release download` produces a working binary; CI blocks merges that break tests or schema validation.
+
+---
+
+### M5 — Public documentation and honest scope statement
+
+**Goal:** a visitor to the repository understands what YARA is, what it can do today, what it cannot do, and how to start.
+
+Slices:
+1. Rewrite `README.md` user sections as an honest pre-alpha announcement: working features, hard limitations, supported hardware, deferred features (clean-bootstrap, web UI, team API, runtime manager, multi-node, RAG topology, backup/restore), and contribution policy.
+2. `docs/quickstart.md` — abbreviated walkthrough (references M3 full guide) aimed at a first-time visitor; includes minimum prerequisites and expected time.
+3. `docs/reference/commands.md` — one-liner per command with flag summary; generated or manually maintained; must match CLI `--help` output.
+4. `docs/architecture/README.md` updated to link implemented vs. future subsystems clearly, distinguishing what is built from what is planned per the architecture docs.
+
+Exit: an informed reader can answer "what does YARA do today" without reading source code; deferred items are clearly labelled.
+
+---
+
+### Post-MVP (defer until after public announcement)
+
+These items are on the roadmap but are not required to go public honestly:
+
+- runtime manager / drift detection (Phase 3);
+- backup and restore contracts (Phase 3);
+- version upgrade path (Phase 3);
+- team API and multi-user approval workflow (Phase 4);
+- web-based review cockpit (Phase 4);
+- multi-node planning and RAG/embedding topology (Phase 4);
+- signed organization catalogs (Phase 4);
+- additional hardware vendors beyond NVIDIA (Phase 4).
+
+---
 
 ## Open limitations and unproven claims
 
@@ -188,18 +277,18 @@
 
 ## Next implementation slice
 
-Implement **Phase 8 slice 1: renewal-review evidence binding in lifecycle publication readiness gate**:
+Implement **Phase 8 slice 2: enforce full four-pillar publication readiness gating**:
 
-- require assertions that depend on integration publication to also require a passing bound `publication-chain-renewal-review` gate in lifecycle publication readiness evaluation;
-- add deterministic lifecycle blocker taxonomy entries/remediations for missing, non-approved, stale, catalog-mismatched, or unbound renewal-review evidence;
-- keep gating read-only and fail-closed while preserving non-secret explainability parity between report creation and policy diagnostics outputs.
+- require integration-required assertions to have passing `publication-chain-rehearsal` in addition to lifecycle-proof approval, integration publication attestation, and renewal-review before setting `lifecyclePublicationReady=true`;
+- add deterministic lifecycle blocker taxonomy entries/remediations for missing, non-approved, stale, catalog-mismatched, or unbound rehearsal evidence when publication readiness is evaluated;
+- preserve read-only fail-closed gating and explainability parity between `catalog coverage create` and `catalog coverage lifecycle-publication-policy`.
 
 Acceptance criteria:
 
-- lifecycle publication readiness now requires explicit passing renewal-review evidence binding for integration-required assertions;
-- blocker taxonomy encodes renewal-review failure states with deterministic remediation guidance and fail-closed parsing;
-- report create and policy diagnostics preserve deterministic non-secret parity for lifecycle/integration/renewal publication gating;
-- durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval, renewal review, and publication outputs;
+- lifecycle publication readiness requires all four publication pillars for integration-required assertions: lifecycle-proof approval + integration publication attestation + publication-chain rehearsal + publication-chain renewal-review;
+- blocker taxonomy encodes rehearsal and renewal failure states with deterministic remediation guidance and fail-closed parsing;
+- report create and policy diagnostics preserve deterministic non-secret parity for lifecycle/integration/rehearsal/renewal publication gating;
+- durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval, rehearsal, renewal review, and publication outputs;
 - apply-side provenance remains fail-closed and unaffected by publication-gating changes;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 
