@@ -1792,6 +1792,103 @@ func TestServeWorkflowReleaseDecisionExportRejectsContinuityMismatch(t *testing.
 	}
 }
 
+func TestServeWorkflowReleasePublicationExportWritesAttestationAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	handler := serveHandlerFixture(t, false, workspacePath)
+	attestationPath := filepath.Join(workspacePath, "workflow.release-publication.json")
+	auditPath := filepath.Join(workspacePath, "workflow.release-publication.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"publicationChannel":"github-release","artifactLocationReference":"gh://releases/v0.2.0-alpha.2","publicationTimestamp":"2026-07-21T00:10:00Z","operatorReference":"operator-2","attestationPath":%q,"auditPath":%q}`, attestationPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-publication/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for release publication export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	attestationBytes, err := os.ReadFile(attestationPath)
+	if err != nil {
+		t.Fatalf("read release publication attestation: %v", err)
+	}
+	attestation := workflowReleasePublicationAttestation{}
+	if err := json.Unmarshal(attestationBytes, &attestation); err != nil {
+		t.Fatalf("decode release publication attestation: %v", err)
+	}
+	if attestation.Publication.PublicationState != "publishable" {
+		t.Fatalf("expected publishable attestation state, got %#v", attestation.Publication)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load release publication audit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected audit events for release publication export")
+	}
+}
+
+func TestServeWorkflowReleasePublicationExportRejectsBlockedReleaseDecision(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "blocked")
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"publicationChannel":"github-release","artifactLocationReference":"gh://releases/v0.2.0-alpha.2","publicationTimestamp":"2026-07-21T00:10:00Z","operatorReference":"operator-2","attestationPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.release-publication.json"),
+		filepath.Join(workspacePath, "workflow.release-publication.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-publication/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for blocked release decision, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RPB-003") {
+		t.Fatalf("expected release publication blocker code, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowReleasePublicationExportRejectsContinuityMismatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	ledgerPath := writeReleaseDecisionFixture(t, workspacePath, "approved")
+	ledger := workflowReleaseDecisionLedger{}
+	ledgerBytes, err := os.ReadFile(ledgerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(ledgerBytes, &ledger); err != nil {
+		t.Fatal(err)
+	}
+	ledger.Ledger.ClosurePackage.Digest = testCLIDigest('e')
+	corrupted, err := json.MarshalIndent(ledger, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted = append(corrupted, '\n')
+	if err := os.WriteFile(ledgerPath, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"publicationChannel":"github-release","artifactLocationReference":"gh://releases/v0.2.0-alpha.2","publicationTimestamp":"2026-07-21T00:10:00Z","operatorReference":"operator-2","attestationPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.release-publication.mismatch.json"),
+		filepath.Join(workspacePath, "workflow.release-publication.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-publication/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for release publication continuity mismatch, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RPB-005") {
+		t.Fatalf("expected release publication continuity blocker code, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
@@ -2106,6 +2203,45 @@ func writeClosurePackageFixtures(t *testing.T, workspacePath string) {
 	if err := os.WriteFile(reviewGatePath, reviewGateBytes, 0o600); err != nil {
 		t.Fatalf("write closure review gate fixture: %v", err)
 	}
+}
+
+func writeReleaseDecisionFixture(t *testing.T, workspacePath, decision string) string {
+	t.Helper()
+	reviewGate, _, err := evaluateWorkflowClosureReviewGate(workspacePath, "release-checklist-001", "ticket-456", decision)
+	if err != nil {
+		t.Fatalf("build release decision review gate fixture: %v", err)
+	}
+	reviewGatePath := filepath.Join(workspacePath, "workflow.closure-review-gate.json")
+	reviewGateBytes, err := json.MarshalIndent(reviewGate, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal release decision review gate fixture: %v", err)
+	}
+	reviewGateBytes = append(reviewGateBytes, '\n')
+	if err := os.WriteFile(reviewGatePath, reviewGateBytes, 0o600); err != nil {
+		t.Fatalf("write release decision review gate fixture: %v", err)
+	}
+	ledger, _, err := buildWorkflowReleaseDecisionLedger(workspacePath, workflowReleaseDecisionExportRequest{
+		ReleaseReadinessReference: "release-checklist-001",
+		ReviewerReference:         "ticket-456",
+		Decision:                  decision,
+		OperatorReference:         "operator-1",
+		DecisionTimestamp:         "2026-07-21T00:05:00Z",
+		LedgerPath:                filepath.Join(workspacePath, "workflow.release-decision.json"),
+		AuditPath:                 filepath.Join(workspacePath, "workflow.release-decision.export.audit.jsonl"),
+	})
+	if err != nil {
+		t.Fatalf("build release decision fixture: %v", err)
+	}
+	ledgerPath := filepath.Join(workspacePath, "workflow.release-decision.json")
+	ledgerBytes, err := json.MarshalIndent(ledger, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal release decision fixture: %v", err)
+	}
+	ledgerBytes = append(ledgerBytes, '\n')
+	if err := os.WriteFile(ledgerPath, ledgerBytes, 0o600); err != nil {
+		t.Fatalf("write release decision fixture: %v", err)
+	}
+	return ledgerPath
 }
 
 func serveHandlerFixture(t *testing.T, uiEnabled bool, workspacePath string) http.Handler {

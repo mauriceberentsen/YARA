@@ -1352,6 +1352,15 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.release-decision.export.audit.jsonl` : "",
   }));
   const [releaseDecisionSubmitState, setReleaseDecisionSubmitState] = useState({ loading: false, error: "", result: null });
+  const [releasePublicationForm, setReleasePublicationForm] = useState(() => ({
+    publicationChannel: "",
+    artifactLocationReference: "",
+    publicationTimestamp: "",
+    operatorReference: "",
+    attestationPath: workspacePath ? `${workspacePath}/workflow.release-publication.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.export.audit.jsonl` : "",
+  }));
+  const [releasePublicationSubmitState, setReleasePublicationSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1389,6 +1398,11 @@ function CapsuleView({ payload }) {
       ...previous,
       ledgerPath: previous.ledgerPath || `${workspacePath}/workflow.release-decision.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.release-decision.export.audit.jsonl`,
+    }));
+    setReleasePublicationForm((previous) => ({
+      ...previous,
+      attestationPath: previous.attestationPath || `${workspacePath}/workflow.release-publication.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1572,6 +1586,37 @@ function CapsuleView({ payload }) {
       setReleaseDecisionSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setReleaseDecisionSubmitState({ loading: false, error: error.message || "Release decision export failed", result: null });
+    }
+  };
+  const updateReleasePublication = (key) => (event) => {
+    setReleasePublicationForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportReleasePublication = releasePublicationForm.publicationChannel.trim() !== "" &&
+    releasePublicationForm.artifactLocationReference.trim() !== "" &&
+    releasePublicationForm.publicationTimestamp.trim() !== "" &&
+    releasePublicationForm.operatorReference.trim() !== "" &&
+    releasePublicationForm.attestationPath !== "" &&
+    releasePublicationForm.auditPath !== "" &&
+    releasePublicationForm.attestationPath !== releasePublicationForm.auditPath;
+  const submitReleasePublication = async (event) => {
+    event.preventDefault();
+    if (!canExportReleasePublication) {
+      return;
+    }
+    setReleasePublicationSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/release-publication/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(releasePublicationForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Release publication export failed");
+      }
+      setReleasePublicationSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setReleasePublicationSubmitState({ loading: false, error: error.message || "Release publication export failed", result: null });
     }
   };
   return (
@@ -1833,6 +1878,46 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{releaseDecisionSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Publication state</dt><dd>{releaseDecisionSubmitState.result.publicationState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{releaseDecisionSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export release publication attestation</h3>
+      <form onSubmit={submitReleasePublication}>
+        <div className="formRow">
+          <label htmlFor="release-publication-channel">Publication channel</label>
+          <input id="release-publication-channel" value={releasePublicationForm.publicationChannel} onChange={updateReleasePublication("publicationChannel")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-publication-artifact-reference">Artifact location reference</label>
+          <input id="release-publication-artifact-reference" value={releasePublicationForm.artifactLocationReference} onChange={updateReleasePublication("artifactLocationReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-publication-timestamp">Publication timestamp (RFC3339)</label>
+          <input id="release-publication-timestamp" value={releasePublicationForm.publicationTimestamp} onChange={updateReleasePublication("publicationTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-publication-operator-reference">Publication operator reference</label>
+          <input id="release-publication-operator-reference" value={releasePublicationForm.operatorReference} onChange={updateReleasePublication("operatorReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-publication-attestation-path">Attestation output path</label>
+          <input id="release-publication-attestation-path" value={releasePublicationForm.attestationPath} onChange={updateReleasePublication("attestationPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="release-publication-audit-path">Audit output path</label>
+          <input id="release-publication-audit-path" value={releasePublicationForm.auditPath} onChange={updateReleasePublication("auditPath")} />
+        </div>
+        <button type="submit" disabled={releasePublicationSubmitState.loading || !canExportReleasePublication}>
+          {releasePublicationSubmitState.loading ? "Exporting release publication..." : "Export release publication"}
+        </button>
+      </form>
+      {!canExportReleasePublication && <p className="error">Release publication export requires channel, artifact reference, timestamp, operator reference, and distinct attestation/audit paths.</p>}
+      {releasePublicationSubmitState.error && <p className="error">Publication readiness: blocked ({releasePublicationSubmitState.error})</p>}
+      {releasePublicationSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Attestation path</dt><dd>{releasePublicationSubmitState.result.attestationPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{releasePublicationSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Publication readiness</dt><dd>{releasePublicationSubmitState.result.publicationState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{releasePublicationSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>
