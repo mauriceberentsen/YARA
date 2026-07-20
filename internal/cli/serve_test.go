@@ -51,6 +51,41 @@ func TestServeAPIEndpoints(t *testing.T) {
 	}
 }
 
+func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
+	handler := serveHandlerFixture(t, false)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for assertion-scoped drift posture, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode assertion-scoped drift posture response: %v", err)
+	}
+	rows, ok := payload["runtimeDriftPosture"].([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("unexpected assertion-scoped posture rows: %#v", payload["runtimeDriftPosture"])
+	}
+	row, _ := rows[0].(map[string]any)
+	if row["assertion"] != "compat.vllm-qwen-coder-7b-awq-gb10" || row["auditReference"] == "" {
+		t.Fatalf("assertion-scoped drift posture omits expected fields: %#v", row)
+	}
+}
+
+func TestServeDriftPostureRejectsUnknownAssertionFilter(t *testing.T) {
+	handler := serveHandlerFixture(t, false)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.unknown", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown assertion filter, got %d", recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-SRV-007") {
+		t.Fatalf("expected structured unknown assertion error, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeRejectsUnknownRoute(t *testing.T) {
 	handler := serveHandlerFixture(t, false)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/unknown", nil)

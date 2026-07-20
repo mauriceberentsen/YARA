@@ -7,7 +7,15 @@ const views = [
   { id: "lifecycle", label: "Lifecycle", endpoint: "/api/v1/lifecycle-policy" },
 ];
 
-function useEndpoint(endpoint) {
+const identityDecoder = (payload) => payload;
+
+const driftStatusRemediation = {
+  "in-sync": "none",
+  missing: "record-runtime-drift-signal",
+  drifted: "resolve-runtime-drift-and-rerecord-signal",
+};
+
+function useEndpoint(endpoint, decoder = identityDecoder) {
   const [state, setState] = useState({ loading: true, payload: null, error: "" });
   useEffect(() => {
     const controller = new AbortController();
@@ -18,7 +26,8 @@ function useEndpoint(endpoint) {
         if (!response.ok) {
           throw new Error(payload?.diagnostics?.[0]?.message || "Request failed");
         }
-        setState({ loading: false, payload, error: "" });
+        const decoded = decoder(payload);
+        setState({ loading: false, payload: decoded, error: "" });
       })
       .catch((error) => {
         if (error.name === "AbortError") {
@@ -27,11 +36,78 @@ function useEndpoint(endpoint) {
         setState({ loading: false, payload: null, error: error.message || "Request failed" });
       });
     return () => controller.abort();
-  }, [endpoint]);
+  }, [endpoint, decoder]);
   return state;
 }
 
-function renderView(viewID, payload) {
+function decodeDriftPayload(payload) {
+  if (!payload || payload.valid !== true || !Array.isArray(payload.runtimeDriftPosture)) {
+    throw new Error("Malformed runtime drift posture payload.");
+  }
+  const seen = new Set();
+  const posture = payload.runtimeDriftPosture.map((item) => {
+    if (!item || typeof item.assertion !== "string" || typeof item.status !== "string") {
+      throw new Error("Malformed runtime drift posture record.");
+    }
+    if (seen.has(item.assertion)) {
+      throw new Error("Duplicate runtime drift posture assertion.");
+    }
+    if (!["in-sync", "missing", "drifted"].includes(item.status)) {
+      throw new Error("Unsupported runtime drift posture status.");
+    }
+    seen.add(item.assertion);
+    return {
+      assertion: item.assertion,
+      status: item.status,
+      blocker: item.blocker || "none",
+      selectedSignal: item.selectedSignal || "none",
+      auditReference: item.auditReference || "none",
+      remediation: driftStatusRemediation[item.status] || "none",
+    };
+  });
+  posture.sort((left, right) => left.assertion.localeCompare(right.assertion));
+  return {
+    ...payload,
+    runtimeDriftPosture: posture,
+  };
+}
+
+function DriftView({ driftAssertion, setDriftAssertion, payload, assertions }) {
+  const posture = payload.runtimeDriftPosture || [];
+  return (
+    <>
+      <div className="filterRow">
+        <label htmlFor="drift-assertion">Assertion filter</label>
+        <select id="drift-assertion" value={driftAssertion} onChange={(event) => setDriftAssertion(event.target.value)}>
+          <option value="">All assertions</option>
+          {assertions.map((assertion) => (
+            <option key={assertion} value={assertion}>
+              {assertion}
+            </option>
+          ))}
+        </select>
+      </div>
+      {posture.length === 0 ? (
+        <p className="empty">No runtime drift posture records.</p>
+      ) : (
+        <div className="cardGrid">
+          {posture.map((row) => (
+            <article key={row.assertion} className={`driftCard status-${row.status}`}>
+              <h3>{row.assertion}</h3>
+              <p><strong>Status:</strong> {row.status}</p>
+              <p><strong>Blocker:</strong> {row.blocker}</p>
+              <p><strong>Remediation:</strong> {row.remediation}</p>
+              <p><strong>Selected signal:</strong> {row.selectedSignal}</p>
+              <p><strong>Audit reference:</strong> {row.auditReference}</p>
+            </article>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function renderView(viewID, payload, extra = {}) {
   if (viewID === "catalog") {
     return (
       <dl className="grid">
@@ -54,24 +130,7 @@ function renderView(viewID, payload) {
     );
   }
   if (viewID === "drift") {
-    const posture = payload.runtimeDriftPosture || [];
-    if (posture.length === 0) {
-      return <p className="empty">No runtime drift posture records.</p>;
-    }
-    return (
-      <table>
-        <thead>
-          <tr><th>Assertion</th><th>Status</th><th>Blocker</th></tr>
-        </thead>
-        <tbody>
-          {posture.map((row) => (
-            <tr key={row.assertion}>
-              <td>{row.assertion}</td><td>{row.status}</td><td>{row.blocker || "none"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
+    return <DriftView driftAssertion={extra.driftAssertion} setDriftAssertion={extra.setDriftAssertion} payload={payload} assertions={extra.assertions || []} />;
   }
   const blocked = payload.blockedAssertions || [];
   return (
@@ -99,8 +158,24 @@ function renderView(viewID, payload) {
 
 export function App() {
   const [activeViewID, setActiveViewID] = useState(views[0].id);
+  const [driftAssertion, setDriftAssertion] = useState("");
+  const assertionEndpoint = "/api/v1/assertions";
+  const driftEndpoint = driftAssertion ? `/api/v1/drift-posture?assertion=${encodeURIComponent(driftAssertion)}` : "/api/v1/drift-posture";
   const activeView = useMemo(() => views.find((view) => view.id === activeViewID) || views[0], [activeViewID]);
-  const { loading, payload, error } = useEndpoint(activeView.endpoint);
+  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.endpoint;
+  const decoder = activeView.id === "drift" ? decodeDriftPayload : undefined;
+  const { loading, payload, error } = useEndpoint(endpoint, decoder);
+  const assertionsResponse = useEndpoint(assertionEndpoint);
+  const assertionIDs = useMemo(() => {
+    const rows = assertionsResponse.payload?.assertions;
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+    return rows
+      .map((item) => item?.id)
+      .filter((item) => typeof item === "string")
+      .sort((left, right) => left.localeCompare(right));
+  }, [assertionsResponse.payload]);
   return (
     <main>
       <h1>YARA Web UI (Read-only)</h1>
@@ -115,7 +190,14 @@ export function App() {
         <h2>{activeView.label}</h2>
         {loading && <p>Loading {activeView.label}...</p>}
         {!loading && error && <p className="error">Error: {error}</p>}
-        {!loading && !error && payload && renderView(activeView.id, payload)}
+        {!loading &&
+          !error &&
+          payload &&
+          renderView(activeView.id, payload, {
+            driftAssertion,
+            setDriftAssertion,
+            assertions: assertionIDs,
+          })}
       </section>
     </main>
   );

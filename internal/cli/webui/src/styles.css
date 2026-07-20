@@ -68,3 +68,48 @@ dt {
 .empty {
   color: #93c5fd;
 }
+
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+select {
+  background: #111827;
+  color: #e5e7eb;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.driftCard {
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 10px;
+  background: #111827;
+}
+
+.driftCard h3 {
+  margin-top: 0;
+  font-size: 14px;
+}
+
+.status-in-sync {
+  border-color: #16a34a;
+}
+
+.status-missing {
+  border-color: #f59e0b;
+}
+
+.status-drifted {
+  border-color: #dc2626;
+}

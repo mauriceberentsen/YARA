@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `2c15d1d`, `b1c3ef0`, `204b6ba`, `0359114`, `c96f21b`.
+- Recent commits (newest first): `3438071`, `2c15d1d`, `b1c3ef0`, `204b6ba`, `0359114`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
@@ -34,6 +34,10 @@
   - top-level views: Catalog, Coverage, Drift, Lifecycle;
   - each view fetches existing W1 read-only endpoints with deterministic loading/empty/error states;
   - no mutation endpoints or mutation controls are exposed in the UI.
+- Runtime drift posture view (W3) is now implemented as a dedicated read-only drift interface:
+  - assertion-scoped filtering is supported via `/api/v1/drift-posture?assertion=<id>`;
+  - drift posture cards render deterministic status, blocker, remediation, selected signal, and audit reference fields;
+  - malformed/unsupported posture payloads fail closed in UI with non-destructive error rendering.
 - Bootstrap + first-use path is implemented:
   - `deployment bootstrap kubernetes` (bounded namespace/PVC provisioning with `BootstrapReceipt`);
   - `deployment import kubernetes` (bounded single-model local staging into bootstrap PVC with `ArtifactImportReceipt`).
@@ -44,25 +48,23 @@
 ## Verified capabilities
 
 - **Local/simulated verification:** Go/unit/CLI/schema tests prove deterministic IDs, fail-closed stale/foreign/mismatch paths, and bounded mutation authority.
-- **Canonical release notes enforcement:** tag publish flow now applies repository-owned notes template to release body after GoReleaser upload.
 - **Pre-alpha docs clarity:** `README.md`, `docs/quickstart.md`, `docs/reference/commands.md`, and `docs/architecture/README.md` separate implemented behavior from deferred roadmap scope.
 - **Runtime drift contract verification:** new schema/resource/CLI/catalog-coverage wiring validates deterministic IDs, stale/foreign preflight rejection, audited target binding, and fail-closed malformed diagnostics parsing.
 - **Runtime drift policy gate verification:** dedicated policy command emits deterministic blocker/remediation output, produces auditable pass/fail responses, and enforces assertion-scoped infeasible exits for non-`in-sync` posture.
 - **Web UI API verification (simulated/local):** endpoint tests validate deterministic read responses from real catalog/coverage fixtures and fail-closed handling for unknown routes and non-read methods.
 - **Web UI shell verification (simulated/local):** `npm run check --prefix internal/cli/webui` runs Vitest + Vite build, embedded assets are served by `yara serve --ui`, and handler tests validate shell route behavior.
+- **Web UI drift posture verification (simulated/local):** tests cover assertion-scoped filter success/failure, payload validation failures, deterministic rendering order, and status-to-remediation mapping.
 
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Tag: `v0.1.0-alpha.1` exists on origin and release workflow succeeded.
 - This slice completed:
-  - embedded React + Vite web UI project under `internal/cli/webui` with deterministic nav/views over existing API endpoints;
-  - `yara serve --ui` support with embedded static asset serving and SPA fallback routing;
-  - strict fail-closed behavior preserved (no non-GET mutation routes introduced);
-  - frontend checks wired into `make check` via `ui-check` (`npm ci`, `npm run check`);
-  - frontend + backend docs/usage updates.
+  - assertion-filtered drift API response (`/api/v1/drift-posture?assertion=...`) with fail-closed invalid assertion handling;
+  - drift cards in the UI now show status/blocker/remediation/selected-signal/audit-reference with deterministic sorting;
+  - strict fail-closed UI payload validation for malformed drift posture records;
+  - extended frontend and backend tests for drift filtering, malformed payload handling, and non-regression paths.
 - Validation (simulated/local) passed:
-  - `gofmt -w internal/cli/serve.go internal/cli/serve_ui_embed.go internal/cli/serve_test.go internal/cli/run.go`, `git diff --check`, `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`, and `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
+  - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`, `git diff --check`, `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`, and `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -80,7 +82,6 @@
 - Air-gap external trust chain (acquisition execution, transfer-medium attestation chain, external scanner attestations) remains outside YARA proof boundary.
 - Bootstrap remains intentionally narrow (single YARA-owned namespace + model PVC); full cluster install/orchestration is deferred.
 - Web UI remains local-only and read-only in this stage (no auth, no multi-user/session model, no mutation endpoints).
-- Backup/restore, upgrades, multi-node topology, and broader vendor support remain post-alpha.
 
 ## MVP-2 milestone path — Web UI
 Goal: a minimal browser-based operator interface that surfaces existing CLI capabilities without weakening any existing gates or mutation controls.
@@ -97,9 +98,8 @@ Goal: a minimal browser-based operator interface that surfaces existing CLI capa
 
 ### W3 — Runtime drift posture view
 
-- Implement the Drift view with per-assertion posture cards (in-sync / missing / drifted), blocker/remediation display, and audit trail link.
-- Assertion-scoped filter maps directly to `catalog coverage runtime-drift-policy --assertion`.
-- Exit criteria: Drift view correctly reflects `missing` posture for all assertions in a fresh catalog, and switches to `in-sync` after a valid `RuntimeDriftSignal` is imported via CLI and coverage report is refreshed.
+- Drift cards + assertion-scoped filtering + fail-closed payload handling.
+- Status: completed.
 
 ### W4 — Lifecycle publication readiness view
 
@@ -116,18 +116,18 @@ Goal: a minimal browser-based operator interface that surfaces existing CLI capa
 
 ## Next implementation slice
 
-Implement **W3 — Runtime drift posture view**:
+Implement **W4 — Lifecycle publication readiness view**:
 
-- extend the Drift view with assertion-scoped filtering and clear per-status posture cards (`in-sync`, `missing`, `drifted`);
-- show deterministic blocker/remediation mapping from `runtimeDriftPosture` records;
-- surface selected signal identity and audit reference where available without exposing raw target secrets;
-- keep all behavior read-only and fail closed when posture records are malformed or missing.
+- extend the Lifecycle view to present per-assertion four-pillar readiness status (lifecycle proof, integration attestation, publication rehearsal, renewal review);
+- show blocker code and remediation guidance in a deterministic card/table view with assertion filtering;
+- include deterministic policy scope metadata and taxonomy references from lifecycle policy endpoint;
+- keep behavior read-only and fail closed when lifecycle blocker encoding is malformed or inconsistent.
 
 Acceptance criteria:
 
-- Drift view supports assertion filter + posture card rendering from live API data with deterministic sort order;
-- missing and drifted posture states render explicit remediation guidance without changing backend policy semantics;
-- malformed posture payloads fail closed in UI rendering with non-destructive error state;
+- Lifecycle view renders assertion-scoped ready/blocked posture with deterministic ordering and stable blocker/remediation mapping;
+- assertion filter mode maps directly to lifecycle policy endpoint semantics without mutating backend policy logic;
+- malformed lifecycle blocker payloads fail closed in UI rendering with non-destructive error state;
 - no mutation authority is added and no existing CLI gates are weakened;
 - backend and frontend checks both pass in `make check` and `go test -race ./...` (frontend checks classified simulated/local).
 

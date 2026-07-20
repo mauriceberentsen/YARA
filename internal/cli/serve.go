@@ -170,11 +170,43 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", err.Error())
 			return
 		}
+		assertion := strings.TrimSpace(request.URL.Query().Get("assertion"))
+		if assertion != "" {
+			filtered := make([]runtimeDriftPosture, 0, len(posture))
+			for _, item := range posture {
+				if item.Assertion == assertion {
+					filtered = append(filtered, item)
+				}
+			}
+			if len(filtered) == 0 {
+				writeServeError(writer, http.StatusBadRequest, "YARA-SRV-007", "assertion is not present in runtime drift posture")
+				return
+			}
+			posture = filtered
+		}
 		sort.Slice(posture, func(i, j int) bool { return posture[i].Assertion < posture[j].Assertion })
+		rows := make([]map[string]string, 0, len(posture))
+		for _, item := range posture {
+			selectedSignal := item.SelectedSignal
+			if selectedSignal == "" {
+				selectedSignal = "none"
+			}
+			rows = append(rows, map[string]string{
+				"assertion":      item.Assertion,
+				"status":         item.Status,
+				"blocker":        mapValueOrDefault(item.Blocker, "none"),
+				"selectedSignal": selectedSignal,
+				"auditReference": "report:" + report.Metadata.ReportID,
+			})
+		}
 		writeServeJSON(writer, http.StatusOK, map[string]any{
-			"valid":               true,
+			"valid": true,
+			"assertionScope": map[string]string{
+				"mode":      assertionScopeMode(assertion),
+				"assertion": mapValueOrDefault(assertion, "all"),
+			},
 			"runtimeDriftPolicy":  map[string]any{"policyPassed": allRuntimeDriftInSync(posture)},
-			"runtimeDriftPosture": posture,
+			"runtimeDriftPosture": rows,
 		})
 	})
 	apiMux.HandleFunc("/api/v1/lifecycle-policy", func(writer http.ResponseWriter, request *http.Request) {
@@ -276,6 +308,20 @@ func allRuntimeDriftInSync(posture []runtimeDriftPosture) bool {
 		}
 	}
 	return true
+}
+
+func mapValueOrDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func assertionScopeMode(assertion string) string {
+	if assertion == "" {
+		return "all"
+	}
+	return "single-assertion"
 }
 
 func writeServeJSON(writer http.ResponseWriter, status int, value any) {

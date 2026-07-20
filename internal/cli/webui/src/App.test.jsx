@@ -6,11 +6,25 @@ import { App } from "./App";
 describe("App", () => {
   beforeEach(() => {
     global.fetch = vi.fn((input) => {
-      const endpoint = String(input);
+      const parsed = new URL(String(input), "http://localhost");
+      const endpoint = parsed.pathname + (parsed.search || "");
       const payloads = {
+        "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/catalog": { valid: true, catalog: { digest: "sha256:test", metadata: { version: "v0.2" } }, summary: { assertions: 1, components: 2 } },
         "/api/v1/coverage": { valid: true, report: { metadata: { reportId: "sha256:report" }, spec: { complete: true, summary: { assertionCount: 1, lifecyclePublicationReadyAssertions: 0 } } } },
-        "/api/v1/drift-posture": { valid: true, runtimeDriftPosture: [{ assertion: "compat.a", status: "missing", blocker: "no-signal" }] },
+        "/api/v1/drift-posture": {
+          valid: true,
+          runtimeDriftPosture: [
+            { assertion: "compat.a", status: "missing", blocker: "no-signal", selectedSignal: "none", auditReference: "report:sha256:report" },
+            { assertion: "compat.b", status: "in-sync", blocker: "none", selectedSignal: "sha256:signal", auditReference: "report:sha256:report" },
+          ],
+        },
+        "/api/v1/drift-posture?assertion=compat.a": {
+          valid: true,
+          runtimeDriftPosture: [
+            { assertion: "compat.a", status: "missing", blocker: "no-signal", selectedSignal: "none", auditReference: "report:sha256:report" },
+          ],
+        },
         "/api/v1/lifecycle-policy": { valid: true, lifecyclePublicationPolicy: { policyPassed: false }, blockedAssertions: [{ assertion: "compat.a", code: "missing-proof", remediation: "record-proof" }] },
       };
       const body = payloads[endpoint];
@@ -30,9 +44,30 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("sha256:report")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Drift" }));
-    await waitFor(() => expect(screen.getByText("compat.a")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Assertion filter")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("Selected signal:").length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByLabelText("Assertion filter"), { target: { value: "compat.a" } });
+    await waitFor(() => expect(screen.getAllByText("Remediation:").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByText("record-runtime-drift-signal")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Lifecycle" }));
     await waitFor(() => expect(screen.getByText("record-proof")).toBeInTheDocument());
+  });
+
+  it("fails closed on malformed drift payload", async () => {
+    global.fetch = vi.fn((input) => {
+      const parsed = new URL(String(input), "http://localhost");
+      const endpoint = parsed.pathname + (parsed.search || "");
+      if (endpoint === "/api/v1/assertions") {
+        return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
+      }
+      if (endpoint === "/api/v1/drift-posture") {
+        return Promise.resolve(new Response(JSON.stringify({ valid: true, runtimeDriftPosture: [{ assertion: "compat.a", status: "unknown" }] }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ valid: true }), { status: 200 }));
+    });
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Drift" }));
+    await waitFor(() => expect(screen.getByText(/Malformed runtime drift posture payload|Unsupported runtime drift posture status/)).toBeInTheDocument());
   });
 });
