@@ -1163,6 +1163,64 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.BlockerCount = len(capsule.Capsule.Blockers)
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/evidence-bundle/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow evidence bundle export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowEvidenceBundleExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-028", err.Error())
+			return
+		}
+		manifestPath, err := ensureWorkspaceFilePath(workspacePath, payload.ManifestPath, "manifestPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-028", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-028", err.Error())
+			return
+		}
+		if manifestPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-028", "manifestPath and auditPath must be different files")
+			return
+		}
+		manifest, subjects, err := buildWorkflowEvidenceBundleManifest(workspacePath)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-028", err.Error())
+			return
+		}
+		manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode evidence bundle manifest: %v", err))
+			return
+		}
+		manifestBytes = append(manifestBytes, '\n')
+		if err := writeExclusive(manifestPath, manifestBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-028", err.Error())
+			return
+		}
+		exportSubjects := append(append([]audit.Subject(nil), subjects...),
+			audit.Subject{Kind: "WorkflowEvidenceBundleManifest", Digest: digestBytes(manifestBytes)},
+		)
+		if err := persistOperationAuditForTarget(auditPath, "workflow.evidence-bundle.export", "completed", "success", "kubernetes:"+manifest.Manifest.Evidence.TargetReferenceDigest, exportSubjects, nil); err != nil {
+			_ = os.Remove(manifestPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowEvidenceBundleExportResponse{Valid: true}
+		response.Export.ManifestPath = manifestPath
+		response.Export.AuditPath = auditPath
+		response.Export.RunbookExportCount = len(manifest.Manifest.RunbookExports)
+		response.Export.CapsuleExportCount = len(manifest.Manifest.CapsuleExports)
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -1507,6 +1565,56 @@ type workflowCapsuleExportResponse struct {
 		BlockedArchival bool   `json:"blockedArchival"`
 		BlockerCount    int    `json:"blockerCount"`
 	} `json:"export"`
+}
+
+type workflowEvidenceBundleExportRequest struct {
+	ManifestPath string `json:"manifestPath"`
+	AuditPath    string `json:"auditPath"`
+}
+
+type workflowEvidenceBundleExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		ManifestPath       string `json:"manifestPath"`
+		AuditPath          string `json:"auditPath"`
+		RunbookExportCount int    `json:"runbookExportCount"`
+		CapsuleExportCount int    `json:"capsuleExportCount"`
+	} `json:"export"`
+}
+
+type workflowEvidenceBundleManifest struct {
+	Valid    bool `json:"valid"`
+	Manifest struct {
+		WorkspacePath string `json:"workspacePath"`
+		Artifacts     struct {
+			PlanPath          string `json:"planPath"`
+			BundlePath        string `json:"bundlePath"`
+			PreflightPath     string `json:"preflightPath"`
+			ChangeSetPath     string `json:"changeSetPath"`
+			ApprovalPath      string `json:"approvalPath"`
+			AuthorizationPath string `json:"authorizationPath"`
+		} `json:"artifacts"`
+		Evidence struct {
+			PlanID                string `json:"planId"`
+			BundleID              string `json:"bundleId"`
+			PreflightResultID     string `json:"preflightResultId"`
+			ChangeSetID           string `json:"changeSetId"`
+			ApprovalID            string `json:"approvalId"`
+			AuthorizationID       string `json:"authorizationId"`
+			TargetReferenceDigest string `json:"targetReferenceDigest"`
+		} `json:"evidence"`
+		RunbookExports []workflowExportReference `json:"runbookExports"`
+		CapsuleExports []workflowExportReference `json:"capsuleExports"`
+	} `json:"manifest"`
+}
+
+type workflowExportReference struct {
+	MarkdownPath string `json:"markdownPath"`
+	JSONPath     string `json:"jsonPath"`
+	MarkdownID   string `json:"markdownId"`
+	JSONID       string `json:"jsonId"`
+	Ready        bool   `json:"ready,omitempty"`
+	Blockers     int    `json:"blockers,omitempty"`
 }
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
@@ -1911,6 +2019,26 @@ func decodeWorkflowCapsuleExportRequest(request *http.Request) (workflowCapsuleE
 	return payload, nil
 }
 
+func decodeWorkflowEvidenceBundleExportRequest(request *http.Request) (workflowEvidenceBundleExportRequest, error) {
+	var payload workflowEvidenceBundleExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.ManifestPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("manifestPath and auditPath are required")
+	}
+	if payload.ManifestPath == payload.AuditPath {
+		return payload, errors.New("manifestPath and auditPath must be different files")
+	}
+	return payload, nil
+}
+
 func shellQuote(value string) string {
 	if value == "" {
 		return "''"
@@ -2187,6 +2315,155 @@ func buildWorkflowCapsule(workspacePath string) (workflowCapsuleResponse, []audi
 	return capsule, subjects, nil
 }
 
+func buildWorkflowEvidenceBundleManifest(workspacePath string) (workflowEvidenceBundleManifest, []audit.Subject, error) {
+	runbook, runbookSubjects, err := buildWorkflowRunbook(workspacePath)
+	if err != nil {
+		return workflowEvidenceBundleManifest{}, nil, fmt.Errorf("build runbook evidence chain: %w", err)
+	}
+	capsule, capsuleSubjects, err := buildWorkflowCapsule(workspacePath)
+	if err != nil {
+		return workflowEvidenceBundleManifest{}, nil, fmt.Errorf("build capsule readiness chain: %w", err)
+	}
+	runbookMarkdownPaths, runbookJSONPaths := discoverRunbookExports(workspacePath)
+	capsuleMarkdownPaths, capsuleJSONPaths := discoverCapsuleExports(workspacePath)
+	if len(runbookMarkdownPaths) == 0 || len(runbookJSONPaths) == 0 {
+		return workflowEvidenceBundleManifest{}, nil, errors.New("evidence bundle requires runbook markdown and json exports in workspace")
+	}
+	if len(capsuleMarkdownPaths) == 0 || len(capsuleJSONPaths) == 0 {
+		return workflowEvidenceBundleManifest{}, nil, errors.New("evidence bundle requires capsule markdown and json exports in workspace")
+	}
+	runbookRefs, runbookRefSubjects, err := collectRunbookExportReferences(runbook, runbookMarkdownPaths, runbookJSONPaths)
+	if err != nil {
+		return workflowEvidenceBundleManifest{}, nil, err
+	}
+	capsuleRefs, capsuleRefSubjects, err := collectCapsuleExportReferences(capsule, capsuleMarkdownPaths, capsuleJSONPaths)
+	if err != nil {
+		return workflowEvidenceBundleManifest{}, nil, err
+	}
+	manifest := workflowEvidenceBundleManifest{Valid: true}
+	manifest.Manifest.WorkspacePath = workspacePath
+	manifest.Manifest.Artifacts.PlanPath = runbook.Runbook.Artifacts.PlanPath
+	manifest.Manifest.Artifacts.BundlePath = runbook.Runbook.Artifacts.BundlePath
+	manifest.Manifest.Artifacts.PreflightPath = runbook.Runbook.Artifacts.PreflightPath
+	manifest.Manifest.Artifacts.ChangeSetPath = runbook.Runbook.Artifacts.ChangeSetPath
+	manifest.Manifest.Artifacts.ApprovalPath = runbook.Runbook.Artifacts.ApprovalPath
+	manifest.Manifest.Artifacts.AuthorizationPath = runbook.Runbook.Artifacts.AuthorizationPath
+	manifest.Manifest.Evidence.PlanID = runbook.Runbook.Evidence.PlanID
+	manifest.Manifest.Evidence.BundleID = runbook.Runbook.Evidence.BundleID
+	manifest.Manifest.Evidence.PreflightResultID = runbook.Runbook.Evidence.PreflightResultID
+	manifest.Manifest.Evidence.ChangeSetID = runbook.Runbook.Evidence.ChangeSetID
+	manifest.Manifest.Evidence.ApprovalID = runbook.Runbook.Evidence.ApprovalID
+	manifest.Manifest.Evidence.AuthorizationID = runbook.Runbook.Evidence.AuthorizationID
+	manifest.Manifest.Evidence.TargetReferenceDigest = runbook.Runbook.Evidence.TargetReferenceDigest
+	manifest.Manifest.RunbookExports = runbookRefs
+	manifest.Manifest.CapsuleExports = capsuleRefs
+	subjects := append([]audit.Subject{}, runbookSubjects...)
+	subjects = append(subjects, capsuleSubjects...)
+	subjects = append(subjects, runbookRefSubjects...)
+	subjects = append(subjects, capsuleRefSubjects...)
+	return manifest, subjects, nil
+}
+
+func collectRunbookExportReferences(expected workflowRunbookResponse, markdownPaths, jsonPaths []string) ([]workflowExportReference, []audit.Subject, error) {
+	jsonSet := map[string]struct{}{}
+	for _, path := range jsonPaths {
+		jsonSet[path] = struct{}{}
+	}
+	references := make([]workflowExportReference, 0, len(markdownPaths))
+	subjects := []audit.Subject{}
+	for _, markdownPath := range markdownPaths {
+		base := strings.TrimSuffix(markdownPath, ".runbook.md")
+		jsonPath := base + ".runbook.json"
+		if _, ok := jsonSet[jsonPath]; !ok {
+			return nil, nil, fmt.Errorf("runbook export pair is incomplete for %s", markdownPath)
+		}
+		markdownBytes, err := os.ReadFile(markdownPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read runbook markdown export %s: %w", markdownPath, err)
+		}
+		jsonBytes, err := os.ReadFile(jsonPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read runbook json export %s: %w", jsonPath, err)
+		}
+		var exported workflowRunbookResponse
+		if err := json.Unmarshal(jsonBytes, &exported); err != nil {
+			return nil, nil, fmt.Errorf("decode runbook json export %s: %w", jsonPath, err)
+		}
+		if exported.Runbook.Evidence.PlanID != expected.Runbook.Evidence.PlanID ||
+			exported.Runbook.Evidence.BundleID != expected.Runbook.Evidence.BundleID ||
+			exported.Runbook.Evidence.PreflightResultID != expected.Runbook.Evidence.PreflightResultID ||
+			exported.Runbook.Evidence.ChangeSetID != expected.Runbook.Evidence.ChangeSetID ||
+			exported.Runbook.Evidence.ApprovalID != expected.Runbook.Evidence.ApprovalID ||
+			exported.Runbook.Evidence.AuthorizationID != expected.Runbook.Evidence.AuthorizationID ||
+			exported.Runbook.Evidence.TargetReferenceDigest != expected.Runbook.Evidence.TargetReferenceDigest {
+			return nil, nil, fmt.Errorf("runbook export %s is not bound to current workflow evidence chain", jsonPath)
+		}
+		references = append(references, workflowExportReference{
+			MarkdownPath: markdownPath,
+			JSONPath:     jsonPath,
+			MarkdownID:   digestBytes(markdownBytes),
+			JSONID:       digestBytes(jsonBytes),
+		})
+		subjects = append(subjects,
+			audit.Subject{Kind: "RunbookMarkdown", Digest: digestBytes(markdownBytes)},
+			audit.Subject{Kind: "RunbookJSON", Digest: digestBytes(jsonBytes)},
+		)
+	}
+	sort.Slice(references, func(i, j int) bool { return references[i].JSONPath < references[j].JSONPath })
+	return references, subjects, nil
+}
+
+func collectCapsuleExportReferences(expected workflowCapsuleResponse, markdownPaths, jsonPaths []string) ([]workflowExportReference, []audit.Subject, error) {
+	jsonSet := map[string]struct{}{}
+	for _, path := range jsonPaths {
+		jsonSet[path] = struct{}{}
+	}
+	references := make([]workflowExportReference, 0, len(markdownPaths))
+	subjects := []audit.Subject{}
+	for _, markdownPath := range markdownPaths {
+		base := strings.TrimSuffix(markdownPath, ".capsule.md")
+		jsonPath := base + ".capsule.json"
+		if _, ok := jsonSet[jsonPath]; !ok {
+			return nil, nil, fmt.Errorf("capsule export pair is incomplete for %s", markdownPath)
+		}
+		markdownBytes, err := os.ReadFile(markdownPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read capsule markdown export %s: %w", markdownPath, err)
+		}
+		jsonBytes, err := os.ReadFile(jsonPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read capsule json export %s: %w", jsonPath, err)
+		}
+		var exported workflowCapsuleResponse
+		if err := json.Unmarshal(jsonBytes, &exported); err != nil {
+			return nil, nil, fmt.Errorf("decode capsule json export %s: %w", jsonPath, err)
+		}
+		if exported.Capsule.Evidence.PlanID != expected.Capsule.Evidence.PlanID ||
+			exported.Capsule.Evidence.BundleID != expected.Capsule.Evidence.BundleID ||
+			exported.Capsule.Evidence.PreflightResultID != expected.Capsule.Evidence.PreflightResultID ||
+			exported.Capsule.Evidence.ChangeSetID != expected.Capsule.Evidence.ChangeSetID ||
+			exported.Capsule.Evidence.ApprovalID != expected.Capsule.Evidence.ApprovalID ||
+			exported.Capsule.Evidence.AuthorizationID != expected.Capsule.Evidence.AuthorizationID ||
+			exported.Capsule.Evidence.TargetReferenceDigest != expected.Capsule.Evidence.TargetReferenceDigest {
+			return nil, nil, fmt.Errorf("capsule export %s is not bound to current workflow evidence chain", jsonPath)
+		}
+		references = append(references, workflowExportReference{
+			MarkdownPath: markdownPath,
+			JSONPath:     jsonPath,
+			MarkdownID:   digestBytes(markdownBytes),
+			JSONID:       digestBytes(jsonBytes),
+			Ready:        exported.Capsule.Ready,
+			Blockers:     len(exported.Capsule.Blockers),
+		})
+		subjects = append(subjects,
+			audit.Subject{Kind: "CapsuleMarkdown", Digest: digestBytes(markdownBytes)},
+			audit.Subject{Kind: "CapsuleJSON", Digest: digestBytes(jsonBytes)},
+		)
+	}
+	sort.Slice(references, func(i, j int) bool { return references[i].JSONPath < references[j].JSONPath })
+	return references, subjects, nil
+}
+
 func discoverRunbookExports(workspacePath string) ([]string, []string) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -2203,6 +2480,30 @@ func discoverRunbookExports(workspacePath string) ([]string, []string) {
 			markdownPaths = append(markdownPaths, filepath.Join(workspacePath, name))
 		}
 		if strings.HasSuffix(name, ".runbook.json") {
+			jsonPaths = append(jsonPaths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(markdownPaths)
+	sort.Strings(jsonPaths)
+	return markdownPaths, jsonPaths
+}
+
+func discoverCapsuleExports(workspacePath string) ([]string, []string) {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}, []string{}
+	}
+	markdownPaths := []string{}
+	jsonPaths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".capsule.md") {
+			markdownPaths = append(markdownPaths, filepath.Join(workspacePath, name))
+		}
+		if strings.HasSuffix(name, ".capsule.json") {
 			jsonPaths = append(jsonPaths, filepath.Join(workspacePath, name))
 		}
 	}

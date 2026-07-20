@@ -2,7 +2,7 @@
 ## Current repository state
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `f4bc3fc`, `efd79b3`, `b83483e`, `6e21c5c`, `8d628dd`.
+- Recent commits (newest first): `88dcc81`, `f4bc3fc`, `efd79b3`, `b83483e`, `6e21c5c`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
@@ -50,6 +50,10 @@
   - `POST /api/v1/workflow/capsule/export` persists deterministic capsule markdown/json outputs plus mandatory audit output with workspace-bounded path enforcement;
   - blocked capsules fail closed by default and require explicit `allowBlocked=true` plus `allowBlockedReasonReference` to archive blocked gate posture;
   - capsule export audit includes blocker diagnostic codes for blocked archival snapshots and UI now supports ready/blocked snapshot export with policy diagnostics.
+- Interactive workflow cockpit I12 is implemented:
+  - `POST /api/v1/workflow/evidence-bundle/export` persists a deterministic manifest + mandatory audit output that references plan/bundle/preflight/change-set/approval/authorization and exported runbook/capsule artifacts by immutable IDs and workspace paths;
+  - export fails closed when runbook or capsule export artifacts are missing, malformed, unpaired, or bound to a mismatched evidence chain;
+  - capsule UI now supports evidence-bundle export actions with fail-closed diagnostics and deterministic artifact path outputs for operator handoff.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -61,9 +65,9 @@
 ## Current branch and working tree
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `POST /api/v1/workflow/capsule/export` now writes deterministic capsule markdown/json outputs plus mandatory audit output into workspace-bounded paths;
-  - blocked capsule exports fail closed unless `allowBlocked=true` and `allowBlockedReasonReference` are provided, preserving explicit policy intent;
-  - UI capsule panel now supports export actions and surfaces whether the exported snapshot captured ready or blocked posture.
+  - `POST /api/v1/workflow/evidence-bundle/export` now writes deterministic workflow evidence-bundle manifest + mandatory audit output to workspace-bounded paths;
+  - evidence-bundle export now fails closed when runbook/capsule exports are absent or not bound to the active workflow evidence chain;
+  - UI capsule panel now supports evidence-bundle export and surfaces manifest/audit paths plus referenced export counts.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui`;
@@ -117,25 +121,24 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 - enforce fail-closed behavior for overwrite attempts and out-of-workspace export paths.
 - Status: completed.
 ### I10 — End-to-end cockpit execution capsule
-- add `GET /api/v1/workflow/capsule` that bundles workspace stage status, runbook export references, and apply readiness signals into one deterministic, redact-safe JSON payload;
-- include explicit blocker taxonomy for missing/expired/mismatched evidence and actionable remediation strings;
-- add UI capsule view to summarize operator readiness and link to plan/runbook/apply artifacts without mutating state.
+- add `GET /api/v1/workflow/capsule` plus UI capsule view to surface deterministic stage/evidence readiness, runbook export references, and blocker taxonomy with remediation.
 - Status: completed.
 ### I11 — Capsule audit export and gating freeze
-- add `POST /api/v1/workflow/capsule/export` writing deterministic capsule json + markdown and mandatory audit output into workspace-bounded paths;
-- reject capsule export when readiness is blocked unless caller explicitly requests blocked-state archival (`allowBlocked=true`) with audit-coded reason;
-- add UI action to export capsule and show whether export represents a ready or blocked gate snapshot.
+- add `POST /api/v1/workflow/capsule/export` + UI action for deterministic capsule json/markdown/audit export with blocked-state fail-closed policy (`allowBlocked=true` + reason required).
+Status: completed.
+### I12 — Workflow evidence bundle export index
+- add `POST /api/v1/workflow/evidence-bundle/export` + capsule UI action to persist deterministic manifest/audit outputs, with fail-closed validation for missing/malformed/mismatched runbook/capsule exports and strict workspace-bounded no-overwrite paths.
 Status: completed.
 ## Next implementation slice
-Implement **I12 — Workflow evidence bundle export index**:
-- add `POST /api/v1/workflow/evidence-bundle/export` to persist one deterministic manifest that references plan, bundle, preflight, change-set, approval, authorization, runbook exports, and capsule exports by immutable IDs and workspace paths;
-- enforce fail-closed validation that every referenced artifact exists, validates, and binds to one coherent evidence chain before writing the manifest;
-- add mandatory audit output and reject duplicate/out-of-workspace manifest or audit paths with no-overwrite semantics;
-- add UI action in the capsule panel to export the evidence bundle manifest and render readiness/errors for operator handoff.
+Implement **I13 — Execution receipt timeline and closure export**:
+- add `GET /api/v1/workflow/receipt-timeline` that derives deterministic apply receipt chronology (latest receipt + prior receipts in workspace) with immutable IDs, authorization linkage, and target digest continuity checks;
+- add `POST /api/v1/workflow/receipt-timeline/export` to persist timeline markdown/json plus mandatory audit output using workspace-bounded no-overwrite semantics;
+- fail closed when receipt artifacts are malformed, target digests diverge, or receipt-to-authorization bindings are incomplete;
+- extend capsule UI with receipt timeline export action and blocker surfacing for rollout closure handoff.
 Acceptance criteria:
-- evidence bundle export writes deterministic manifest + audit artifacts with complete immutable references to the workflow chain;
-- evidence bundle export fails closed on missing/malformed/mismatched evidence and on out-of-workspace or duplicate output paths;
-- UI evidence-bundle export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
+- receipt timeline endpoints/export write deterministic closure artifacts with immutable receipt/authorization linkage;
+- receipt timeline flow fails closed on malformed/mismatched receipt chains and out-of-workspace or duplicate output paths;
+- UI receipt-timeline export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 ## Validation requirements
 Run at minimum for each slice:
@@ -153,8 +156,4 @@ Classification rules:
 - Keep `.yara/`, generated release output directories, and machine-local artifacts unstaged.
 - Do not commit secrets/private keys/kubeconfig/raw target addresses/prompts/completions/env vars/raw logs/raw object bodies.
 - Keep docs, schemas, CLI behavior, and Go validation in sync.
-- Each completed slice must update this handoff with:
-  - current branch/commit/tag reality;
-  - exact validation commands and outcomes;
-  - explicit simulated/local/live distinction;
-  - exactly one next recommended slice.
+- Each completed slice must update this handoff with current branch/commit/tag reality, exact validation outcomes, explicit simulated/local/live distinction, and exactly one next recommended slice.

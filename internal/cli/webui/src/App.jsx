@@ -1316,6 +1316,11 @@ function CapsuleView({ payload }) {
     allowBlockedReasonReference: "",
   }));
   const [submitState, setSubmitState] = useState({ loading: false, error: "", result: null });
+  const [bundleForm, setBundleForm] = useState(() => ({
+    manifestPath: workspacePath ? `${workspacePath}/workflow.evidence-bundle.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.evidence-bundle.export.audit.jsonl` : "",
+  }));
+  const [bundleSubmitState, setBundleSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1326,6 +1331,11 @@ function CapsuleView({ payload }) {
       markdownPath: previous.markdownPath || `${workspacePath}/workflow.capsule.md`,
       jsonPath: previous.jsonPath || `${workspacePath}/workflow.capsule.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.capsule.export.audit.jsonl`,
+    }));
+    setBundleForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.evidence-bundle.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.evidence-bundle.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1361,6 +1371,31 @@ function CapsuleView({ payload }) {
       setSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setSubmitState({ loading: false, error: error.message || "Capsule export failed", result: null });
+    }
+  };
+  const updateBundle = (key) => (event) => {
+    setBundleForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportBundle = bundleForm.manifestPath !== "" && bundleForm.auditPath !== "" && bundleForm.manifestPath !== bundleForm.auditPath;
+  const submitBundle = async (event) => {
+    event.preventDefault();
+    if (!canExportBundle) {
+      return;
+    }
+    setBundleSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/evidence-bundle/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bundleForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Evidence bundle export failed");
+      }
+      setBundleSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setBundleSubmitState({ loading: false, error: error.message || "Evidence bundle export failed", result: null });
     }
   };
   return (
@@ -1452,6 +1487,30 @@ function CapsuleView({ payload }) {
           <div><dt>Ready snapshot</dt><dd>{String(Boolean(submitState.result.ready))}</dd></div>
           <div><dt>Blocked archival</dt><dd>{String(Boolean(submitState.result.blockedArchival))}</dd></div>
           <div><dt>Blocker count</dt><dd>{String(submitState.result.blockerCount ?? 0)}</dd></div>
+        </dl>
+      )}
+      <h3>Export evidence bundle</h3>
+      <form onSubmit={submitBundle}>
+        <div className="formRow">
+          <label htmlFor="evidence-bundle-manifest-path">Manifest output path</label>
+          <input id="evidence-bundle-manifest-path" value={bundleForm.manifestPath} onChange={updateBundle("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="evidence-bundle-audit-path">Audit output path</label>
+          <input id="evidence-bundle-audit-path" value={bundleForm.auditPath} onChange={updateBundle("auditPath")} />
+        </div>
+        <button type="submit" disabled={bundleSubmitState.loading || !canExportBundle}>
+          {bundleSubmitState.loading ? "Exporting evidence bundle..." : "Export evidence bundle"}
+        </button>
+      </form>
+      {!canExportBundle && <p className="error">Evidence bundle export requires distinct manifest and audit paths.</p>}
+      {bundleSubmitState.error && <p className="error">Error: {bundleSubmitState.error}</p>}
+      {bundleSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{bundleSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{bundleSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Runbook exports</dt><dd>{String(bundleSubmitState.result.runbookExportCount ?? 0)}</dd></div>
+          <div><dt>Capsule exports</dt><dd>{String(bundleSubmitState.result.capsuleExportCount ?? 0)}</dd></div>
         </dl>
       )}
     </>

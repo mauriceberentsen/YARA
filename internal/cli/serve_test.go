@@ -1358,6 +1358,100 @@ func TestServeWorkflowCapsuleExportAllowsBlockedWithReason(t *testing.T) {
 	}
 }
 
+func TestServeWorkflowEvidenceBundleExportWritesManifestAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeEvidenceBundleFixtures(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	manifestPath := filepath.Join(workspacePath, "workflow.evidence-bundle.json")
+	auditPath := filepath.Join(workspacePath, "workflow.evidence-bundle.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"manifestPath":%q,"auditPath":%q}`, manifestPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/evidence-bundle/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for evidence bundle export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read evidence bundle manifest: %v", err)
+	}
+	manifest := workflowEvidenceBundleManifest{}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode evidence bundle manifest: %v", err)
+	}
+	if len(manifest.Manifest.RunbookExports) == 0 || len(manifest.Manifest.CapsuleExports) == 0 {
+		t.Fatalf("expected runbook and capsule export references, got %#v", manifest.Manifest)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load evidence bundle export audit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected audit records for evidence bundle export")
+	}
+}
+
+func TestServeWorkflowEvidenceBundleExportRejectsMissingExports(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.evidence-bundle.json"),
+		filepath.Join(workspacePath, "workflow.evidence-bundle.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/evidence-bundle/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing exports, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "runbook markdown and json exports") {
+		t.Fatalf("expected missing export diagnostic, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowEvidenceBundleExportRejectsMismatchedRunbookExport(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeEvidenceBundleFixtures(t, workspacePath)
+	runbookJSONPath := filepath.Join(workspacePath, "workflow.runbook.json")
+	runbookExport := workflowRunbookResponse{}
+	runbookJSONBytes, err := os.ReadFile(runbookJSONPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(runbookJSONBytes, &runbookExport); err != nil {
+		t.Fatal(err)
+	}
+	runbookExport.Runbook.Evidence.PlanID = testCLIDigest('c')
+	corruptedRunbookJSON, err := json.MarshalIndent(runbookExport, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corruptedRunbookJSON = append(corruptedRunbookJSON, '\n')
+	if err := os.WriteFile(runbookJSONPath, corruptedRunbookJSON, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.evidence-bundle.json"),
+		filepath.Join(workspacePath, "workflow.evidence-bundle.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/evidence-bundle/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for mismatched runbook export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "not bound to current workflow evidence chain") {
+		t.Fatalf("expected mismatch diagnostic, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
@@ -1464,6 +1558,67 @@ func TestServeUIShellRoute(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "YARA Web UI") {
 		t.Fatalf("ui shell response did not include app title: %s", recorder.Body.String())
+	}
+}
+
+func populateWorkflowWorkspace(t *testing.T, workspacePath string) {
+	t.Helper()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, _ := writeExecutionInputs(t, sourcePath, now)
+	planPath, _ := writeV02Plan(t, sourcePath)
+	copyIntoWorkspace := func(path string) {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		target := filepath.Join(workspacePath, filepath.Base(path))
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			t.Fatalf("write %s: %v", target, err)
+		}
+	}
+	copyIntoWorkspace(planPath)
+	for _, flag := range []string{"--bundle", "--preflight", "--change-set", "--approval", "--authorization"} {
+		copyIntoWorkspace(valueForFlag(paths, flag))
+	}
+}
+
+func writeEvidenceBundleFixtures(t *testing.T, workspacePath string) {
+	t.Helper()
+	runbook, _, err := buildWorkflowRunbook(workspacePath)
+	if err != nil {
+		t.Fatalf("build runbook fixture: %v", err)
+	}
+	runbookMarkdownPath := filepath.Join(workspacePath, "workflow.runbook.md")
+	runbookJSONPath := filepath.Join(workspacePath, "workflow.runbook.json")
+	if err := os.WriteFile(runbookMarkdownPath, []byte(runbook.Runbook.Markdown+"\n"), 0o600); err != nil {
+		t.Fatalf("write runbook markdown fixture: %v", err)
+	}
+	runbookJSONBytes, err := json.MarshalIndent(runbook, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal runbook fixture: %v", err)
+	}
+	runbookJSONBytes = append(runbookJSONBytes, '\n')
+	if err := os.WriteFile(runbookJSONPath, runbookJSONBytes, 0o600); err != nil {
+		t.Fatalf("write runbook json fixture: %v", err)
+	}
+	capsule, _, err := buildWorkflowCapsule(workspacePath)
+	if err != nil {
+		t.Fatalf("build capsule fixture: %v", err)
+	}
+	capsuleMarkdownPath := filepath.Join(workspacePath, "workflow.capsule.md")
+	capsuleJSONPath := filepath.Join(workspacePath, "workflow.capsule.json")
+	if err := os.WriteFile(capsuleMarkdownPath, []byte(renderCapsuleMarkdown(capsule, "")+"\n"), 0o600); err != nil {
+		t.Fatalf("write capsule markdown fixture: %v", err)
+	}
+	capsuleJSONBytes, err := json.MarshalIndent(capsule, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal capsule fixture: %v", err)
+	}
+	capsuleJSONBytes = append(capsuleJSONBytes, '\n')
+	if err := os.WriteFile(capsuleJSONPath, capsuleJSONBytes, 0o600); err != nil {
+		t.Fatalf("write capsule json fixture: %v", err)
 	}
 }
 

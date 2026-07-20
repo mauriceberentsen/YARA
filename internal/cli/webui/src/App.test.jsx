@@ -230,6 +230,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/evidence-bundle/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            manifestPath: requestPayload.manifestPath,
+            auditPath: requestPayload.auditPath,
+            runbookExportCount: 1,
+            capsuleExportCount: 1,
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -456,6 +468,8 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("No blockers. Capsule is ready.")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Export capsule" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.capsule.md")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Export evidence bundle" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.evidence-bundle.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -513,6 +527,12 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/evidence-bundle/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-028", message: "evidence bundle requires runbook markdown and json exports in workspace", severity: "error" }],
+        }), { status: 400 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -543,6 +563,8 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Blocked archival reason reference"), { target: { value: "ticket-42" } });
     fireEvent.click(screen.getByRole("button", { name: "Export capsule" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.capsule.export.audit.jsonl")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Export evidence bundle" }));
+    await waitFor(() => expect(screen.getByText(/runbook markdown and json exports/)).toBeInTheDocument());
   });
 
   it("fails closed on malformed drift payload", async () => {
