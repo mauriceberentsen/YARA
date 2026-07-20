@@ -1,7 +1,7 @@
 # Cursor handoff
 ## Current repository state
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
-- Recent commits (newest first): `ff5bf04`, `81f6421`, `6f08227`, `cfaa249`, `3eceb79`.
+- Recent commits (newest first): `e76c71f`, `ff5bf04`, `81f6421`, `6f08227`, `cfaa249`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
