@@ -761,6 +761,211 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Approval.ReasonReference = approval.Spec.Reason.Reference
 		writeServeJSON(writer, workflowApprovalStatus(exitCode), response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/authorization-command", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "authorization command generation requires --workspace")
+			return
+		}
+		stageLookup, err := workspaceStageArtifacts(workspacePath)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-010", err.Error())
+			return
+		}
+		bundlePath, hasBundle := stageLookup["bundle"]
+		preflightPath, hasPreflight := stageLookup["preflight"]
+		changeSetPath, hasChangeSet := stageLookup["changeset"]
+		approvalPath, hasApproval := stageLookup["approval"]
+		if !hasBundle || !hasPreflight || !hasChangeSet || !hasApproval {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-021", "bundle, preflight, change-set, and approval artifacts must exist in workspace")
+			return
+		}
+		query := request.URL.Query()
+		privateKeyPath := strings.TrimSpace(query.Get("privateKeyPath"))
+		if privateKeyPath == "" {
+			privateKeyPath = "<private-key-path>"
+		}
+		keyID := strings.TrimSpace(query.Get("keyId"))
+		if keyID == "" {
+			keyID = "<key-id>"
+		}
+		name := strings.TrimSpace(query.Get("name"))
+		if name == "" {
+			name = "reference-authorization"
+		}
+		outputPath := strings.TrimSpace(query.Get("outputPath"))
+		if outputPath == "" {
+			outputPath = filepath.Join(workspacePath, "reference-authorization.yaml")
+		}
+		auditPath := strings.TrimSpace(query.Get("auditPath"))
+		if auditPath == "" {
+			auditPath = filepath.Join(workspacePath, "reference-authorization.audit.jsonl")
+		}
+		outputPath, err = ensureWorkspaceFilePath(workspacePath, outputPath, "outputPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-021", err.Error())
+			return
+		}
+		auditPath, err = ensureWorkspaceFilePath(workspacePath, auditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-021", err.Error())
+			return
+		}
+		command := strings.Join([]string{
+			"yara", "authorization", "issue",
+			"--bundle", shellQuote(bundlePath),
+			"--preflight", shellQuote(preflightPath),
+			"--change-set", shellQuote(changeSetPath),
+			"--approval", shellQuote(approvalPath),
+			"--private-key", shellQuote(privateKeyPath),
+			"--key-id", shellQuote(keyID),
+			"--name", shellQuote(name),
+			"--output", shellQuote(outputPath),
+			"--audit-output", shellQuote(auditPath),
+		}, " ")
+		writeServeJSON(writer, http.StatusOK, workflowAuthorizationCommandResponse{
+			Valid:         true,
+			Command:       command,
+			BundlePath:    bundlePath,
+			PreflightPath: preflightPath,
+			ChangeSetPath: changeSetPath,
+			ApprovalPath:  approvalPath,
+			OutputPath:    outputPath,
+			AuditPath:     auditPath,
+		})
+	})
+	apiMux.HandleFunc("/api/v1/workflow/apply", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow apply requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowApplyRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-022", err.Error())
+			return
+		}
+		receiptPath, err := ensureWorkspaceFilePath(workspacePath, payload.ReceiptPath, "receiptPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-022", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-022", err.Error())
+			return
+		}
+		if strings.EqualFold(receiptPath, auditPath) {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-022", "receiptPath and auditPath must be different files")
+			return
+		}
+		applyArgs := []string{
+			"--bundle", payload.BundlePath,
+			"--preflight", payload.PreflightPath,
+			"--change-set", payload.ChangeSetPath,
+			"--approval", payload.ApprovalPath,
+			"--import-receipt", payload.ImportReceiptPath,
+			"--authorization", payload.AuthorizationPath,
+			"--public-key", payload.PublicKeyPath,
+			"--confirm-authorization", payload.ConfirmAuthorization,
+			"--name", payload.Name,
+			"--receipt-output", receiptPath,
+			"--audit-output", auditPath,
+		}
+		for _, path := range payload.TransferReceiptPaths {
+			if strings.TrimSpace(path) != "" {
+				applyArgs = append(applyArgs, "--transfer-receipt", path)
+			}
+		}
+		for _, path := range payload.ScanReceiptPaths {
+			if strings.TrimSpace(path) != "" {
+				applyArgs = append(applyArgs, "--scan-receipt", path)
+			}
+		}
+		if payload.AirgapGateResultPath != "" {
+			applyArgs = append(applyArgs, "--airgap-gate-result", payload.AirgapGateResultPath)
+		}
+		if payload.AirgapGateTrustPolicyPath != "" {
+			applyArgs = append(applyArgs, "--airgap-gate-trust-policy", payload.AirgapGateTrustPolicyPath)
+		}
+		if payload.ConfirmAirgapGateTrustPolicy != "" {
+			applyArgs = append(applyArgs, "--confirm-airgap-gate-trust-policy", payload.ConfirmAirgapGateTrustPolicy)
+		}
+		if payload.AirgapGatePolicyDiffPath != "" {
+			applyArgs = append(applyArgs, "--airgap-gate-policy-diff", payload.AirgapGatePolicyDiffPath)
+		}
+		if payload.ConfirmAirgapGatePolicyDiff != "" {
+			applyArgs = append(applyArgs, "--confirm-airgap-gate-policy-diff", payload.ConfirmAirgapGatePolicyDiff)
+		}
+		if payload.AirgapGateTransitionReviewPath != "" {
+			applyArgs = append(applyArgs, "--airgap-gate-transition-review", payload.AirgapGateTransitionReviewPath)
+		}
+		if payload.ConfirmAirgapGateTransitionReview != "" {
+			applyArgs = append(applyArgs, "--confirm-airgap-gate-transition-review", payload.ConfirmAirgapGateTransitionReview)
+		}
+		if payload.Kubeconfig != "" {
+			applyArgs = append(applyArgs, "--kubeconfig", payload.Kubeconfig)
+		}
+		if payload.ContextName != "" {
+			applyArgs = append(applyArgs, "--context", payload.ContextName)
+		}
+		if payload.Timeout != "" {
+			applyArgs = append(applyArgs, "--timeout", payload.Timeout)
+		}
+		var commandStdout bytes.Buffer
+		var commandStderr bytes.Buffer
+		exitCode := workflowApplyRunner(applyArgs, &commandStdout, &commandStderr)
+		if exitCode != ExitSuccess {
+			var failurePayload any
+			if err := json.Unmarshal(commandStdout.Bytes(), &failurePayload); err == nil {
+				writeServeJSON(writer, workflowApplyStatus(exitCode), failurePayload)
+				return
+			}
+			writeServeError(writer, workflowApplyStatus(exitCode), "YARA-SRV-023", strings.TrimSpace(commandStderr.String()))
+			return
+		}
+		var applyCommandResult struct {
+			Valid           bool   `json:"valid"`
+			Outcome         string `json:"outcome"`
+			ReceiptID       string `json:"receiptId"`
+			AuthorizationID string `json:"authorizationId"`
+			ReceiptOutput   string `json:"receiptOutput"`
+			AuditOutput     string `json:"auditOutput"`
+		}
+		if err := json.Unmarshal(commandStdout.Bytes(), &applyCommandResult); err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("decode apply workflow output: %v", err))
+			return
+		}
+		receipt, err := resources.LoadDeploymentReceipt(applyCommandResult.ReceiptOutput)
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("load generated receipt: %v", err))
+			return
+		}
+		report := receipt.Validate()
+		if !report.Valid {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("generated receipt failed validation: %s", report.Diagnostics[0].Code))
+			return
+		}
+		response := workflowApplyResponse{Valid: applyCommandResult.Valid}
+		response.Apply.Outcome = applyCommandResult.Outcome
+		response.Apply.ReceiptID = receipt.Metadata.ReceiptID
+		response.Apply.AuthorizationID = receipt.Spec.AuthorizationID
+		response.Apply.ReceiptPath = applyCommandResult.ReceiptOutput
+		response.Apply.AuditPath = applyCommandResult.AuditOutput
+		response.Apply.PlanID = receipt.Spec.PlanID
+		response.Apply.BundleID = receipt.Spec.BundleID
+		response.Apply.PreflightResultID = receipt.Spec.PreflightResultID
+		response.Apply.ChangeSetID = receipt.Spec.ChangeSetID
+		response.Apply.ApprovalID = receipt.Spec.ApprovalID
+		response.Apply.TargetReferenceDigest = receipt.Spec.Target.ReferenceDigest
+		writeServeJSON(writer, workflowApplyStatus(exitCode), response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -917,6 +1122,7 @@ type workflowChangeSetResponse struct {
 var workflowPreflightRunner = kubernetesTargetPreflight
 var workflowChangeSetRunner = kubernetesChangeSet
 var workflowApprovalRunner = recordDeploymentApproval
+var workflowApplyRunner = applyKubernetesDeployment
 
 type workflowApprovalRequest struct {
 	BundlePath      string `json:"bundlePath"`
@@ -943,6 +1149,61 @@ type workflowApprovalResponse struct {
 		TargetReferenceDigest string `json:"targetReferenceDigest"`
 		ReasonReference       string `json:"reasonReference"`
 	} `json:"approval"`
+}
+
+type workflowAuthorizationCommandResponse struct {
+	Valid         bool   `json:"valid"`
+	Command       string `json:"command"`
+	BundlePath    string `json:"bundlePath"`
+	PreflightPath string `json:"preflightPath"`
+	ChangeSetPath string `json:"changeSetPath"`
+	ApprovalPath  string `json:"approvalPath"`
+	OutputPath    string `json:"outputPath"`
+	AuditPath     string `json:"auditPath"`
+}
+
+type workflowApplyRequest struct {
+	BundlePath                        string   `json:"bundlePath"`
+	PreflightPath                     string   `json:"preflightPath"`
+	ChangeSetPath                     string   `json:"changeSetPath"`
+	ApprovalPath                      string   `json:"approvalPath"`
+	ImportReceiptPath                 string   `json:"importReceiptPath"`
+	TransferReceiptPaths              []string `json:"transferReceiptPaths,omitempty"`
+	ScanReceiptPaths                  []string `json:"scanReceiptPaths,omitempty"`
+	AirgapGateResultPath              string   `json:"airgapGateResultPath,omitempty"`
+	AirgapGateTrustPolicyPath         string   `json:"airgapGateTrustPolicyPath,omitempty"`
+	ConfirmAirgapGateTrustPolicy      string   `json:"confirmAirgapGateTrustPolicy,omitempty"`
+	AirgapGatePolicyDiffPath          string   `json:"airgapGatePolicyDiffPath,omitempty"`
+	ConfirmAirgapGatePolicyDiff       string   `json:"confirmAirgapGatePolicyDiff,omitempty"`
+	AirgapGateTransitionReviewPath    string   `json:"airgapGateTransitionReviewPath,omitempty"`
+	ConfirmAirgapGateTransitionReview string   `json:"confirmAirgapGateTransitionReview,omitempty"`
+	AuthorizationPath                 string   `json:"authorizationPath"`
+	PublicKeyPath                     string   `json:"publicKeyPath"`
+	ConfirmAuthorization              string   `json:"confirmAuthorization"`
+	TypedConfirmationDigest           string   `json:"typedConfirmationDigest"`
+	Name                              string   `json:"name"`
+	ReceiptPath                       string   `json:"receiptPath"`
+	AuditPath                         string   `json:"auditPath"`
+	Kubeconfig                        string   `json:"kubeconfig,omitempty"`
+	ContextName                       string   `json:"context,omitempty"`
+	Timeout                           string   `json:"timeout,omitempty"`
+}
+
+type workflowApplyResponse struct {
+	Valid bool `json:"valid"`
+	Apply struct {
+		Outcome               string `json:"outcome"`
+		ReceiptID             string `json:"receiptId"`
+		AuthorizationID       string `json:"authorizationId"`
+		ReceiptPath           string `json:"receiptPath"`
+		AuditPath             string `json:"auditPath"`
+		PlanID                string `json:"planId"`
+		BundleID              string `json:"bundleId"`
+		PreflightResultID     string `json:"preflightResultId"`
+		ChangeSetID           string `json:"changeSetId"`
+		ApprovalID            string `json:"approvalId"`
+		TargetReferenceDigest string `json:"targetReferenceDigest"`
+	} `json:"apply"`
 }
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
@@ -994,6 +1255,20 @@ func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, erro
 		stages[index].Status = "not-started"
 	}
 	return stages, nil
+}
+
+func workspaceStageArtifacts(workspacePath string) (map[string]string, error) {
+	stages, err := workspacePipelineStages(workspacePath)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]string{}
+	for _, stage := range stages {
+		if stage.ArtifactPath != "" && stage.ArtifactPath != "none" {
+			result[stage.ID] = stage.ArtifactPath
+		}
+	}
+	return result, nil
 }
 
 func classifyWorkspaceArtifact(path string) (string, error) {
@@ -1144,6 +1419,19 @@ func workflowApprovalStatus(exitCode int) int {
 	}
 }
 
+func workflowApplyStatus(exitCode int) int {
+	switch exitCode {
+	case ExitSuccess:
+		return http.StatusOK
+	case ExitInvalidInput:
+		return http.StatusBadRequest
+	case ExitInfeasible, ExitUnsupported:
+		return http.StatusUnprocessableEntity
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
 func decodeWorkflowRenderRequest(request *http.Request) (workflowRenderRequest, error) {
 	var payload workflowRenderRequest
 	decoder := json.NewDecoder(request.Body)
@@ -1238,6 +1526,42 @@ func decodeWorkflowApprovalRequest(request *http.Request) (workflowApprovalReque
 		return payload, errors.New("decision must be either approve or reject")
 	}
 	return payload, nil
+}
+
+func decodeWorkflowApplyRequest(request *http.Request) (workflowApplyRequest, error) {
+	var payload workflowApplyRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.BundlePath) == "" || strings.TrimSpace(payload.PreflightPath) == "" || strings.TrimSpace(payload.ChangeSetPath) == "" || strings.TrimSpace(payload.ApprovalPath) == "" || strings.TrimSpace(payload.ImportReceiptPath) == "" || strings.TrimSpace(payload.AuthorizationPath) == "" || strings.TrimSpace(payload.PublicKeyPath) == "" || strings.TrimSpace(payload.ConfirmAuthorization) == "" || strings.TrimSpace(payload.TypedConfirmationDigest) == "" || strings.TrimSpace(payload.Name) == "" || strings.TrimSpace(payload.ReceiptPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("bundlePath, preflightPath, changeSetPath, approvalPath, importReceiptPath, authorizationPath, publicKeyPath, confirmAuthorization, typedConfirmationDigest, name, receiptPath and auditPath are required")
+	}
+	if payload.ReceiptPath == payload.AuditPath {
+		return payload, errors.New("receiptPath and auditPath must be different files")
+	}
+	if payload.ConfirmAuthorization != payload.TypedConfirmationDigest {
+		return payload, errors.New("typedConfirmationDigest must exactly match confirmAuthorization")
+	}
+	if payload.Timeout != "" {
+		if _, err := time.ParseDuration(payload.Timeout); err != nil {
+			return payload, errors.New("timeout must be a valid Go duration string")
+		}
+	}
+	return payload, nil
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	escaped := strings.ReplaceAll(value, `'`, `'"'"'`)
+	return "'" + escaped + "'"
 }
 
 func formatKubernetesResource(reference resources.KubernetesObjectReference) string {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,9 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mauriceberentsen/YARA/internal/canonical"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/catalogcoverage"
 	"github.com/mauriceberentsen/YARA/internal/changeset"
+	"github.com/mauriceberentsen/YARA/internal/executor"
 	"github.com/mauriceberentsen/YARA/internal/resources"
 	"github.com/mauriceberentsen/YARA/internal/targetpreflight"
 )
@@ -591,6 +594,131 @@ func TestServeWorkflowApprovalRejectsInvalidDecision(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "YARA-SRV-019") {
 		t.Fatalf("expected structured approval decision error, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowAuthorizationCommandUsesWorkspaceArtifacts(t *testing.T) {
+	workspacePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	sourcePath := t.TempDir()
+	paths, _ := writeExecutionInputs(t, sourcePath, now)
+	for _, flag := range []string{"--bundle", "--preflight", "--change-set", "--approval"} {
+		sourceArtifactPath := valueForFlag(paths, flag)
+		data, err := os.ReadFile(sourceArtifactPath)
+		if err != nil {
+			t.Fatalf("read source artifact %s: %v", sourceArtifactPath, err)
+		}
+		targetArtifactPath := filepath.Join(workspacePath, filepath.Base(sourceArtifactPath))
+		if err := os.WriteFile(targetArtifactPath, data, 0o600); err != nil {
+			t.Fatalf("write workspace artifact %s: %v", targetArtifactPath, err)
+		}
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/workflow/authorization-command", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for authorization command endpoint, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode authorization command response: %v", err)
+	}
+	command, _ := payload["command"].(string)
+	if !strings.Contains(command, "yara authorization issue") || !strings.Contains(command, "--private-key '<private-key-path>'") {
+		t.Fatalf("authorization command omitted deterministic CLI text or leaked key placeholder: %q", command)
+	}
+}
+
+func TestServeWorkflowApplyWritesReceiptAndCompletesStage(t *testing.T) {
+	workspacePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	sourcePath := t.TempDir()
+	paths, authorization := writeExecutionInputs(t, sourcePath, now)
+	restoreApplyRunner := workflowApplyRunner
+	restoreFactory := newKubernetesExecutor
+	t.Cleanup(func() {
+		workflowApplyRunner = restoreApplyRunner
+		newKubernetesExecutor = restoreFactory
+	})
+	workflowApplyRunner = func(args []string, stdout, stderr io.Writer) int {
+		newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
+			return fixedKubernetesExecutor{execute: func(_ context.Context, _ resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, _ resources.ArtifactImportReceipt, started time.Time) (executor.ExecutionResult, error) {
+				operations := make([]resources.DeploymentOperationReceipt, 0, len(changeSet.Spec.Operations))
+				for _, operation := range changeSet.Spec.Operations {
+					operations = append(operations, resources.DeploymentOperationReceipt{Resource: operation.Resource, Action: operation.Action, Outcome: "applied", AfterDigest: operation.DesiredDigest})
+				}
+				evidence, _ := canonical.Digest(struct{ Passed bool }{true})
+				return executor.ExecutionResult{
+					StartedAt: started, CompletedAt: started.Add(time.Minute), Target: authorization.Spec.Target, MutationStarted: true,
+					Operations: operations,
+					Postflight: []resources.DeploymentPostflightCheck{{ID: "workloads.available", Status: "passed", EvidenceDigest: evidence}},
+					Limitations: []string{
+						"Serve apply fixture.",
+					},
+				}, nil
+			}}, nil
+		}
+		return applyKubernetesDeploymentAt(args, stdout, stderr, func() time.Time {
+			return now.Add(3 * time.Minute)
+		})
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	receiptPath := filepath.Join(workspacePath, "reference-receipt.yaml")
+	auditPath := filepath.Join(workspacePath, "reference-apply.audit.jsonl")
+	requestBody := fmt.Sprintf(`{
+		"bundlePath": "%s",
+		"preflightPath": "%s",
+		"changeSetPath": "%s",
+		"approvalPath": "%s",
+		"importReceiptPath": "%s",
+		"transferReceiptPaths": ["%s"],
+		"scanReceiptPaths": ["%s"],
+		"authorizationPath": "%s",
+		"publicKeyPath": "%s",
+		"confirmAuthorization": "%s",
+		"typedConfirmationDigest": "%s",
+		"name": "reference-receipt",
+		"receiptPath": "%s",
+		"auditPath": "%s",
+		"timeout": "30m"
+	}`,
+		valueForFlag(paths, "--bundle"),
+		valueForFlag(paths, "--preflight"),
+		valueForFlag(paths, "--change-set"),
+		valueForFlag(paths, "--approval"),
+		valueForFlag(paths, "--import-receipt"),
+		valueForFlag(paths, "--transfer-receipt"),
+		valueForFlag(paths, "--scan-receipt"),
+		valueForFlag(paths, "--authorization"),
+		valueForFlag(paths, "--public-key"),
+		authorization.Metadata.AuthorizationID,
+		authorization.Metadata.AuthorizationID,
+		receiptPath,
+		auditPath,
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/apply", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected apply success response, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	workspaceRequest := httptest.NewRequest(http.MethodGet, "/api/v1/workspace", nil)
+	workspaceRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(workspaceRecorder, workspaceRequest)
+	if workspaceRecorder.Code != http.StatusOK {
+		t.Fatalf("expected workspace response after apply, got %d: %s", workspaceRecorder.Code, workspaceRecorder.Body.String())
+	}
+	var workspacePayload map[string]any
+	if err := json.Unmarshal(workspaceRecorder.Body.Bytes(), &workspacePayload); err != nil {
+		t.Fatalf("decode workspace payload: %v", err)
+	}
+	workspace, _ := workspacePayload["workspace"].(map[string]any)
+	stages, _ := workspace["stages"].([]any)
+	receiptStage, _ := stages[6].(map[string]any)
+	if receiptStage["status"] != "complete" {
+		t.Fatalf("expected receipt stage complete, got %#v", receiptStage)
 	}
 }
 

@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `1dfac12`, `db20d03`, `833ccba`, `3ecd8df`, `40862e4`.
+- Recent commits (newest first): `1df715e`, `1dfac12`, `db20d03`, `833ccba`, `3ecd8df`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
@@ -46,6 +46,10 @@
   - `POST /api/v1/workflow/approval` executes bounded `approval record` with explicit bundle/preflight/change-set evidence bindings and decision inputs;
   - approval and audit outputs are restricted to workspace-managed output paths and fail closed on invalid decisions/paths or broken evidence bindings;
   - Approval UI now renders a review checklist, enforces explicit decision + reason-reference input, and returns deterministic approval identity metadata in-session.
+- Interactive workflow cockpit I6 is implemented:
+  - `GET /api/v1/workflow/authorization-command` returns the deterministic `yara authorization issue` command with workspace-resolved bundle/preflight/change-set/approval paths and no private key material in API payloads;
+  - `POST /api/v1/workflow/apply` executes bounded `deployment apply kubernetes` with explicit confirmation binding (`confirmAuthorization` + `typedConfirmationDigest`) and workspace-bounded receipt/audit outputs;
+  - apply responses return deterministic receipt/evidence bindings, and failures preserve fail-closed diagnostics from CLI validation and stale/mismatch checks.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -62,9 +66,9 @@
 
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `POST /api/v1/workflow/approval` endpoint implemented with strict JSON decoding, structured failure responses, and exit-code aware HTTP status mapping;
-  - workspace-bounded approval/audit output paths now enforced fail-closed for approval workflow artifacts;
-  - Approval UI form + checklist implemented with explicit approve/reject + reason-reference gating, no-reload result panel, and automatic Pipeline refresh on artifact creation.
+  - `GET /api/v1/workflow/authorization-command` endpoint implemented with deterministic workspace-stage binding and exact CLI text output for external signing workflows;
+  - `POST /api/v1/workflow/apply` endpoint implemented with strict JSON decoding, explicit typed-confirmation digest matching, exit-code aware HTTP status mapping, and workspace-bounded receipt/audit output enforcement;
+  - Web UI adds an `Authorization + apply` cockpit view showing command copy text, full evidence-chain checklist, and explicit apply confirmation form requiring digest re-entry before submit.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui`;
@@ -80,56 +84,50 @@
 - No live cluster validation was executed in this run; run validated release publication and artifacts only.
 - Air-gap external trust chain remains outside YARA proof boundary.
 - Bootstrap remains intentionally narrow (single YARA-owned namespace + model PVC).
-- Web UI remains local-only in this stage (no auth, no multi-user/session); workflow mutation endpoints are not yet implemented.
+- Web UI remains local-only in this stage (no auth, no multi-user/session); private-key signing still runs outside the server boundary.
 
 ## MVP-2 milestone path — Web UI
-
 - W1 Backend HTTP API, W2 Dashboard shell, W3 Drift posture view, W4 Lifecycle readiness view, W5 Release/docs — all completed.
 - Running the UI: `yara serve --catalog catalog/v0.2/snapshot.yaml --coverage-report .yara/catalog-v0.2-coverage.yaml --ui --port 7474` then open `http://127.0.0.1:7474`.
-
 ## MVP-3 milestone path — Interactive Workflow Cockpit
-
 Goal: a browser-based operator cockpit where the complete plan-to-apply rollout workflow can be driven through the UI, with all existing audit, approval, and fail-closed gates preserved. The server remains local-only. Private keys are never sent to the server; the authorization signing step shows the exact CLI command for the operator to run or executes it only after explicit UI confirmation.
-
 ### I1 — Workspace and pipeline overview
-
 - `serve --workspace` + `GET /api/v1/workspace` + UI Pipeline view for deterministic seven-stage discovery/status; no mutation.
 - Status: completed.
-
 ### I2 — Plan creation form
-
 - `POST /api/v1/workflow/plan` + Plan create form + deterministic result panel + workspace path bounding.
 - Status: completed.
-
 ### I3 — Bundle render
 - `POST /api/v1/workflow/render` + Render form + deterministic bundle result panel + workspace path bounding.
 - Status: completed.
-
 ### I4 — Preflight and change-set observation
 - `POST /api/v1/workflow/preflight` + `POST /api/v1/workflow/changeset` + Preflight/Change-set forms + deterministic result/inspector panels + workspace path bounding.
 - Status: completed.
-
 ### I5 — Approval form
 - `POST /api/v1/workflow/approval` + Approval checklist/form + deterministic result panel + workspace path bounding.
 - Status: completed.
-
 ### I6 — Authorization CLI generator and apply confirmation
 - for authorization, the UI generates and displays the exact `yara authorization issue` CLI command with all workspace-resolved paths — the private key is never sent to the server;
 - once the authorization file appears in the workspace (operator runs the command externally), the UI detects it via `GET /api/v1/workspace` polling and advances to the apply stage;
 - new `POST /api/v1/workflow/apply` endpoint invokes `deployment apply kubernetes` only after the operator confirms via an explicit UI dialog that shows the full evidence chain (plan → bundle → preflight → change-set → approval → authorization digests) and requires typing the confirm-authorization hash;
 - apply result shows receipt summary and audit chain link.
+- Status: completed.
+### I7 — Air-gap gate and provenance controls in apply cockpit
+- extend `POST /api/v1/workflow/apply` request/response coverage and UI to drive optional air-gap gate inputs (`airgapGateResultPath`, trust-policy confirmation, policy-diff/transition-review confirmations) with explicit fail-closed diagnostics;
+- expose deterministic transfer + scan receipt chain assistant fields in the UI with pre-submit validation and clear blocker remediation;
+- add end-to-end API/UI tests for optional gate paths (including destructive trust-policy transition review requirement) so cockpit behavior matches CLI policy gates exactly.
 
 ## Next implementation slice
-Implement **I6 — Authorization CLI generator and apply confirmation**:
-- add `GET /api/v1/workflow/authorization-command` that returns the exact deterministic `yara authorization issue` command with workspace-resolved paths and no private key material;
-- add `POST /api/v1/workflow/apply` endpoint invoking `deployment apply kubernetes` only after explicit confirmation fields bind approval + authorization + target evidence;
-- enforce fail-closed guards: reject missing authorization, mismatched digests, or stale/missing prerequisite artifacts; never run apply on partial chains;
-- extend UI with authorization command panel + apply confirmation dialog that displays the full evidence chain and requires typing a confirmation digest before submit.
+Implement **I7 — Air-gap gate and provenance controls in apply cockpit**:
+- add/verify full API pass-through for optional gate bindings (`airgap-gate-result`, trust-policy ID confirm, policy-diff ID confirm, transition-review ID confirm) with structured diagnostics preserved for UI;
+- extend apply cockpit UI with explicit optional gate + receipt-chain fields, guardrails, and pre-submit validation so operators can complete air-gapped execution without shell-only fallbacks;
+- add backend and frontend tests for success + failure paths (missing transition review on destructive diff, trust-policy confirmation mismatch, incomplete transfer/scan chain) to keep fail-closed parity with CLI;
+- keep receipt/audit workspace-bounded behavior unchanged and verified.
 
 Acceptance criteria:
-- authorization command endpoint emits exact CLI text without persisting secrets and updates when workspace artifact paths change;
-- apply endpoint rejects incomplete or mismatched evidence chains with structured diagnostics and never performs implicit authorization;
-- successful explicit apply writes receipt + audit artifacts in workspace and Pipeline shows Receipt stage complete;
+- apply cockpit supports optional air-gap gate evidence and provenance chain confirmations without exposing private key material;
+- apply endpoint and UI reject mismatched/partial gate confirmations with deterministic fail-closed diagnostics;
+- successful explicit apply with optional gate bindings writes receipt + audit artifacts in workspace and Pipeline shows Receipt stage complete;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 
 ## Validation requirements

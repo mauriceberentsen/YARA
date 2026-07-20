@@ -7,6 +7,7 @@ const views = [
   { id: "preflight", label: "Preflight", endpoint: "/api/v1/workspace" },
   { id: "changeset", label: "Change-set", endpoint: "/api/v1/workspace" },
   { id: "approval", label: "Approval", endpoint: "/api/v1/workspace" },
+  { id: "apply", label: "Authorization + apply", endpoint: "/api/v1/workspace" },
   { id: "catalog", label: "Catalog", endpoint: "/api/v1/catalog" },
   { id: "coverage", label: "Coverage", endpoint: "/api/v1/coverage" },
   { id: "drift", label: "Drift", endpoint: "/api/v1/drift-posture" },
@@ -880,6 +881,222 @@ function ApprovalView({ workspacePayload, onApprovalCreated }) {
   );
 }
 
+function AuthorizationApplyView({ workspacePayload, onApplyCreated }) {
+  const workspacePath = workspacePayload?.workspace?.path || "";
+  const stages = Array.isArray(workspacePayload?.workspace?.stages) ? workspacePayload.workspace.stages : [];
+  const stageByID = new Map(stages.map((stage) => [stage.id, stage]));
+  const [commandState, setCommandState] = useState({ loading: false, error: "", result: null });
+  const [form, setForm] = useState(() => ({
+    importReceiptPath: "",
+    transferReceiptPaths: "",
+    scanReceiptPaths: "",
+    publicKeyPath: "",
+    authorizationPath: stageByID.get("authorization")?.artifactPath !== "none" ? stageByID.get("authorization")?.artifactPath || "" : "",
+    confirmAuthorization: "",
+    typedConfirmationDigest: "",
+    name: "reference-receipt",
+    receiptPath: workspacePath ? `${workspacePath}/reference-receipt.yaml` : "",
+    auditPath: workspacePath ? `${workspacePath}/reference-apply.audit.jsonl` : "",
+    kubeconfig: "",
+    context: "",
+    timeout: "30m",
+  }));
+  const [submitState, setSubmitState] = useState({ loading: false, error: "", result: null });
+
+  useEffect(() => {
+    if (!workspacePath) {
+      return;
+    }
+    setForm((previous) => {
+      const next = { ...previous };
+      let changed = false;
+      const authorizationPath = stageByID.get("authorization")?.artifactPath || "";
+      if (!previous.authorizationPath && authorizationPath && authorizationPath !== "none") {
+        next.authorizationPath = authorizationPath;
+        changed = true;
+      }
+      if (!previous.receiptPath) {
+        next.receiptPath = `${workspacePath}/reference-receipt.yaml`;
+        changed = true;
+      }
+      if (!previous.auditPath) {
+        next.auditPath = `${workspacePath}/reference-apply.audit.jsonl`;
+        changed = true;
+      }
+      return changed ? next : previous;
+    });
+  }, [stages, workspacePath]);
+
+  const refreshCommand = async () => {
+    setCommandState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/authorization-command", { method: "GET" });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.diagnostics?.[0]?.message || "Authorization command request failed");
+      }
+      setCommandState({ loading: false, error: "", result: payload });
+      setForm((previous) => ({
+        ...previous,
+        authorizationPath: previous.authorizationPath || payload.outputPath || previous.authorizationPath,
+        confirmAuthorization: previous.confirmAuthorization || "",
+        typedConfirmationDigest: previous.typedConfirmationDigest || "",
+      }));
+    } catch (error) {
+      setCommandState({ loading: false, error: error.message || "Authorization command request failed", result: null });
+    }
+  };
+
+  useEffect(() => {
+    refreshCommand();
+  }, [workspacePath]);
+
+  const update = (key) => (event) => {
+    setForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+
+  const parseCSV = (value) => value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
+  const canSubmit = form.confirmAuthorization !== "" && form.confirmAuthorization === form.typedConfirmationDigest;
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!canSubmit) {
+      return;
+    }
+    setSubmitState({ loading: true, error: "", result: null });
+    try {
+      const payload = {
+        bundlePath: commandState.result?.bundlePath || stageByID.get("bundle")?.artifactPath || "",
+        preflightPath: commandState.result?.preflightPath || stageByID.get("preflight")?.artifactPath || "",
+        changeSetPath: commandState.result?.changeSetPath || stageByID.get("changeset")?.artifactPath || "",
+        approvalPath: commandState.result?.approvalPath || stageByID.get("approval")?.artifactPath || "",
+        importReceiptPath: form.importReceiptPath,
+        transferReceiptPaths: parseCSV(form.transferReceiptPaths),
+        scanReceiptPaths: parseCSV(form.scanReceiptPaths),
+        authorizationPath: form.authorizationPath,
+        publicKeyPath: form.publicKeyPath,
+        confirmAuthorization: form.confirmAuthorization,
+        typedConfirmationDigest: form.typedConfirmationDigest,
+        name: form.name,
+        receiptPath: form.receiptPath,
+        auditPath: form.auditPath,
+        kubeconfig: form.kubeconfig,
+        context: form.context,
+        timeout: form.timeout,
+      };
+      const response = await fetch("/api/v1/workflow/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Apply failed");
+      }
+      setSubmitState({ loading: false, error: "", result: responsePayload.apply || null });
+      onApplyCreated();
+    } catch (error) {
+      setSubmitState({ loading: false, error: error.message || "Apply failed", result: null });
+    }
+  };
+
+  return (
+    <>
+      <p>Workspace: {workspacePath || "unknown"}</p>
+      <h3>Authorization command</h3>
+      <p>Private key material is never posted to the API. Run this command in your own shell.</p>
+      <button type="button" onClick={refreshCommand} disabled={commandState.loading}>
+        {commandState.loading ? "Refreshing command..." : "Refresh authorization command"}
+      </button>
+      {commandState.error && <p className="error">Error: {commandState.error}</p>}
+      {commandState.result && <pre>{commandState.result.command}</pre>}
+      <h3>Apply confirmation</h3>
+      <ul>
+        <li>Plan artifact: {stageByID.get("plan")?.artifactPath || "none"}</li>
+        <li>Bundle artifact: {commandState.result?.bundlePath || stageByID.get("bundle")?.artifactPath || "none"}</li>
+        <li>Preflight artifact: {commandState.result?.preflightPath || stageByID.get("preflight")?.artifactPath || "none"}</li>
+        <li>Change-set artifact: {commandState.result?.changeSetPath || stageByID.get("changeset")?.artifactPath || "none"}</li>
+        <li>Approval artifact: {commandState.result?.approvalPath || stageByID.get("approval")?.artifactPath || "none"}</li>
+        <li>Authorization artifact: {form.authorizationPath || stageByID.get("authorization")?.artifactPath || "none"}</li>
+      </ul>
+      <form onSubmit={submit}>
+        <div className="formRow">
+          <label htmlFor="apply-import-receipt-path">Import receipt path</label>
+          <input id="apply-import-receipt-path" value={form.importReceiptPath} onChange={update("importReceiptPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-transfer-receipts">Transfer receipt paths (comma-separated, optional)</label>
+          <input id="apply-transfer-receipts" value={form.transferReceiptPaths} onChange={update("transferReceiptPaths")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-scan-receipts">Scan receipt paths (comma-separated, optional)</label>
+          <input id="apply-scan-receipts" value={form.scanReceiptPaths} onChange={update("scanReceiptPaths")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-authorization-path">Authorization path</label>
+          <input id="apply-authorization-path" value={form.authorizationPath} onChange={update("authorizationPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-public-key-path">Public key path</label>
+          <input id="apply-public-key-path" value={form.publicKeyPath} onChange={update("publicKeyPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-confirm-authorization">Confirm authorization digest</label>
+          <input id="apply-confirm-authorization" value={form.confirmAuthorization} onChange={update("confirmAuthorization")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-typed-confirmation">Type confirmation digest</label>
+          <input id="apply-typed-confirmation" value={form.typedConfirmationDigest} onChange={update("typedConfirmationDigest")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-name">Receipt name</label>
+          <input id="apply-name" value={form.name} onChange={update("name")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-receipt-path">Receipt output path</label>
+          <input id="apply-receipt-path" value={form.receiptPath} onChange={update("receiptPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-audit-path">Audit output path</label>
+          <input id="apply-audit-path" value={form.auditPath} onChange={update("auditPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-kubeconfig">Kubeconfig path (optional)</label>
+          <input id="apply-kubeconfig" value={form.kubeconfig} onChange={update("kubeconfig")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-context">Context (optional)</label>
+          <input id="apply-context" value={form.context} onChange={update("context")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-timeout">Timeout</label>
+          <input id="apply-timeout" value={form.timeout} onChange={update("timeout")} />
+        </div>
+        <button type="submit" disabled={submitState.loading || !canSubmit}>
+          {submitState.loading ? "Applying..." : "Confirm and apply"}
+        </button>
+      </form>
+      {!canSubmit && <p className="error">Typed confirmation digest must exactly match the authorization digest.</p>}
+      {submitState.error && <p className="error">Error: {submitState.error}</p>}
+      {submitState.result && (
+        <dl className="grid">
+          <div><dt>Outcome</dt><dd>{submitState.result.outcome || "n/a"}</dd></div>
+          <div><dt>Receipt ID</dt><dd>{submitState.result.receiptId || "n/a"}</dd></div>
+          <div><dt>Authorization ID</dt><dd>{submitState.result.authorizationId || "n/a"}</dd></div>
+          <div><dt>Receipt path</dt><dd>{submitState.result.receiptPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{submitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Plan ID</dt><dd>{submitState.result.planId || "n/a"}</dd></div>
+          <div><dt>Bundle ID</dt><dd>{submitState.result.bundleId || "n/a"}</dd></div>
+          <div><dt>Preflight ID</dt><dd>{submitState.result.preflightResultId || "n/a"}</dd></div>
+          <div><dt>Change-set ID</dt><dd>{submitState.result.changeSetId || "n/a"}</dd></div>
+          <div><dt>Approval ID</dt><dd>{submitState.result.approvalId || "n/a"}</dd></div>
+          <div><dt>Target digest</dt><dd>{submitState.result.targetReferenceDigest || "n/a"}</dd></div>
+        </dl>
+      )}
+    </>
+  );
+}
+
 function renderView(viewID, payload, extra = {}) {
   if (viewID === "pipeline") {
     return <PipelineView payload={payload} />;
@@ -898,6 +1115,9 @@ function renderView(viewID, payload, extra = {}) {
   }
   if (viewID === "approval") {
     return <ApprovalView workspacePayload={payload} onApprovalCreated={extra.onApprovalCreated || (() => {})} />;
+  }
+  if (viewID === "apply") {
+    return <AuthorizationApplyView workspacePayload={payload} onApplyCreated={extra.onApplyCreated || (() => {})} />;
   }
   if (viewID === "catalog") {
     return (
@@ -936,13 +1156,13 @@ export function App() {
   const driftEndpoint = driftAssertion ? `/api/v1/drift-posture?assertion=${encodeURIComponent(driftAssertion)}` : "/api/v1/drift-posture";
   const lifecycleEndpoint = lifecycleAssertion ? `/api/v1/lifecycle-policy?assertion=${encodeURIComponent(lifecycleAssertion)}` : "/api/v1/lifecycle-policy";
   const activeView = useMemo(() => views.find((view) => view.id === activeViewID) || views[0], [activeViewID]);
-  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" || activeView.id === "preflight" || activeView.id === "changeset" || activeView.id === "approval" ? workspaceEndpoint : activeView.endpoint;
+  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" || activeView.id === "preflight" || activeView.id === "changeset" || activeView.id === "approval" || activeView.id === "apply" ? workspaceEndpoint : activeView.endpoint;
   const decoder =
     activeView.id === "drift"
       ? decodeDriftPayload
       : activeView.id === "lifecycle"
         ? decodeLifecyclePayload
-        : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" || activeView.id === "preflight" || activeView.id === "changeset" || activeView.id === "approval"
+        : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" || activeView.id === "preflight" || activeView.id === "changeset" || activeView.id === "approval" || activeView.id === "apply"
           ? decodeWorkspacePayload
           : undefined;
   const { loading, payload, error } = useEndpoint(endpoint, decoder);
@@ -985,6 +1205,7 @@ export function App() {
             onPreflightCreated: () => setWorkspaceRefresh((value) => value + 1),
             onChangeSetCreated: () => setWorkspaceRefresh((value) => value + 1),
             onApprovalCreated: () => setWorkspaceRefresh((value) => value + 1),
+            onApplyCreated: () => setWorkspaceRefresh((value) => value + 1),
           })}
       </section>
     </main>
