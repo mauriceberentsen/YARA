@@ -1457,6 +1457,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-bulletin.export.audit.jsonl` : "",
   }));
   const [closureBulletinSubmitState, setClosureBulletinSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closurePacketForm, setClosurePacketForm] = useState(() => ({
+    packetReference: "",
+    packagedByReference: "",
+    packagedTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-packet.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-packet.export.audit.jsonl` : "",
+  }));
+  const [closurePacketSubmitState, setClosurePacketSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1559,6 +1567,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-bulletin.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-bulletin.export.audit.jsonl`,
+    }));
+    setClosurePacketForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-packet.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-packet.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2133,6 +2146,36 @@ function CapsuleView({ payload }) {
       setClosureBulletinSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setClosureBulletinSubmitState({ loading: false, error: error.message || "Rollout closure bulletin export failed", result: null });
+    }
+  };
+  const updateClosurePacket = (key) => (event) => {
+    setClosurePacketForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosurePacket = closurePacketForm.packetReference.trim() !== "" &&
+    closurePacketForm.packagedByReference.trim() !== "" &&
+    closurePacketForm.packagedTimestamp.trim() !== "" &&
+    closurePacketForm.manifestPath !== "" &&
+    closurePacketForm.auditPath !== "" &&
+    closurePacketForm.manifestPath !== closurePacketForm.auditPath;
+  const submitClosurePacket = async (event) => {
+    event.preventDefault();
+    if (!canExportClosurePacket) {
+      return;
+    }
+    setClosurePacketSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure-packet/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closurePacketForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure packet export failed");
+      }
+      setClosurePacketSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosurePacketSubmitState({ loading: false, error: error.message || "Rollout closure packet export failed", result: null });
     }
   };
   return (
@@ -2866,6 +2909,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureBulletinSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Bulletin readiness</dt><dd>{closureBulletinSubmitState.result.bulletinState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureBulletinSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export rollout closure release packet</h3>
+      <form onSubmit={submitClosurePacket}>
+        <div className="formRow">
+          <label htmlFor="closure-packet-reference">Packet reference</label>
+          <input id="closure-packet-reference" value={closurePacketForm.packetReference} onChange={updateClosurePacket("packetReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-packet-packaged-by-reference">Packaged by reference</label>
+          <input id="closure-packet-packaged-by-reference" value={closurePacketForm.packagedByReference} onChange={updateClosurePacket("packagedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-packet-packaged-timestamp">Packaged timestamp (RFC3339)</label>
+          <input id="closure-packet-packaged-timestamp" value={closurePacketForm.packagedTimestamp} onChange={updateClosurePacket("packagedTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-packet-manifest-path">Packet manifest output path</label>
+          <input id="closure-packet-manifest-path" value={closurePacketForm.manifestPath} onChange={updateClosurePacket("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-packet-audit-path">Packet audit output path</label>
+          <input id="closure-packet-audit-path" value={closurePacketForm.auditPath} onChange={updateClosurePacket("auditPath")} />
+        </div>
+        <button type="submit" disabled={closurePacketSubmitState.loading || !canExportClosurePacket}>
+          {closurePacketSubmitState.loading ? "Exporting closure packet..." : "Export closure packet"}
+        </button>
+      </form>
+      {!canExportClosurePacket && <p className="error">Packet export requires packet reference, packaged-by reference, packaged timestamp, and distinct manifest/audit paths.</p>}
+      {closurePacketSubmitState.error && <p className="error">Packet readiness: blocked ({closurePacketSubmitState.error})</p>}
+      {closurePacketSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closurePacketSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closurePacketSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Packet readiness</dt><dd>{closurePacketSubmitState.result.packetState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closurePacketSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>
