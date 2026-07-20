@@ -346,10 +346,15 @@ go run ./cmd/yara airgap provenance-gate evaluate \
   --import-receipt reference-stack.import-receipt.yaml \
   --transfer-receipt reference-stack.transfer-receipt.yaml \
   --scan-receipt reference-stack.scan-receipt.yaml \
+  --private-key gate-private.pem \
+  --key-id operations-key-1 \
   --reason-reference ticket-gate-123 \
   --name reference-stack-airgap-gate \
   --output reference-stack.airgap-gate.yaml \
   --audit-output reference-stack.airgap-gate.audit.jsonl
+go run ./cmd/yara airgap provenance-gate verify \
+  --gate-result reference-stack.airgap-gate.yaml \
+  --public-key gate-public.pem
 ```
 
 Currently implemented:

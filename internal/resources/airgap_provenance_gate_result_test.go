@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"testing"
 	"time"
 )
@@ -29,6 +31,7 @@ func TestAirgapProvenanceGateResultRejectsUnsortedScanReceipts(t *testing.T) {
 
 func validAirgapGateResult(t *testing.T) AirgapProvenanceGateResult {
 	t.Helper()
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, ed25519.SeedSize))
 	result := AirgapProvenanceGateResult{
 		APIVersion: APIVersion,
 		Kind:       "AirgapProvenanceGateResult",
@@ -37,6 +40,7 @@ func validAirgapGateResult(t *testing.T) AirgapProvenanceGateResult {
 		},
 		Spec: AirgapProvenanceGateResultSpec{
 			RecordedAt:         time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC).Format(time.RFC3339Nano),
+			ExpiresAt:          time.Date(2026, 7, 20, 10, 10, 0, 0, time.UTC).Format(time.RFC3339Nano),
 			PlanID:             testDigest('a'),
 			BundleID:           testDigest('b'),
 			CatalogDigest:      testDigest('c'),
@@ -50,12 +54,15 @@ func validAirgapGateResult(t *testing.T) AirgapProvenanceGateResult {
 			},
 			Outcome:         "passed",
 			ReasonReference: "ticket-airgap-gate",
+			Signer: AirgapGateResultSignerIdentity{
+				KeyID: "operations-key-1",
+			},
 			Limitations: []string{
 				"Gate result remains bounded to immutable receipt identities and offline policy inputs.",
 			},
 		},
 	}
-	assigned, err := result.AssignGateResultID()
+	assigned, err := result.Sign(privateKey)
 	if err != nil {
 		t.Fatalf("assign gate result identity: %v", err)
 	}

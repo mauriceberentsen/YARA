@@ -28,6 +28,7 @@ type deploymentApplyOptions struct {
 	transferReceiptPaths                                   csvFlag
 	scanReceiptPaths                                       csvFlag
 	airgapGateResultPath                                   string
+	airgapGatePublicKeyPath                                string
 	authorizationPath, publicKeyPath, confirmAuthorization string
 	name, receiptPath, auditPath, kubeconfig, contextName  string
 	timeout                                                time.Duration
@@ -172,6 +173,7 @@ func parseDeploymentApplyOptions(args []string, stderr io.Writer) (deploymentApp
 	flags.Var(&options.transferReceiptPaths, "transfer-receipt", "ArtifactTransferReceipt path (repeatable)")
 	flags.Var(&options.scanReceiptPaths, "scan-receipt", "ArtifactScanReceipt path (repeatable)")
 	flags.StringVar(&options.airgapGateResultPath, "airgap-gate-result", "", "Optional AirgapProvenanceGateResult used for fail-closed apply-time policy binding")
+	flags.StringVar(&options.airgapGatePublicKeyPath, "airgap-gate-public-key", "", "Trusted PEM PKIX Ed25519 public key for airgap gate result verification")
 	flags.StringVar(&options.authorizationPath, "authorization", "", "Signed ExecutionAuthorization")
 	flags.StringVar(&options.publicKeyPath, "public-key", "", "Trusted PEM PKIX Ed25519 public key")
 	flags.StringVar(&options.confirmAuthorization, "confirm-authorization", "", "Exact authorization ID operator confirmation")
@@ -186,6 +188,10 @@ func parseDeploymentApplyOptions(args []string, stderr io.Writer) (deploymentApp
 	}
 	if options.bundlePath == "" || options.preflightPath == "" || options.changeSetPath == "" || options.approvalPath == "" || options.importReceiptPath == "" || options.authorizationPath == "" || options.publicKeyPath == "" || options.confirmAuthorization == "" || options.name == "" || options.receiptPath == "" || options.auditPath == "" || options.timeout <= 0 {
 		fmt.Fprintln(stderr, "deployment apply kubernetes requires all exact inputs including import receipt, trusted key, confirmation, name, receipt output and audit output")
+		return options, false
+	}
+	if options.airgapGateResultPath != "" && options.airgapGatePublicKeyPath == "" {
+		fmt.Fprintln(stderr, "deployment apply kubernetes requires --airgap-gate-public-key when --airgap-gate-result is provided")
 		return options, false
 	}
 	if options.receiptPath == options.auditPath {
@@ -269,6 +275,13 @@ func loadAndValidateExecutionInputs(options deploymentApplyOptions, at time.Time
 		result, err := resources.LoadAirgapProvenanceGateResult(options.airgapGateResultPath)
 		if err != nil || !result.Validate().Valid {
 			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, "YARA-EXE-119", errors.New("airgap provenance gate result is invalid")
+		}
+		gatePublicKey, err := authkeys.LoadPublicKey(options.airgapGatePublicKeyPath)
+		if err != nil {
+			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, "YARA-EXE-119", fmt.Errorf("trusted air-gap gate public key is invalid")
+		}
+		if err := result.Verify(gatePublicKey, at); err != nil {
+			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, "YARA-EXE-119", err
 		}
 		gateResult = &result
 	}

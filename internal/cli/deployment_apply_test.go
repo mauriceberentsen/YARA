@@ -258,10 +258,10 @@ func TestDeploymentApplyAcceptsPassedAirgapGateResultWithoutReceiptFlags(t *test
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	paths, authorization := writeExecutionInputs(t, directory, now)
 	gatePath := filepath.Join(directory, "airgap-gate.yaml")
-	writeAirgapGateFixture(t, gatePath, paths)
+	gatePublicKeyPath := writeAirgapGateFixture(t, gatePath, paths)
 	paths = removeFlag(paths, "--transfer-receipt")
 	paths = removeFlag(paths, "--scan-receipt")
-	paths = append(paths, "--airgap-gate-result", gatePath)
+	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-public-key", gatePublicKeyPath)
 	originalFactory := newKubernetesExecutor
 	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
 	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
@@ -435,7 +435,7 @@ func valueForFlag(args []string, flag string) string {
 	return ""
 }
 
-func writeAirgapGateFixture(t *testing.T, path string, args []string) {
+func writeAirgapGateFixture(t *testing.T, path string, args []string) string {
 	t.Helper()
 	bundlePath := valueForFlag(args, "--bundle")
 	importPath := valueForFlag(args, "--import-receipt")
@@ -465,6 +465,7 @@ func writeAirgapGateFixture(t *testing.T, path string, args []string) {
 		},
 		Spec: resources.AirgapProvenanceGateResultSpec{
 			RecordedAt:         time.Date(2026, 7, 19, 12, 2, 0, 0, time.UTC).Format(time.RFC3339Nano),
+			ExpiresAt:          time.Date(2026, 7, 19, 12, 12, 0, 0, time.UTC).Format(time.RFC3339Nano),
 			PlanID:             bundle.Spec.PlanID,
 			BundleID:           bundle.Metadata.BundleID,
 			CatalogDigest:      bundle.Spec.CatalogDigest,
@@ -478,12 +479,21 @@ func writeAirgapGateFixture(t *testing.T, path string, args []string) {
 			},
 			Outcome:         "passed",
 			ReasonReference: "ticket-gate",
-			Limitations:     []string{"Gate remains bounded to immutable provenance receipts."},
+			Signer: resources.AirgapGateResultSignerIdentity{
+				KeyID: "operations-key-1",
+			},
+			Limitations: []string{"Gate remains bounded to immutable provenance receipts."},
 		},
 	}
-	result, err = result.AssignGateResultID()
+	gatePublicKey, gatePrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, gatePublicPath := writeAuthorizationKeys(t, t.TempDir(), gatePublicKey, gatePrivateKey)
+	result, err = result.Sign(gatePrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeYAMLFixture(t, path, result)
+	return gatePublicPath
 }

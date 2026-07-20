@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `00671cb` (`Add scan attestation receipts to air-gap provenance checks.`).
+- Branch baseline before this slice: `main` at `8a4a7a9` (`Add deterministic air-gap provenance gate evaluation.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
@@ -27,8 +27,9 @@
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
-  - `airgap provenance-gate evaluate` emits immutable `AirgapProvenanceGateResult` evidence with deterministic per-gate status over exact import/transfer/scan bindings;
-  - `deployment apply kubernetes` can fail closed on a passed `--airgap-gate-result` binding instead of ad-hoc recomputation, and still requires equivalent provenance guarantees for air-gapped policy bundles.
+  - `airgap provenance-gate evaluate` now emits a signed `AirgapProvenanceGateResult` (Ed25519 signer identity, key digest, expiry, detached signature) over exact import/transfer/scan bindings;
+  - `airgap provenance-gate verify` validates gate-result identity, signer digest match, signature validity, and expiry under a trusted public key;
+  - `deployment apply kubernetes` can fail closed on `--airgap-gate-result` only when verification passes under `--airgap-gate-public-key`; otherwise apply rejects the gate result.
 - Apply remains explicit and bounded to exact rendered objects; it still does not implicitly delete/prune/adopt.
 - Mutating commands still require durable started audit before mutation and fail closed when terminal audit/receipt persistence cannot complete.
 
@@ -38,8 +39,8 @@
   - content-addressed resources and schema/Go validation for apply/import/transfer/scan/air-gap gate/retire/rollback/integration/promotion review;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
-  - air-gap gate results bind exact plan/bundle/catalog/target/import identities, transfer/scan receipt sets, deterministic gate status, and non-secret reason reference;
-  - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/mismatched air-gap gate results when configured;
+  - air-gap gate results bind exact plan/bundle/catalog/target/import identities, transfer/scan receipt sets, deterministic gate status, signer identity, trust-key digest, signature, and expiry;
+  - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, and `airgapGateResultId` provenance bindings;
   - separate command paths:
     - `deployment apply kubernetes`,
@@ -50,7 +51,8 @@
     - `promotion review record`,
     - `artifact transfer record`,
     - `artifact scan record`,
-    - `airgap provenance-gate evaluate`.
+    - `airgap provenance-gate evaluate`,
+    - `airgap provenance-gate verify`.
 - **Validated on live environment (historical evidence already present):**
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
@@ -62,33 +64,33 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `00671cb`, `a266358`, `b0a2ce0`, `75da913`, `ce5b80d`.
-- This slice adds air-gap provenance gate resource/CLI/apply consumption and related tests/docs as one coherent vertical change.
+- Branch: `main` tracking `origin/main` (local ahead by one prior slice commit before this uncommitted work).
+- Recent commits before this slice (newest first): `8a4a7a9`, `00671cb`, `a266358`, `b0a2ce0`, `75da913`.
+- This slice adds signed gate attestation policy (resource signature envelope, verify CLI path, apply trusted-key enforcement) with aligned schema/tests/docs.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## Open limitations and unproven claims
 
-- No live validation was executed for rollback, integration execution, promotion-review recording, transfer/scan receipt enforcement, or air-gap gate-result enforcement in this run.
+- No live validation was executed for rollback, integration execution, promotion-review recording, transfer/scan receipt enforcement, or signed air-gap gate-result verification/enforcement in this run.
 - Air-gap completeness remains unproven end-to-end: acquisition execution, transfer medium attestation trust chain, and scanning attestations remain external.
 - Clean-cluster bootstrap (namespace/PVC/storage provisioning) remains out of scope.
 - Integration execution remains bounded to catalog/target contract checks and does not prove latency, throughput, availability, or production readiness.
 
 ## Next implementation slice
 
-Implement **signed provenance gate attestation verification policy**:
+Implement **trusted multi-key gate verification policy inputs**:
 
-- add explicit signer identity and signature envelope support for `AirgapProvenanceGateResult` verification under trusted public keys;
-- add CLI verification path that validates signature, trust key digest, expiry, and exact gate-result identity before apply consumption;
-- keep gate evaluation authority separate from execution/mutation authority while ensuring only trusted signed gate results can authorize fail-closed bypass of ad-hoc provenance recomputation;
+- add explicit trust-policy input for gate verification (allow-listed signer key IDs/digests, optional validity bounds) so apply does not rely on a single ad-hoc public key flag;
+- require `airgap provenance-gate verify` and apply to evaluate gate signatures against that immutable trust-policy input and fail closed on unknown/revoked signer identities;
+- keep gate-evaluation signing authority independent from deployment authorization keys while preserving deterministic, content-addressed evidence;
 - preserve non-secret durable evidence boundaries (no raw scanner logs, payloads, secrets, kubeconfig, or host addresses).
 
 Acceptance criteria:
 
-- signed gate result references only immutable plan/bundle/catalog/receipt identities;
-- durable receipts/audit prove deterministic gate evaluation plus trusted signature verification evidence;
-- apply-side provenance accepts only valid trusted signed gate results when configured and otherwise fails closed;
+- trust-policy resource/input is content-addressed and auditable, and gate verification binds to it deterministically;
+- durable receipts/audit prove deterministic gate evaluation plus trust-policy-based signature verification evidence;
+- apply-side provenance accepts only valid, trusted, non-expired signed gate results under declared trust policy and otherwise fails closed;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 
 ## Validation requirements

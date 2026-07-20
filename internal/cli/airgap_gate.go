@@ -11,14 +11,21 @@ import (
 	"time"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
+	authkeys "github.com/mauriceberentsen/YARA/internal/authorization"
 	"github.com/mauriceberentsen/YARA/internal/resources"
 	"gopkg.in/yaml.v3"
 )
 
 type airgapGateOptions struct {
 	bundlePath, importReceiptPath, reasonReference string
+	privateKeyPath, keyID                          string
 	name, outputPath, auditPath                    string
+	validFor                                       time.Duration
 	transferReceiptPaths, scanReceiptPaths         csvFlag
+}
+
+type airgapGateVerifyOptions struct {
+	gateResultPath, publicKeyPath, auditPath string
 }
 
 func evaluateAirgapProvenanceGate(args []string, stdout, stderr io.Writer) int {
@@ -114,12 +121,18 @@ func evaluateAirgapProvenanceGate(args []string, stdout, stderr io.Writer) int {
 		},
 	}
 	slices.Sort(result.Spec.Limitations)
-	result, err = result.AssignGateResultID()
+	privateKey, err := authkeys.LoadPrivateKey(options.privateKeyPath)
+	if err != nil {
+		return writeLoadErrorWithExit(stdout, "YARA-AGP-107", err, ExitInvalidInput)
+	}
+	result.Spec.ExpiresAt = time.Now().UTC().Add(options.validFor).Format(time.RFC3339Nano)
+	result.Spec.Signer = resources.AirgapGateResultSignerIdentity{KeyID: options.keyID}
+	result, err = result.Sign(privateKey)
 	if err != nil {
 		return writeLoadErrorWithExit(stdout, "YARA-AGP-500", err, ExitInternal)
 	}
 	if report := result.Validate(); !report.Valid {
-		return writeLoadErrorWithExit(stdout, "YARA-AGP-500", errors.New("constructed gate result is invalid"), ExitInternal)
+		return writeLoadErrorWithExit(stdout, "YARA-AGP-500", errors.New("signed gate result is invalid"), ExitInternal)
 	}
 	data, err := yaml.Marshal(result)
 	if err != nil {
@@ -146,11 +159,13 @@ func evaluateAirgapProvenanceGate(args []string, stdout, stderr io.Writer) int {
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(map[string]any{
-		"valid":        true,
-		"outcome":      result.Spec.Outcome,
-		"gateResultId": result.Metadata.GateResultID,
-		"output":       options.outputPath,
-		"auditOutput":  options.auditPath,
+		"valid":           true,
+		"outcome":         result.Spec.Outcome,
+		"gateResultId":    result.Metadata.GateResultID,
+		"publicKeyDigest": result.Spec.Signer.PublicKeyDigest,
+		"expiresAt":       result.Spec.ExpiresAt,
+		"output":          options.outputPath,
+		"auditOutput":     options.auditPath,
 	}); err != nil {
 		return ExitInternal
 	}
@@ -161,26 +176,29 @@ func evaluateAirgapProvenanceGate(args []string, stdout, stderr io.Writer) int {
 }
 
 func parseAirgapGateOptions(args []string, stderr io.Writer) (airgapGateOptions, bool) {
-	var options airgapGateOptions
+	options := airgapGateOptions{validFor: 10 * time.Minute}
 	flags := flag.NewFlagSet("airgap provenance-gate evaluate", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.bundlePath, "bundle", "", "Exact DeploymentBundle")
 	flags.StringVar(&options.importReceiptPath, "import-receipt", "", "Exact ArtifactImportReceipt")
 	flags.Var(&options.transferReceiptPaths, "transfer-receipt", "ArtifactTransferReceipt path (repeatable)")
 	flags.Var(&options.scanReceiptPaths, "scan-receipt", "ArtifactScanReceipt path (repeatable)")
+	flags.StringVar(&options.privateKeyPath, "private-key", "", "PEM PKCS#8 Ed25519 signing key")
+	flags.StringVar(&options.keyID, "key-id", "", "Organization trust-policy key identifier")
 	flags.StringVar(&options.reasonReference, "reason-reference", "", "Non-secret gate evaluation reason reference")
 	flags.StringVar(&options.name, "name", "", "AirgapProvenanceGateResult name")
 	flags.StringVar(&options.outputPath, "output", "", "Generated AirgapProvenanceGateResult YAML output")
 	flags.StringVar(&options.auditPath, "audit-output", "", "Generated gate evaluation audit JSONL output")
+	flags.DurationVar(&options.validFor, "valid-for", options.validFor, "Gate result validity, maximum 15m")
 	if err := flags.Parse(args); err != nil {
 		return options, false
 	}
-	if flags.NArg() != 0 || options.bundlePath == "" || options.importReceiptPath == "" || options.reasonReference == "" || options.name == "" || options.outputPath == "" || options.auditPath == "" {
-		fmt.Fprintln(stderr, "airgap provenance-gate evaluate requires --bundle --import-receipt --transfer-receipt --scan-receipt --reason-reference --name --output --audit-output")
+	if flags.NArg() != 0 || options.bundlePath == "" || options.importReceiptPath == "" || options.privateKeyPath == "" || options.keyID == "" || options.reasonReference == "" || options.name == "" || options.outputPath == "" || options.auditPath == "" {
+		fmt.Fprintln(stderr, "airgap provenance-gate evaluate requires --bundle --import-receipt --transfer-receipt --scan-receipt --private-key --key-id --reason-reference --name --output --audit-output")
 		return options, false
 	}
-	if options.outputPath == options.auditPath {
-		fmt.Fprintln(stderr, "--output and --audit-output must be different files")
+	if options.outputPath == options.auditPath || options.validFor <= 0 || options.validFor > 15*time.Minute {
+		fmt.Fprintln(stderr, "--output and --audit-output must differ; --valid-for must be greater than zero and at most 15m")
 		return options, false
 	}
 	if len(options.transferReceiptPaths) == 0 || len(options.scanReceiptPaths) == 0 {
@@ -188,6 +206,56 @@ func parseAirgapGateOptions(args []string, stderr io.Writer) (airgapGateOptions,
 		return options, false
 	}
 	return options, true
+}
+
+func verifyAirgapProvenanceGateResult(args []string, stdout, stderr io.Writer) int {
+	return verifyAirgapProvenanceGateResultAt(args, stdout, stderr, time.Now)
+}
+
+func verifyAirgapProvenanceGateResultAt(args []string, stdout, stderr io.Writer, now func() time.Time) int {
+	var options airgapGateVerifyOptions
+	flags := flag.NewFlagSet("airgap provenance-gate verify", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&options.gateResultPath, "gate-result", "", "AirgapProvenanceGateResult YAML")
+	flags.StringVar(&options.publicKeyPath, "public-key", "", "Trusted PEM PKIX Ed25519 public key")
+	flags.StringVar(&options.auditPath, "audit-output", "", "Optional verification audit JSONL")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || options.gateResultPath == "" || options.publicKeyPath == "" {
+		fmt.Fprintln(stderr, "airgap provenance-gate verify requires --gate-result and --public-key")
+		return ExitInvalidInput
+	}
+	result, err := resources.LoadAirgapProvenanceGateResult(options.gateResultPath)
+	if err != nil {
+		return writeAuditedLoadError(stdout, options.auditPath, "airgap.provenance-gate.verify", "AirgapProvenanceGateResult", options.gateResultPath, "YARA-AGP-004", err, nil)
+	}
+	subject := audit.Subject{Kind: "AirgapProvenanceGateResult", Digest: result.Metadata.GateResultID}
+	publicKey, err := authkeys.LoadPublicKey(options.publicKeyPath)
+	if err != nil {
+		if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, []audit.Subject{subject}, []string{"YARA-AGP-108"}); auditErr != nil {
+			return writeLoadError(stdout, "YARA-AUD-005", auditErr)
+		}
+		return writeLoadErrorWithExit(stdout, "YARA-AGP-108", err, ExitInvalidInput)
+	}
+	if err := result.Verify(publicKey, now()); err != nil {
+		if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, []audit.Subject{subject}, []string{"YARA-AGP-109"}); auditErr != nil {
+			return writeLoadError(stdout, "YARA-AUD-005", auditErr)
+		}
+		return writeLoadErrorWithExit(stdout, "YARA-AGP-109", err, ExitInfeasible)
+	}
+	if err := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "completed", "success", "kubernetes:"+result.Spec.Target.ReferenceDigest, []audit.Subject{subject}, nil); err != nil {
+		return writeLoadError(stdout, "YARA-AUD-005", err)
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(map[string]any{
+		"valid":           true,
+		"gateResultId":    result.Metadata.GateResultID,
+		"keyId":           result.Spec.Signer.KeyID,
+		"publicKeyDigest": result.Spec.Signer.PublicKeyDigest,
+		"expiresAt":       result.Spec.ExpiresAt,
+	}); err != nil {
+		return ExitInternal
+	}
+	return ExitSuccess
 }
 
 func compareStrings(left, right string) int {

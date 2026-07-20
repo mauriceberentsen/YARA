@@ -139,6 +139,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 3 && args[0] == "airgap" && args[1] == "provenance-gate" && args[2] == "evaluate" {
 		return evaluateAirgapProvenanceGate(args[3:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "airgap" && args[1] == "provenance-gate" && args[2] == "verify" {
+		return verifyAirgapProvenanceGateResult(args[3:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "integration" && args[1] == "component-smoke" {
 		return runIntegrationComponentSmoke(args[2:], stdout, stderr)
 	}
@@ -506,7 +509,8 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara artifact-transfer-receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara artifact scan record --bundle <file> --transfer-receipt <file> --scanner-name <name> --scanner-version <version> --scanner-profile <profile> --policy-digest <sha256:id> --verdict <passed|failed|blocked> --reason-reference <ref> [--prior-receipt <sha256:id> ...] --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara artifact-scan-receipt validate <file> [--audit-output <file>]")
-	fmt.Fprintln(output, "  yara airgap provenance-gate evaluate --bundle <file> --import-receipt <file> --transfer-receipt <file> --scan-receipt <file> --reason-reference <ref> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara airgap provenance-gate evaluate --bundle <file> --import-receipt <file> --transfer-receipt <file> --scan-receipt <file> --private-key <file> --key-id <id> --reason-reference <ref> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara airgap provenance-gate verify --gate-result <file> --public-key <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-provenance-gate-result validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara integration component-smoke --catalog <file> --target <local|user@host> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration topology-end-to-end --catalog <file> --target <local|user@host> --topology <id@version> --component <id@version> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")

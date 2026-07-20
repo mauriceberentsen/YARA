@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,12 +16,19 @@ func TestAirgapProvenanceGateEvaluateWritesResultAndAudit(t *testing.T) {
 	directory := t.TempDir()
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	paths, _ := writeExecutionInputs(t, directory, now)
+	gatePublicKey, gatePrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gatePrivatePath, gatePublicPath := writeAuthorizationKeys(t, directory, gatePublicKey, gatePrivateKey)
 	args := []string{
 		"airgap", "provenance-gate", "evaluate",
 		"--bundle", valueForFlag(paths, "--bundle"),
 		"--import-receipt", valueForFlag(paths, "--import-receipt"),
 		"--transfer-receipt", valueForFlag(paths, "--transfer-receipt"),
 		"--scan-receipt", valueForFlag(paths, "--scan-receipt"),
+		"--private-key", gatePrivatePath,
+		"--key-id", "operations-key-1",
 		"--reason-reference", "ticket-gate-1",
 		"--name", "airgap-gate",
 		"--output", filepath.Join(directory, "airgap-gate.yaml"),
@@ -46,12 +55,22 @@ func TestAirgapProvenanceGateEvaluateWritesResultAndAudit(t *testing.T) {
 	if len(events) != 2 || events[1].Spec.Action != "airgap.provenance-gate.evaluate.completed" {
 		t.Fatalf("terminal gate audit missing: %#v", events)
 	}
+	stdout.Reset()
+	stderr.Reset()
+	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", filepath.Join(directory, "airgap-gate.yaml"), "--public-key", gatePublicPath}, &stdout, &stderr); exit != ExitSuccess {
+		t.Fatalf("airgap gate verify failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
 }
 
 func TestAirgapProvenanceGateEvaluateFailsOnBrokenScanChain(t *testing.T) {
 	directory := t.TempDir()
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	paths, _ := writeExecutionInputs(t, directory, now)
+	gatePublicKey, gatePrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gatePrivatePath, _ := writeAuthorizationKeys(t, directory, gatePublicKey, gatePrivateKey)
 	scanPath := valueForFlag(paths, "--scan-receipt")
 	scanReceipt, err := resources.LoadArtifactScanReceipt(scanPath)
 	if err != nil {
@@ -69,6 +88,8 @@ func TestAirgapProvenanceGateEvaluateFailsOnBrokenScanChain(t *testing.T) {
 		"--import-receipt", valueForFlag(paths, "--import-receipt"),
 		"--transfer-receipt", valueForFlag(paths, "--transfer-receipt"),
 		"--scan-receipt", valueForFlag(paths, "--scan-receipt"),
+		"--private-key", gatePrivatePath,
+		"--key-id", "operations-key-1",
 		"--reason-reference", "ticket-gate-2",
 		"--name", "airgap-gate",
 		"--output", filepath.Join(directory, "airgap-gate.yaml"),
