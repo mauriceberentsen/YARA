@@ -2397,6 +2397,68 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.BlockerCode = manifest.Packet.BlockerCode
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/rollout-closure-recipient-package/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow rollout closure recipient package export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowRolloutClosureRecipientPackageExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-049", err.Error())
+			return
+		}
+		manifestPath, err := ensureWorkspaceFilePath(workspacePath, payload.ManifestPath, "manifestPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-049", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-049", err.Error())
+			return
+		}
+		if manifestPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-049", "manifestPath and auditPath must be different files")
+			return
+		}
+		manifest, subjects, err := buildWorkflowRolloutClosureRecipientPackageManifest(workspacePath, payload)
+		if err != nil {
+			status := http.StatusBadRequest
+			if gateErr, ok := err.(workflowGateError); ok {
+				status = gateErr.Status
+			}
+			writeServeError(writer, status, "YARA-SRV-049", err.Error())
+			return
+		}
+		manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode rollout closure recipient package manifest: %v", err))
+			return
+		}
+		manifestBytes = append(manifestBytes, '\n')
+		if err := writeExclusive(manifestPath, manifestBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-049", err.Error())
+			return
+		}
+		exportSubjects := append(append([]audit.Subject(nil), subjects...),
+			audit.Subject{Kind: "WorkflowRolloutClosureRecipientPackageManifest", Digest: digestBytes(manifestBytes)},
+		)
+		if err := persistOperationAuditForTarget(auditPath, "workflow.rollout-closure-recipient-package.export", "completed", manifest.RecipientPackage.RecipientPackageState, "kubernetes:"+manifest.RecipientPackage.Continuity.TargetDigest, exportSubjects, nil); err != nil {
+			_ = os.Remove(manifestPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowRolloutClosureRecipientPackageExportResponse{Valid: true}
+		response.Export.ManifestPath = manifestPath
+		response.Export.AuditPath = auditPath
+		response.Export.RecipientPackageState = manifest.RecipientPackage.RecipientPackageState
+		response.Export.BlockerCode = manifest.RecipientPackage.BlockerCode
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -3511,6 +3573,54 @@ type workflowRolloutClosurePacketManifest struct {
 	} `json:"rolloutClosurePacket"`
 }
 
+type workflowRolloutClosureRecipientPackageExportRequest struct {
+	RecipientPackageReference string `json:"recipientPackageReference"`
+	PreparedForReference      string `json:"preparedForReference"`
+	PreparedTimestamp         string `json:"preparedTimestamp"`
+	ManifestPath              string `json:"manifestPath"`
+	AuditPath                 string `json:"auditPath"`
+}
+
+type workflowRolloutClosureRecipientPackageExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		ManifestPath          string `json:"manifestPath"`
+		AuditPath             string `json:"auditPath"`
+		RecipientPackageState string `json:"recipientPackageState"`
+		BlockerCode           string `json:"blockerCode,omitempty"`
+	} `json:"export"`
+}
+
+type workflowRolloutClosureRecipientPackageManifest struct {
+	Valid            bool `json:"valid"`
+	RecipientPackage struct {
+		WorkspacePath              string                    `json:"workspacePath"`
+		RecipientPackageReference  string                    `json:"recipientPackageReference"`
+		PreparedForReference       string                    `json:"preparedForReference"`
+		PreparedTimestamp          string                    `json:"preparedTimestamp"`
+		RecipientPackageState      string                    `json:"recipientPackageState"`
+		BlockerCode                string                    `json:"blockerCode,omitempty"`
+		Continuity                 workflowClosureContinuity `json:"continuity"`
+		ReleasePacket              workflowClosureArtifact   `json:"releasePacket"`
+		ReleaseBulletin            workflowClosureArtifact   `json:"releaseBulletin"`
+		HandoffDocket              workflowClosureArtifact   `json:"handoffDocket"`
+		ArchivalLedger             workflowClosureArtifact   `json:"archivalLedger"`
+		PublicationCertificate     workflowClosureArtifact   `json:"publicationCertificate"`
+		AcceptanceReceipt          workflowClosureArtifact   `json:"acceptanceReceipt"`
+		DeliveryRecord             workflowClosureArtifact   `json:"deliveryRecord"`
+		ClosureSummary             workflowClosureArtifact   `json:"closureSummary"`
+		Acknowledgment             workflowClosureArtifact   `json:"acknowledgment"`
+		HandoffReceipt             workflowClosureArtifact   `json:"handoffReceipt"`
+		ReleasePublicationEnvelope workflowClosureArtifact   `json:"releasePublicationEnvelope"`
+		ReleasePublicationPackage  workflowClosureArtifact   `json:"releasePublicationPackage"`
+		ReleasePublicationIndex    workflowClosureArtifact   `json:"releasePublicationIndex"`
+		ReleasePublication         workflowClosureArtifact   `json:"releasePublication"`
+		ReleaseDecision            workflowClosureArtifact   `json:"releaseDecision"`
+		ClosurePackage             workflowClosureArtifact   `json:"closurePackage"`
+		ReviewGate                 workflowClosureArtifact   `json:"reviewGate"`
+	} `json:"rolloutClosureRecipientPackage"`
+}
+
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -4331,6 +4441,29 @@ func decodeWorkflowRolloutClosurePacketExportRequest(request *http.Request) (wor
 	}
 	if _, err := time.Parse(time.RFC3339Nano, payload.PackagedTimestamp); err != nil {
 		return payload, errors.New("packagedTimestamp must be a valid RFC3339 timestamp")
+	}
+	return payload, nil
+}
+
+func decodeWorkflowRolloutClosureRecipientPackageExportRequest(request *http.Request) (workflowRolloutClosureRecipientPackageExportRequest, error) {
+	var payload workflowRolloutClosureRecipientPackageExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.RecipientPackageReference) == "" || strings.TrimSpace(payload.PreparedForReference) == "" || strings.TrimSpace(payload.PreparedTimestamp) == "" || strings.TrimSpace(payload.ManifestPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("recipientPackageReference, preparedForReference, preparedTimestamp, manifestPath and auditPath are required")
+	}
+	if payload.ManifestPath == payload.AuditPath {
+		return payload, errors.New("manifestPath and auditPath must be different files")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.PreparedTimestamp); err != nil {
+		return payload, errors.New("preparedTimestamp must be a valid RFC3339 timestamp")
 	}
 	return payload, nil
 }
@@ -6416,6 +6549,165 @@ func buildWorkflowRolloutClosurePacketManifest(workspacePath string, payload wor
 	return manifest, subjects, nil
 }
 
+func buildWorkflowRolloutClosureRecipientPackageManifest(workspacePath string, payload workflowRolloutClosureRecipientPackageExportRequest) (workflowRolloutClosureRecipientPackageManifest, []audit.Subject, error) {
+	packet, packetPath, packetDigest, err := loadLatestRolloutClosurePacket(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	if packet.Packet.PacketState != "packet-ready" {
+		blocker := mapValueOrDefault(packet.Packet.BlockerCode, "none")
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RPKG-003: latest rollout closure packet is blocked (blocker: " + blocker + ")"}
+	}
+	bulletin, bulletinPath, bulletinDigest, err := loadLatestRolloutClosureBulletin(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	docket, docketPath, docketDigest, err := loadLatestRolloutClosureDocket(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	ledger, ledgerPath, ledgerDigest, err := loadLatestRolloutClosureLedger(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	certificate, certificatePath, certificateDigest, err := loadLatestRolloutClosureCertificate(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	acceptanceReceipt, acceptancePath, acceptanceDigest, err := loadLatestRolloutClosureAcceptance(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	deliveryRecord, deliveryRecordPath, deliveryRecordDigest, err := loadLatestRolloutClosureDelivery(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	closureSummary, closureSummaryPath, closureSummaryDigest, err := loadLatestRolloutClosureSummary(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	acknowledgment, acknowledgmentPath, acknowledgmentDigest, err := loadLatestReleasePublicationAcknowledgment(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	handoffReceipt, handoffReceiptPath, handoffReceiptDigest, err := loadLatestReleasePublicationHandoffReceipt(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublicationEnvelope, releasePublicationEnvelopePath, releasePublicationEnvelopeDigest, err := loadLatestReleasePublicationEnvelope(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublicationPackage, releasePublicationPackagePath, releasePublicationPackageDigest, err := loadLatestReleasePublicationPackage(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublicationIndex, releasePublicationIndexPath, releasePublicationIndexDigest, err := loadLatestReleasePublicationIndex(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublication, releasePublicationPath, releasePublicationDigest, err := loadLatestReleasePublication(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releaseDecision, releaseDecisionPath, releaseDecisionDigest, err := loadLatestReleaseDecision(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	closurePackage, closurePackagePath, closurePackageDigest, err := loadLatestClosurePackage(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	reviewGate, reviewGatePath, reviewGateDigest, err := loadLatestClosureReviewGate(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	if bulletin.Bulletin.BulletinState != "bulletin-ready" || docket.Docket.DocketState != "docket-ready" || ledger.Ledger.LedgerState != "ledger-ready" || certificate.Certificate.CertificateState != "certificate-ready" || acceptanceReceipt.Acceptance.AcceptanceState != "acceptance-ready" || deliveryRecord.Delivery.DeliveryRecordState != "delivery-record-ready" || closureSummary.Summary.SummaryState != "summary-ready" || acknowledgment.Acknowledgment.AcknowledgmentState != "acknowledgment-ready" || handoffReceipt.Handoff.HandoffState != "handoff-ready" || releasePublicationEnvelope.Envelope.DeliveryState != "delivery-ready" || releasePublicationPackage.Package.PackageState != "package-ready" || releasePublicationIndex.Index.IndexState != "index-ready" || releasePublication.Publication.PublicationState != "publishable" || releaseDecision.Ledger.PublicationState != "ready-to-publish" || reviewGate.Gate.Outcome != "passed" {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RPKG-004: rollout closure recipient package requires ready publication and closure states"}
+	}
+	if packet.Packet.Continuity != bulletin.Bulletin.Continuity ||
+		packet.Packet.Continuity != docket.Docket.Continuity ||
+		packet.Packet.Continuity != ledger.Ledger.Continuity ||
+		packet.Packet.Continuity != certificate.Certificate.Continuity ||
+		packet.Packet.Continuity != acceptanceReceipt.Acceptance.Continuity ||
+		packet.Packet.Continuity != deliveryRecord.Delivery.Continuity ||
+		packet.Packet.Continuity != closureSummary.Summary.Continuity ||
+		packet.Packet.Continuity != acknowledgment.Acknowledgment.Continuity ||
+		packet.Packet.Continuity != handoffReceipt.Handoff.Continuity ||
+		packet.Packet.Continuity != releasePublicationEnvelope.Envelope.Continuity ||
+		packet.Packet.Continuity != releasePublicationPackage.Package.Continuity ||
+		packet.Packet.Continuity != releasePublicationIndex.Index.Continuity ||
+		packet.Packet.Continuity != releasePublication.Publication.Continuity ||
+		packet.Packet.Continuity != releaseDecision.Ledger.Continuity ||
+		packet.Packet.Continuity != closurePackage.Package.Continuity ||
+		packet.Packet.Continuity != reviewGate.Gate.Continuity {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RPKG-005: rollout closure recipient package continuity chains are mismatched"}
+	}
+	if packet.Packet.ReleaseBulletin.Digest != bulletinDigest ||
+		packet.Packet.HandoffDocket.Digest != docketDigest ||
+		packet.Packet.ArchivalLedger.Digest != ledgerDigest ||
+		packet.Packet.PublicationCertificate.Digest != certificateDigest ||
+		packet.Packet.AcceptanceReceipt.Digest != acceptanceDigest ||
+		packet.Packet.DeliveryRecord.Digest != deliveryRecordDigest ||
+		packet.Packet.ClosureSummary.Digest != closureSummaryDigest ||
+		packet.Packet.Acknowledgment.Digest != acknowledgmentDigest ||
+		packet.Packet.HandoffReceipt.Digest != handoffReceiptDigest ||
+		packet.Packet.ReleasePublicationEnvelope.Digest != releasePublicationEnvelopeDigest ||
+		packet.Packet.ReleasePublicationPackage.Digest != releasePublicationPackageDigest ||
+		packet.Packet.ReleasePublicationIndex.Digest != releasePublicationIndexDigest ||
+		packet.Packet.ReleasePublication.Digest != releasePublicationDigest ||
+		packet.Packet.ReleaseDecision.Digest != releaseDecisionDigest ||
+		packet.Packet.ClosurePackage.Digest != closurePackageDigest ||
+		packet.Packet.ReviewGate.Digest != reviewGateDigest {
+		return workflowRolloutClosureRecipientPackageManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RPKG-006: release packet digest bindings do not match current publication chain"}
+	}
+	manifest := workflowRolloutClosureRecipientPackageManifest{Valid: true}
+	manifest.RecipientPackage.WorkspacePath = workspacePath
+	manifest.RecipientPackage.RecipientPackageReference = strings.TrimSpace(payload.RecipientPackageReference)
+	manifest.RecipientPackage.PreparedForReference = strings.TrimSpace(payload.PreparedForReference)
+	manifest.RecipientPackage.PreparedTimestamp = strings.TrimSpace(payload.PreparedTimestamp)
+	manifest.RecipientPackage.RecipientPackageState = "recipient-package-ready"
+	manifest.RecipientPackage.Continuity = packet.Packet.Continuity
+	manifest.RecipientPackage.ReleasePacket = workflowClosureArtifact{Path: packetPath, Digest: packetDigest}
+	manifest.RecipientPackage.ReleaseBulletin = workflowClosureArtifact{Path: bulletinPath, Digest: bulletinDigest}
+	manifest.RecipientPackage.HandoffDocket = workflowClosureArtifact{Path: docketPath, Digest: docketDigest}
+	manifest.RecipientPackage.ArchivalLedger = workflowClosureArtifact{Path: ledgerPath, Digest: ledgerDigest}
+	manifest.RecipientPackage.PublicationCertificate = workflowClosureArtifact{Path: certificatePath, Digest: certificateDigest}
+	manifest.RecipientPackage.AcceptanceReceipt = workflowClosureArtifact{Path: acceptancePath, Digest: acceptanceDigest}
+	manifest.RecipientPackage.DeliveryRecord = workflowClosureArtifact{Path: deliveryRecordPath, Digest: deliveryRecordDigest}
+	manifest.RecipientPackage.ClosureSummary = workflowClosureArtifact{Path: closureSummaryPath, Digest: closureSummaryDigest}
+	manifest.RecipientPackage.Acknowledgment = workflowClosureArtifact{Path: acknowledgmentPath, Digest: acknowledgmentDigest}
+	manifest.RecipientPackage.HandoffReceipt = workflowClosureArtifact{Path: handoffReceiptPath, Digest: handoffReceiptDigest}
+	manifest.RecipientPackage.ReleasePublicationEnvelope = workflowClosureArtifact{Path: releasePublicationEnvelopePath, Digest: releasePublicationEnvelopeDigest}
+	manifest.RecipientPackage.ReleasePublicationPackage = workflowClosureArtifact{Path: releasePublicationPackagePath, Digest: releasePublicationPackageDigest}
+	manifest.RecipientPackage.ReleasePublicationIndex = workflowClosureArtifact{Path: releasePublicationIndexPath, Digest: releasePublicationIndexDigest}
+	manifest.RecipientPackage.ReleasePublication = workflowClosureArtifact{Path: releasePublicationPath, Digest: releasePublicationDigest}
+	manifest.RecipientPackage.ReleaseDecision = workflowClosureArtifact{Path: releaseDecisionPath, Digest: releaseDecisionDigest}
+	manifest.RecipientPackage.ClosurePackage = workflowClosureArtifact{Path: closurePackagePath, Digest: closurePackageDigest}
+	manifest.RecipientPackage.ReviewGate = workflowClosureArtifact{Path: reviewGatePath, Digest: reviewGateDigest}
+	subjects := []audit.Subject{
+		{Kind: "WorkflowRolloutClosurePacketManifest", Digest: packetDigest},
+		{Kind: "WorkflowRolloutClosureBulletinManifest", Digest: bulletinDigest},
+		{Kind: "WorkflowRolloutClosureDocketManifest", Digest: docketDigest},
+		{Kind: "WorkflowRolloutClosureLedgerManifest", Digest: ledgerDigest},
+		{Kind: "WorkflowRolloutClosureCertificateManifest", Digest: certificateDigest},
+		{Kind: "WorkflowRolloutClosureAcceptanceManifest", Digest: acceptanceDigest},
+		{Kind: "WorkflowRolloutClosureDeliveryManifest", Digest: deliveryRecordDigest},
+		{Kind: "WorkflowRolloutClosureSummaryManifest", Digest: closureSummaryDigest},
+		{Kind: "ReleasePublicationAcknowledgment", Digest: acknowledgmentDigest},
+		{Kind: "ReleasePublicationHandoffReceipt", Digest: handoffReceiptDigest},
+		{Kind: "ReleasePublicationEnvelopeManifest", Digest: releasePublicationEnvelopeDigest},
+		{Kind: "ReleasePublicationPackageManifest", Digest: releasePublicationPackageDigest},
+		{Kind: "ReleasePublicationIndexManifest", Digest: releasePublicationIndexDigest},
+		{Kind: "ReleasePublicationAttestation", Digest: releasePublicationDigest},
+		{Kind: "ReleaseDecisionLedger", Digest: releaseDecisionDigest},
+		{Kind: "WorkflowClosurePackageManifest", Digest: closurePackageDigest},
+		{Kind: "ClosureReviewGateJSON", Digest: reviewGateDigest},
+		{Kind: "RolloutClosureRecipientPackage", Digest: digestBytes([]byte(strings.Join([]string{manifest.RecipientPackage.RecipientPackageReference, manifest.RecipientPackage.PreparedForReference, manifest.RecipientPackage.PreparedTimestamp, packetDigest, bulletinDigest, docketDigest, ledgerDigest, certificateDigest, acceptanceDigest, deliveryRecordDigest, closureSummaryDigest, acknowledgmentDigest, handoffReceiptDigest, releasePublicationEnvelopeDigest, releasePublicationPackageDigest, releasePublicationIndexDigest, releasePublicationDigest, releaseDecisionDigest, closurePackageDigest, reviewGateDigest}, "|")))},
+	}
+	return manifest, subjects, nil
+}
+
 func loadLatestReleasePublication(workspacePath string) (workflowReleasePublicationAttestation, string, string, error) {
 	paths := discoverReleasePublicationExports(workspacePath)
 	if len(paths) == 0 {
@@ -6712,6 +7004,26 @@ func loadLatestRolloutClosureBulletin(workspacePath string) (workflowRolloutClos
 	}
 	if !manifest.Valid {
 		return workflowRolloutClosureBulletinManifest{}, "", "", errors.New("YARA-RPT-002: latest rollout closure bulletin manifest is invalid")
+	}
+	return manifest, latestPath, digestBytes(content), nil
+}
+
+func loadLatestRolloutClosurePacket(workspacePath string) (workflowRolloutClosurePacketManifest, string, string, error) {
+	paths := discoverRolloutClosurePacketExports(workspacePath)
+	if len(paths) == 0 {
+		return workflowRolloutClosurePacketManifest{}, "", "", errors.New("YARA-RPKG-001: rollout closure recipient package export requires at least one rollout closure packet manifest")
+	}
+	latestPath := paths[len(paths)-1]
+	content, err := os.ReadFile(latestPath)
+	if err != nil {
+		return workflowRolloutClosurePacketManifest{}, "", "", fmt.Errorf("read latest rollout closure packet %s: %w", filepath.Base(latestPath), err)
+	}
+	manifest := workflowRolloutClosurePacketManifest{}
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return workflowRolloutClosurePacketManifest{}, "", "", fmt.Errorf("decode latest rollout closure packet %s: %w", filepath.Base(latestPath), err)
+	}
+	if !manifest.Valid {
+		return workflowRolloutClosurePacketManifest{}, "", "", errors.New("YARA-RPKG-002: latest rollout closure packet manifest is invalid")
 	}
 	return manifest, latestPath, digestBytes(content), nil
 }
@@ -7333,6 +7645,25 @@ func discoverRolloutClosureBulletinExports(workspacePath string) []string {
 		}
 		name := entry.Name()
 		if strings.HasSuffix(name, ".rollout-closure-bulletin.json") {
+			paths = append(paths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func discoverRolloutClosurePacketExports(workspacePath string) []string {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}
+	}
+	paths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".rollout-closure-packet.json") {
 			paths = append(paths, filepath.Join(workspacePath, name))
 		}
 	}

@@ -1465,6 +1465,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-packet.export.audit.jsonl` : "",
   }));
   const [closurePacketSubmitState, setClosurePacketSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureRecipientPackageForm, setClosureRecipientPackageForm] = useState(() => ({
+    recipientPackageReference: "",
+    preparedForReference: "",
+    preparedTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-recipient-package.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-recipient-package.export.audit.jsonl` : "",
+  }));
+  const [closureRecipientPackageSubmitState, setClosureRecipientPackageSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1572,6 +1580,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-packet.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-packet.export.audit.jsonl`,
+    }));
+    setClosureRecipientPackageForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-recipient-package.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-recipient-package.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2176,6 +2189,36 @@ function CapsuleView({ payload }) {
       setClosurePacketSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setClosurePacketSubmitState({ loading: false, error: error.message || "Rollout closure packet export failed", result: null });
+    }
+  };
+  const updateClosureRecipientPackage = (key) => (event) => {
+    setClosureRecipientPackageForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureRecipientPackage = closureRecipientPackageForm.recipientPackageReference.trim() !== "" &&
+    closureRecipientPackageForm.preparedForReference.trim() !== "" &&
+    closureRecipientPackageForm.preparedTimestamp.trim() !== "" &&
+    closureRecipientPackageForm.manifestPath !== "" &&
+    closureRecipientPackageForm.auditPath !== "" &&
+    closureRecipientPackageForm.manifestPath !== closureRecipientPackageForm.auditPath;
+  const submitClosureRecipientPackage = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureRecipientPackage) {
+      return;
+    }
+    setClosureRecipientPackageSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure-recipient-package/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureRecipientPackageForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure recipient package export failed");
+      }
+      setClosureRecipientPackageSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureRecipientPackageSubmitState({ loading: false, error: error.message || "Rollout closure recipient package export failed", result: null });
     }
   };
   return (
@@ -2945,6 +2988,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closurePacketSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Packet readiness</dt><dd>{closurePacketSubmitState.result.packetState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closurePacketSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export rollout closure recipient acknowledgment package</h3>
+      <form onSubmit={submitClosureRecipientPackage}>
+        <div className="formRow">
+          <label htmlFor="closure-recipient-package-reference">Recipient package reference</label>
+          <input id="closure-recipient-package-reference" value={closureRecipientPackageForm.recipientPackageReference} onChange={updateClosureRecipientPackage("recipientPackageReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-recipient-package-prepared-for-reference">Prepared for reference</label>
+          <input id="closure-recipient-package-prepared-for-reference" value={closureRecipientPackageForm.preparedForReference} onChange={updateClosureRecipientPackage("preparedForReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-recipient-package-prepared-timestamp">Recipient prepared timestamp (RFC3339)</label>
+          <input id="closure-recipient-package-prepared-timestamp" value={closureRecipientPackageForm.preparedTimestamp} onChange={updateClosureRecipientPackage("preparedTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-recipient-package-manifest-path">Recipient package manifest output path</label>
+          <input id="closure-recipient-package-manifest-path" value={closureRecipientPackageForm.manifestPath} onChange={updateClosureRecipientPackage("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-recipient-package-audit-path">Recipient package audit output path</label>
+          <input id="closure-recipient-package-audit-path" value={closureRecipientPackageForm.auditPath} onChange={updateClosureRecipientPackage("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureRecipientPackageSubmitState.loading || !canExportClosureRecipientPackage}>
+          {closureRecipientPackageSubmitState.loading ? "Exporting recipient package..." : "Export recipient package"}
+        </button>
+      </form>
+      {!canExportClosureRecipientPackage && <p className="error">Recipient package export requires recipient package reference, prepared-for reference, prepared timestamp, and distinct manifest/audit paths.</p>}
+      {closureRecipientPackageSubmitState.error && <p className="error">Recipient package readiness: blocked ({closureRecipientPackageSubmitState.error})</p>}
+      {closureRecipientPackageSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureRecipientPackageSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureRecipientPackageSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Recipient package readiness</dt><dd>{closureRecipientPackageSubmitState.result.recipientPackageState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureRecipientPackageSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>
