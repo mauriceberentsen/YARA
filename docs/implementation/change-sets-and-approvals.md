@@ -16,6 +16,8 @@ DeploymentBundle
           DeploymentApproval
                     |
        signed ExecutionAuthorization
+                    +
+         ArtifactImportReceipt
                     |
                     v
        Kubernetes executor -> DeploymentReceipt
@@ -125,6 +127,14 @@ go run ./cmd/yara receipt validate receipt.yaml
 
 It binds plan, bundle, preflight, change set, approval, signed authorization, target, exact executor binary, execution correlation, per-object before/after evidence and postflight checks. Its overall outcome is derived from operation and postflight results.
 
+`ArtifactImportReceipt` is a separate public contract for pre-apply model import evidence and internal non-secret file locations. Validate it through:
+
+```bash
+go run ./cmd/yara import-receipt validate reference-stack.import-receipt.yaml
+```
+
+`deployment apply kubernetes` now requires this receipt and rejects mutation when its plan/bundle/target or file bindings drift from the reviewed bundle.
+
 The initial apply-capable executor now produces this receipt after rechecking target identity, signed authorization, audit availability and operation state under a Lease. See [Authorized Kubernetes apply](kubernetes-apply.md).
 
 ## Audit and privacy
@@ -134,7 +144,7 @@ Change-set generation and approval recording require audit output and remove gen
 ## Remaining lifecycle work after initial apply
 
 - short-lived Kubernetes credential issuance remains operator-managed;
-- acquisition/import receipts remain unimplemented, although apply actively verifies model-PVC file digests;
+- acquisition/import execution remains out of scope; apply only consumes a separate import receipt and re-verifies model-PVC file digests;
 - verifier-label admission governance remains an explicit limitation;
 - owned rollback/removal, retry orchestration and retirement remain unimplemented;
 - clean-cluster namespace, storage and model provisioning remain outside the first executor.

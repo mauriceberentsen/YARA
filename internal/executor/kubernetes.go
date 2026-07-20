@@ -82,7 +82,7 @@ func NewKubernetes(kubeconfig, contextName string) (Kubernetes, error) {
 	return Kubernetes{Executable: executable, Kubeconfig: kubeconfig, Context: contextName, Runner: ExecRunner{}}, nil
 }
 
-func (k Kubernetes) Execute(ctx context.Context, bundle resources.DeploymentBundle, approved resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, startedAt time.Time) (result ExecutionResult, err error) {
+func (k Kubernetes) Execute(ctx context.Context, bundle resources.DeploymentBundle, approved resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, startedAt time.Time) (result ExecutionResult, err error) {
 	result.StartedAt = startedAt.UTC()
 	if k.Executable == "" || k.Runner == nil {
 		return result, errors.New("Kubernetes executor is incomplete")
@@ -145,7 +145,7 @@ func (k Kubernetes) Execute(ctx context.Context, bundle resources.DeploymentBund
 		return result, err
 	}
 	if authorization.Spec.Constraints.AllowActiveVerification {
-		if err := k.verifyModelAndTmp(ctx, bundle, authorization); err != nil {
+		if err := k.verifyModelAndTmp(ctx, bundle, authorization, importReceipt); err != nil {
 			return result, err
 		}
 		result.Postflight = append(result.Postflight, passedCheck("prerequisite.model-files"), passedCheck("prerequisite.tmp-exec"))
@@ -383,16 +383,20 @@ func (k Kubernetes) releaseLock(ctx context.Context, namespace, name, holder, au
 	return nil
 }
 
-func (k Kubernetes) verifyModelAndTmp(ctx context.Context, bundle resources.DeploymentBundle, authorization resources.ExecutionAuthorization) error {
+func (k Kubernetes) verifyModelAndTmp(ctx context.Context, bundle resources.DeploymentBundle, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt) error {
 	model, image, err := verificationArtifacts(bundle)
 	if err != nil {
 		return err
 	}
-	expected, _ := json.Marshal(model.Files)
+	expectedFiles, err := expectedImportedModelFiles(model, importReceipt)
+	if err != nil {
+		return err
+	}
+	expected, _ := json.Marshal(expectedFiles)
 	script := `import hashlib,json,os,subprocess,sys
 files=json.loads(sys.argv[1])
 for item in files:
- p=os.path.join('/models/model',item['path'])
+ p=os.path.join('/models/import-root',item['internalPath'])
  if os.path.getsize(p)!=item['sizeBytes']: raise SystemExit(11)
  h=hashlib.sha256()
  with open(p,'rb') as f:
@@ -578,6 +582,32 @@ func verificationArtifacts(bundle resources.DeploymentBundle) (resources.BundleA
 		return resources.BundleArtifact{}, "", errors.New("verification artifacts are incomplete")
 	}
 	return model, image, nil
+}
+
+func expectedImportedModelFiles(model resources.BundleArtifact, importReceipt resources.ArtifactImportReceipt) ([]resources.ImportedModelArtifactBinding, error) {
+	var imported resources.ImportedModelArtifact
+	for _, artifact := range importReceipt.Spec.ModelArtifacts {
+		if artifact.Ref == model.Ref {
+			imported = artifact
+			break
+		}
+	}
+	if imported.Ref == "" || imported.Revision != model.Revision || len(imported.Files) != len(model.Files) {
+		return nil, errors.New("import receipt does not match expected model artifact")
+	}
+	expected := make([]resources.ImportedModelArtifactBinding, 0, len(model.Files))
+	importedByPath := map[string]resources.ImportedModelArtifactBinding{}
+	for _, file := range imported.Files {
+		importedByPath[file.Path] = file
+	}
+	for _, file := range model.Files {
+		binding, ok := importedByPath[file.Path]
+		if !ok || binding.Digest != file.Digest || binding.SizeBytes != file.SizeBytes {
+			return nil, errors.New("import receipt model file binding does not match expected artifact identity")
+		}
+		expected = append(expected, binding)
+	}
+	return expected, nil
 }
 
 func (k Kubernetes) applyObject(ctx context.Context, manifest []byte) error {

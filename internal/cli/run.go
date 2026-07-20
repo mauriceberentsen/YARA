@@ -267,6 +267,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "DeploymentApproval", Digest: result.Metadata.ApprovalID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "approval.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "import-receipt":
+		result, err := resources.LoadArtifactImportReceipt(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "artifact.import-receipt.validate", "ArtifactImportReceipt", options.inputPath, "YARA-AIR-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("ArtifactImportReceipt", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "ArtifactImportReceipt", Digest: result.Metadata.ImportReceiptID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "artifact.import-receipt.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	case "receipt":
 		result, err := resources.LoadDeploymentReceipt(options.inputPath)
 		if err != nil {
@@ -351,9 +365,10 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara change-set validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara approval record --bundle <file> --preflight <file> --change-set <file> --name <name> --decision <approve|reject> --reason-reference <reference> --output <file> --audit-output <file> [--valid-for <duration>]")
 	fmt.Fprintln(output, "  yara approval validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara import-receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara authorization issue --bundle <file> --preflight <file> --change-set <file> --approval <file> --private-key <file> --key-id <id> --name <name> --output <file> --audit-output <file> [--valid-for <duration>]")
 	fmt.Fprintln(output, "  yara authorization verify --authorization <file> --public-key <file> [--audit-output <file>]")
-	fmt.Fprintln(output, "  yara deployment apply kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
+	fmt.Fprintln(output, "  yara deployment apply kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --import-receipt <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
 	fmt.Fprintln(output, "  yara receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate-all <directory> [--audit-output <file>]")

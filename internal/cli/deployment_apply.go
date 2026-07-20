@@ -24,13 +24,14 @@ import (
 
 type deploymentApplyOptions struct {
 	bundlePath, preflightPath, changeSetPath, approvalPath string
+	importReceiptPath                                      string
 	authorizationPath, publicKeyPath, confirmAuthorization string
 	name, receiptPath, auditPath, kubeconfig, contextName  string
 	timeout                                                time.Duration
 }
 
 type kubernetesExecutor interface {
-	Execute(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.ExecutionResult, error)
+	Execute(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
 }
 
 var newKubernetesExecutor = func(kubeconfig, contextName string) (kubernetesExecutor, error) {
@@ -46,12 +47,12 @@ func applyKubernetesDeploymentAt(args []string, stdout, stderr io.Writer, now fu
 	if !ok {
 		return ExitInvalidInput
 	}
-	bundle, preflight, changeSet, approval, authorization, code, err := loadAndValidateExecutionInputs(options, now())
+	bundle, preflight, changeSet, approval, authorization, importReceipt, code, err := loadAndValidateExecutionInputs(options, now())
 	if err != nil {
 		return writeLoadErrorWithExit(stdout, code, err, ExitInfeasible)
 	}
 	correlationID := fmt.Sprintf("deployment-%d", now().UTC().UnixNano())
-	subjects := executionSubjects(bundle, preflight, changeSet, approval, authorization)
+	subjects := executionSubjects(bundle, preflight, changeSet, approval, authorization, importReceipt)
 	auditWriter, err := newExecutionAudit(options.auditPath, correlationID, "kubernetes:"+authorization.Spec.Target.ReferenceDigest, subjects, now())
 	if err != nil {
 		return writeLoadErrorWithExit(stdout, "YARA-AUD-005", err, ExitInvalidInput)
@@ -108,14 +109,14 @@ func applyKubernetesDeploymentAt(args []string, stdout, stderr io.Writer, now fu
 	ctx, cancel := context.WithTimeout(context.Background(), options.timeout)
 	defer cancel()
 	startedAt := now().UTC()
-	result, executeErr := engine.Execute(ctx, bundle, changeSet, authorization, startedAt)
+	result, executeErr := engine.Execute(ctx, bundle, changeSet, authorization, importReceipt, startedAt)
 	if !result.MutationStarted {
 		if executeErr == nil {
 			executeErr = errors.New("executor returned without starting or explaining execution")
 		}
 		return fail("YARA-EXE-114", executeErr, ExitInfeasible)
 	}
-	receipt, err := buildDeploymentReceipt(options.name, correlationID, binaryDigest, bundle, preflight, changeSet, approval, authorization, result)
+	receipt, err := buildDeploymentReceipt(options.name, correlationID, binaryDigest, bundle, preflight, changeSet, approval, authorization, importReceipt, result)
 	if err != nil {
 		return fail("YARA-EXE-500", err, ExitInternal)
 	}
@@ -162,6 +163,7 @@ func parseDeploymentApplyOptions(args []string, stderr io.Writer) (deploymentApp
 	flags.StringVar(&options.preflightPath, "preflight", "", "Exact TargetPreflightResult")
 	flags.StringVar(&options.changeSetPath, "change-set", "", "Exact KubernetesChangeSet")
 	flags.StringVar(&options.approvalPath, "approval", "", "Exact DeploymentApproval")
+	flags.StringVar(&options.importReceiptPath, "import-receipt", "", "Exact ArtifactImportReceipt")
 	flags.StringVar(&options.authorizationPath, "authorization", "", "Signed ExecutionAuthorization")
 	flags.StringVar(&options.publicKeyPath, "public-key", "", "Trusted PEM PKIX Ed25519 public key")
 	flags.StringVar(&options.confirmAuthorization, "confirm-authorization", "", "Exact authorization ID operator confirmation")
@@ -174,8 +176,8 @@ func parseDeploymentApplyOptions(args []string, stderr io.Writer) (deploymentApp
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return options, false
 	}
-	if options.bundlePath == "" || options.preflightPath == "" || options.changeSetPath == "" || options.approvalPath == "" || options.authorizationPath == "" || options.publicKeyPath == "" || options.confirmAuthorization == "" || options.name == "" || options.receiptPath == "" || options.auditPath == "" || options.timeout <= 0 {
-		fmt.Fprintln(stderr, "deployment apply kubernetes requires all exact inputs, trusted key, confirmation, name, receipt output and audit output")
+	if options.bundlePath == "" || options.preflightPath == "" || options.changeSetPath == "" || options.approvalPath == "" || options.importReceiptPath == "" || options.authorizationPath == "" || options.publicKeyPath == "" || options.confirmAuthorization == "" || options.name == "" || options.receiptPath == "" || options.auditPath == "" || options.timeout <= 0 {
+		fmt.Fprintln(stderr, "deployment apply kubernetes requires all exact inputs including import receipt, trusted key, confirmation, name, receipt output and audit output")
 		return options, false
 	}
 	if options.receiptPath == options.auditPath {
@@ -185,33 +187,37 @@ func parseDeploymentApplyOptions(args []string, stderr io.Writer) (deploymentApp
 	return options, true
 }
 
-func loadAndValidateExecutionInputs(options deploymentApplyOptions, at time.Time) (resources.DeploymentBundle, resources.TargetPreflightResult, resources.KubernetesChangeSet, resources.DeploymentApproval, resources.ExecutionAuthorization, string, error) {
+func loadAndValidateExecutionInputs(options deploymentApplyOptions, at time.Time) (resources.DeploymentBundle, resources.TargetPreflightResult, resources.KubernetesChangeSet, resources.DeploymentApproval, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, string, error) {
 	bundle, err := resources.LoadDeploymentBundle(options.bundlePath)
 	if err != nil || !bundle.Validate().Valid {
-		return bundle, resources.TargetPreflightResult{}, resources.KubernetesChangeSet{}, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, "YARA-EXE-101", errors.New("deployment bundle is invalid")
+		return bundle, resources.TargetPreflightResult{}, resources.KubernetesChangeSet{}, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, "YARA-EXE-101", errors.New("deployment bundle is invalid")
 	}
 	preflight, err := resources.LoadTargetPreflightResult(options.preflightPath)
 	if err != nil || !preflight.Validate().Valid {
-		return bundle, preflight, resources.KubernetesChangeSet{}, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, "YARA-EXE-102", errors.New("target preflight is invalid")
+		return bundle, preflight, resources.KubernetesChangeSet{}, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, "YARA-EXE-102", errors.New("target preflight is invalid")
 	}
 	changeSet, err := resources.LoadKubernetesChangeSet(options.changeSetPath)
 	if err != nil || !changeSet.Validate().Valid {
-		return bundle, preflight, changeSet, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, "YARA-EXE-103", errors.New("change set is invalid")
+		return bundle, preflight, changeSet, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, "YARA-EXE-103", errors.New("change set is invalid")
 	}
 	approval, err := resources.LoadDeploymentApproval(options.approvalPath)
 	if err != nil || !approval.Validate().Valid {
-		return bundle, preflight, changeSet, approval, resources.ExecutionAuthorization{}, "YARA-EXE-104", errors.New("approval is invalid")
+		return bundle, preflight, changeSet, approval, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, "YARA-EXE-104", errors.New("approval is invalid")
+	}
+	importReceipt, err := resources.LoadArtifactImportReceipt(options.importReceiptPath)
+	if err != nil || !importReceipt.Validate().Valid {
+		return bundle, preflight, changeSet, approval, resources.ExecutionAuthorization{}, importReceipt, "YARA-EXE-116", errors.New("artifact import receipt is invalid")
 	}
 	authorization, err := resources.LoadExecutionAuthorization(options.authorizationPath)
 	if err != nil || !authorization.Validate().Valid {
-		return bundle, preflight, changeSet, approval, authorization, "YARA-EXE-105", errors.New("execution authorization is invalid")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, "YARA-EXE-105", errors.New("execution authorization is invalid")
 	}
 	if approval.Spec.Decision != "approved" || approval.Spec.Effect != "review-only" || changeSet.Spec.Outcome != "review-required" {
-		return bundle, preflight, changeSet, approval, authorization, "YARA-EXE-106", errors.New("approved conflict-free review inputs are required")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, "YARA-EXE-106", errors.New("approved conflict-free review inputs are required")
 	}
 	approvalExpiry, _ := time.Parse(time.RFC3339Nano, approval.Spec.ExpiresAt)
 	if !at.UTC().Before(approvalExpiry) {
-		return bundle, preflight, changeSet, approval, authorization, "YARA-EXE-107", errors.New("approval has expired")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, "YARA-EXE-107", errors.New("approval has expired")
 	}
 	issuedAt, _ := time.Parse(time.RFC3339Nano, authorization.Spec.IssuedAt)
 	authorizationExpiry, _ := time.Parse(time.RFC3339Nano, authorization.Spec.ExpiresAt)
@@ -219,16 +225,22 @@ func loadAndValidateExecutionInputs(options deploymentApplyOptions, at time.Time
 	changeSetAt, _ := time.Parse(time.RFC3339Nano, changeSet.Spec.ObservedAt)
 	approvalAt, _ := time.Parse(time.RFC3339Nano, approval.Spec.RecordedAt)
 	if issuedAt.Before(preflightAt) || issuedAt.Sub(preflightAt) > 15*time.Minute || issuedAt.Before(changeSetAt) || issuedAt.Sub(changeSetAt) > 5*time.Minute || issuedAt.Before(approvalAt) || authorizationExpiry.After(approvalExpiry) {
-		return bundle, preflight, changeSet, approval, authorization, "YARA-EXE-107", errors.New("authorization was not issued from fresh inputs within approval validity")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, "YARA-EXE-107", errors.New("authorization was not issued from fresh inputs within approval validity")
 	}
 	if bundle.Spec.PlanID != preflight.Spec.PlanID || bundle.Spec.PlanID != changeSet.Spec.PlanID || bundle.Spec.PlanID != approval.Spec.PlanID || bundle.Spec.PlanID != authorization.Spec.PlanID ||
 		bundle.Metadata.BundleID != preflight.Spec.BundleID || bundle.Metadata.BundleID != changeSet.Spec.BundleID || bundle.Metadata.BundleID != approval.Spec.BundleID || bundle.Metadata.BundleID != authorization.Spec.BundleID ||
 		preflight.Metadata.ResultID != changeSet.Spec.PreflightResultID || preflight.Metadata.ResultID != approval.Spec.PreflightResultID || preflight.Metadata.ResultID != authorization.Spec.PreflightResultID ||
 		changeSet.Metadata.ChangeSetID != approval.Spec.ChangeSetID || changeSet.Metadata.ChangeSetID != authorization.Spec.ChangeSetID || approval.Metadata.ApprovalID != authorization.Spec.ApprovalID ||
 		preflight.Spec.Target != changeSet.Spec.Target || preflight.Spec.Target != approval.Spec.Target || preflight.Spec.Target != authorization.Spec.Target {
-		return bundle, preflight, changeSet, approval, authorization, "YARA-EXE-106", errors.New("execution inputs do not bind the same deployment")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, "YARA-EXE-106", errors.New("execution inputs do not bind the same deployment")
 	}
-	return bundle, preflight, changeSet, approval, authorization, "", nil
+	if importReceipt.Spec.PlanID != bundle.Spec.PlanID || importReceipt.Spec.BundleID != bundle.Metadata.BundleID || importReceipt.Spec.Target != preflight.Spec.Target {
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, "YARA-EXE-116", errors.New("import receipt does not bind the same plan, bundle and target")
+	}
+	if err := validateImportReceiptCoverage(bundle, importReceipt); err != nil {
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, "YARA-EXE-116", err
+	}
+	return bundle, preflight, changeSet, approval, authorization, importReceipt, "", nil
 }
 
 func validateExecutionConstraints(preflight resources.TargetPreflightResult, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization) error {
@@ -254,7 +266,7 @@ func validateExecutionConstraints(preflight resources.TargetPreflightResult, cha
 	return nil
 }
 
-func buildDeploymentReceipt(name, correlationID, binaryDigest string, bundle resources.DeploymentBundle, preflight resources.TargetPreflightResult, changeSet resources.KubernetesChangeSet, approval resources.DeploymentApproval, authorization resources.ExecutionAuthorization, result executor.ExecutionResult) (resources.DeploymentReceipt, error) {
+func buildDeploymentReceipt(name, correlationID, binaryDigest string, bundle resources.DeploymentBundle, preflight resources.TargetPreflightResult, changeSet resources.KubernetesChangeSet, approval resources.DeploymentApproval, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, result executor.ExecutionResult) (resources.DeploymentReceipt, error) {
 	outcome := "succeeded"
 	for _, operation := range result.Operations {
 		if operation.Outcome == "failed" {
@@ -275,7 +287,7 @@ func buildDeploymentReceipt(name, correlationID, binaryDigest string, bundle res
 	}
 	receipt := resources.DeploymentReceipt{APIVersion: resources.APIVersion, Kind: "DeploymentReceipt", Metadata: resources.DeploymentReceiptMetadata{Name: name}, Spec: resources.DeploymentReceiptSpec{
 		Outcome: outcome, StartedAt: result.StartedAt.Format(time.RFC3339Nano), CompletedAt: result.CompletedAt.Format(time.RFC3339Nano), ExecutionCorrelationID: correlationID,
-		PlanID: bundle.Spec.PlanID, BundleID: bundle.Metadata.BundleID, PreflightResultID: preflight.Metadata.ResultID, ChangeSetID: changeSet.Metadata.ChangeSetID, ApprovalID: approval.Metadata.ApprovalID, AuthorizationID: authorization.Metadata.AuthorizationID,
+		PlanID: bundle.Spec.PlanID, BundleID: bundle.Metadata.BundleID, PreflightResultID: preflight.Metadata.ResultID, ChangeSetID: changeSet.Metadata.ChangeSetID, ApprovalID: approval.Metadata.ApprovalID, AuthorizationID: authorization.Metadata.AuthorizationID, ImportReceiptID: importReceipt.Metadata.ImportReceiptID,
 		Target: result.Target, Executor: resources.DeploymentExecutorIdentity{Name: "yara-kubernetes-executor", Version: version.Version, BinaryDigest: binaryDigest}, Operations: result.Operations, Postflight: result.Postflight, Limitations: result.Limitations,
 	}}
 	receipt, err := receipt.AssignReceiptID()
@@ -305,8 +317,37 @@ func currentBinaryDigest() (string, error) {
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func executionSubjects(bundle resources.DeploymentBundle, preflight resources.TargetPreflightResult, changeSet resources.KubernetesChangeSet, approval resources.DeploymentApproval, authorization resources.ExecutionAuthorization) []audit.Subject {
-	return []audit.Subject{{Kind: "DeploymentBundle", Digest: bundle.Metadata.BundleID}, {Kind: "TargetPreflightResult", Digest: preflight.Metadata.ResultID}, {Kind: "KubernetesChangeSet", Digest: changeSet.Metadata.ChangeSetID}, {Kind: "DeploymentApproval", Digest: approval.Metadata.ApprovalID}, {Kind: "ExecutionAuthorization", Digest: authorization.Metadata.AuthorizationID}}
+func executionSubjects(bundle resources.DeploymentBundle, preflight resources.TargetPreflightResult, changeSet resources.KubernetesChangeSet, approval resources.DeploymentApproval, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt) []audit.Subject {
+	return []audit.Subject{{Kind: "DeploymentBundle", Digest: bundle.Metadata.BundleID}, {Kind: "TargetPreflightResult", Digest: preflight.Metadata.ResultID}, {Kind: "KubernetesChangeSet", Digest: changeSet.Metadata.ChangeSetID}, {Kind: "DeploymentApproval", Digest: approval.Metadata.ApprovalID}, {Kind: "ExecutionAuthorization", Digest: authorization.Metadata.AuthorizationID}, {Kind: "ArtifactImportReceipt", Digest: importReceipt.Metadata.ImportReceiptID}}
+}
+
+func validateImportReceiptCoverage(bundle resources.DeploymentBundle, receipt resources.ArtifactImportReceipt) error {
+	expected := map[string]resources.BundleArtifact{}
+	for _, artifact := range bundle.Spec.Artifacts {
+		if artifact.Type == "huggingface-snapshot" {
+			expected[artifact.Ref] = artifact
+		}
+	}
+	if len(expected) != len(receipt.Spec.ModelArtifacts) {
+		return errors.New("import receipt does not cover the exact set of required model artifacts")
+	}
+	for _, observed := range receipt.Spec.ModelArtifacts {
+		artifact, ok := expected[observed.Ref]
+		if !ok || observed.Revision != artifact.Revision || len(observed.Files) != len(artifact.Files) {
+			return errors.New("import receipt model artifact identity does not match bundle")
+		}
+		bundleFiles := map[string]resources.BundleArtifactFile{}
+		for _, file := range artifact.Files {
+			bundleFiles[file.Path] = file
+		}
+		for _, file := range observed.Files {
+			match, exists := bundleFiles[file.Path]
+			if !exists || file.Digest != match.Digest || file.SizeBytes != match.SizeBytes {
+				return errors.New("import receipt model file bindings do not match bundle artifact files")
+			}
+		}
+	}
+	return nil
 }
 
 func receiptDiagnosticCodes(receipt resources.DeploymentReceipt) []string {

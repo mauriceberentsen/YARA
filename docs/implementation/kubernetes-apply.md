@@ -8,15 +8,16 @@ The executor can create or server-side-apply only the ConfigMap, Deployments, Cl
 
 ## Safety chain
 
-Apply consumes seven explicit inputs:
+Apply consumes eight explicit inputs:
 
 1. content-addressed `DeploymentBundle`;
 2. fresh `TargetPreflightResult`;
 3. exact conflict-free `KubernetesChangeSet`;
 4. unexpired `DeploymentApproval` with `decision: approved` and `effect: review-only`;
-5. short-lived Ed25519-signed `ExecutionAuthorization` binding the first four resources;
-6. explicitly trusted Ed25519 public key;
-7. an operator confirmation equal to the full authorization ID.
+5. content-addressed `ArtifactImportReceipt` binding exact imported model identities and non-secret internal file locations;
+6. short-lived Ed25519-signed `ExecutionAuthorization` binding the reviewed deployment inputs;
+7. explicitly trusted Ed25519 public key;
+8. an operator confirmation equal to the full authorization ID.
 
 Structural validation is not authority. The command verifies the signature, trusted public-key digest, validity window, target and every content binding. Allowed actions, operation count, delete prohibition, active-verification flag and accepted preflight blockers must exactly match the reviewed inputs.
 
@@ -32,6 +33,7 @@ go run ./cmd/yara deployment apply kubernetes \
   --preflight reference-stack.preflight.yaml \
   --change-set reference-stack.change-set.yaml \
   --approval reference-stack.approval.yaml \
+  --import-receipt reference-stack.import-receipt.yaml \
   --authorization reference-stack.authorization.yaml \
   --public-key execution-public.pem \
   --confirm-authorization 'sha256:<full-authorization-id>' \
@@ -79,7 +81,7 @@ Before the Lease create, YARA exclusively creates the receipt destination and wr
 
 After the Lease has been acquired, every exit produces a content-addressed `DeploymentReceipt` with:
 
-- the plan, bundle, preflight, change-set, approval and authorization IDs;
+- the plan, bundle, preflight, change-set, approval, import-receipt and authorization IDs;
 - pseudonymous target identity;
 - exact executor version and running binary digest;
 - each approved operation as applied, unchanged, failed or skipped;
@@ -104,7 +106,7 @@ Kubernetes RBAC cannot restrict `create` by resource name and does not prove adm
 ## Explicitly unsupported
 
 - namespace or PVC provisioning;
-- connected/offline artifact acquisition and import receipts;
+- connected/offline artifact acquisition or import execution workflows;
 - Secret creation or secret-value handling;
 - deletion, pruning, adoption and rollback;
 - changing a renderer decision during apply;

@@ -207,6 +207,7 @@ go run ./cmd/yara deployment apply kubernetes \
   --preflight reference-stack.preflight.yaml \
   --change-set reference-stack.change-set.yaml \
   --approval reference-stack.approval.yaml \
+  --import-receipt reference-stack.import-receipt.yaml \
   --authorization reference-stack.authorization.yaml \
   --public-key execution-public.pem \
   --confirm-authorization 'sha256:<full-authorization-id>' \
@@ -283,6 +284,7 @@ Currently implemented:
 - a pure versioned Docker Compose renderer for the exact LiteLLM/vLLM topology, producing pinned files, artifact/license inventory, checks, limitations and a fail-closed render audit;
 - a pure Kubernetes/GitOps renderer for the same exact topology plus content-addressed read-only target preflight and object-level change-set observation;
 - review-only deployment approvals, short-lived signed execution authorization and a fail-closed direct Kubernetes executor producing deployment receipts;
+- strict artifact-import receipts bound to plan/bundle/target and required before Kubernetes apply;
 - short-lived Ed25519-signed execution authorization bound to exact reviewed inputs and an explicitly trusted public key;
 - a catalog-authored abstract topology template resolved into gateway and inference component instances;
 - mandatory manifest ownership and provenance with deterministic snapshot-time freshness gates;

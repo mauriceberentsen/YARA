@@ -79,6 +79,10 @@ func LoadDeploymentReceipt(path string) (DeploymentReceipt, error) {
 	return loadResource[DeploymentReceipt](path)
 }
 
+func LoadArtifactImportReceipt(path string) (ArtifactImportReceipt, error) {
+	return loadResource[ArtifactImportReceipt](path)
+}
+
 func LoadExecutionAuthorization(path string) (ExecutionAuthorization, error) {
 	return loadResource[ExecutionAuthorization](path)
 }

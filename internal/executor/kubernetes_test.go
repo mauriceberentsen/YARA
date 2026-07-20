@@ -135,9 +135,9 @@ func (f *fakeKubectl) Run(_ context.Context, _ string, stdin []byte, args ...str
 }
 
 func TestKubernetesExecutorAppliesOnlyApprovedObjectsUnderLock(t *testing.T) {
-	bundle, desired, changeSet, authorization, fake := executorFixture(t, false)
+	bundle, desired, changeSet, authorization, importReceipt, fake := executorFixture(t, false)
 	engine := Kubernetes{Executable: "kubectl", Runner: fake}
-	result, err := engine.Execute(t.Context(), bundle, changeSet, authorization, time.Now().UTC())
+	result, err := engine.Execute(t.Context(), bundle, changeSet, authorization, importReceipt, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,9 +176,9 @@ func TestKubernetesExecutorAppliesOnlyApprovedObjectsUnderLock(t *testing.T) {
 }
 
 func TestKubernetesExecutorSecondReviewedApplyIsIdempotent(t *testing.T) {
-	bundle, desired, changeSet, authorization, fake := executorFixture(t, false)
+	bundle, desired, changeSet, authorization, importReceipt, fake := executorFixture(t, false)
 	engine := Kubernetes{Executable: "kubectl", Runner: fake}
-	if _, err := engine.Execute(t.Context(), bundle, changeSet, authorization, time.Now().UTC()); err != nil {
+	if _, err := engine.Execute(t.Context(), bundle, changeSet, authorization, importReceipt, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	before := countCalls(fake.calls, "apply --server-side")
@@ -192,7 +192,7 @@ func TestKubernetesExecutorSecondReviewedApplyIsIdempotent(t *testing.T) {
 	second.Metadata.ChangeSetID = testDigest('c')
 	authorization.Metadata.AuthorizationID = testDigest('d')
 	authorization.Spec.Constraints.AllowedActions = []string{"no-op"}
-	result, err := engine.Execute(t.Context(), bundle, second, authorization, time.Now().UTC())
+	result, err := engine.Execute(t.Context(), bundle, second, authorization, importReceipt, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,9 +207,9 @@ func TestKubernetesExecutorSecondReviewedApplyIsIdempotent(t *testing.T) {
 }
 
 func TestKubernetesExecutorRejectsStaleForeignStateBeforeObjectApply(t *testing.T) {
-	bundle, _, changeSet, authorization, fake := executorFixture(t, true)
+	bundle, _, changeSet, authorization, importReceipt, fake := executorFixture(t, true)
 	engine := Kubernetes{Executable: "kubectl", Runner: fake}
-	result, err := engine.Execute(t.Context(), bundle, changeSet, authorization, time.Now().UTC())
+	result, err := engine.Execute(t.Context(), bundle, changeSet, authorization, importReceipt, time.Now().UTC())
 	if err == nil || !result.MutationStarted {
 		t.Fatalf("foreign state was not rejected: result=%#v err=%v", result, err)
 	}
@@ -227,10 +227,10 @@ func TestKubernetesExecutorRejectsStaleForeignStateBeforeObjectApply(t *testing.
 }
 
 func TestKubernetesExecutorStopsOnTerminalVerifierFailureBeforeObjectApply(t *testing.T) {
-	bundle, _, changeSet, authorization, fake := executorFixture(t, false)
+	bundle, _, changeSet, authorization, importReceipt, fake := executorFixture(t, false)
 	fake.verifierFailure = true
 	engine := Kubernetes{Executable: "kubectl", Runner: fake}
-	result, err := engine.Execute(t.Context(), bundle, changeSet, authorization, time.Now().UTC())
+	result, err := engine.Execute(t.Context(), bundle, changeSet, authorization, importReceipt, time.Now().UTC())
 	if err == nil || !result.MutationStarted {
 		t.Fatalf("terminal verifier failure was not reported: result=%#v err=%v", result, err)
 	}
@@ -245,16 +245,16 @@ func TestKubernetesExecutorStopsOnTerminalVerifierFailureBeforeObjectApply(t *te
 }
 
 func TestKubernetesExecutorRejectsChangeSetNotMatchingBundleBeforeTargetAccess(t *testing.T) {
-	bundle, _, changeSet, authorization, fake := executorFixture(t, false)
+	bundle, _, changeSet, authorization, importReceipt, fake := executorFixture(t, false)
 	changeSet.Spec.Operations[0].DesiredDigest = testDigest('f')
 	engine := Kubernetes{Executable: "kubectl", Runner: fake}
-	result, err := engine.Execute(t.Context(), bundle, changeSet, authorization, time.Now().UTC())
+	result, err := engine.Execute(t.Context(), bundle, changeSet, authorization, importReceipt, time.Now().UTC())
 	if err == nil || result.MutationStarted || len(fake.calls) != 0 {
 		t.Fatalf("mismatched change set reached target: result=%#v err=%v calls=%#v", result, err, fake.calls)
 	}
 }
 
-func executorFixture(t *testing.T, foreign bool) (resources.DeploymentBundle, []changeset.DesiredObject, resources.KubernetesChangeSet, resources.ExecutionAuthorization, *fakeKubectl) {
+func executorFixture(t *testing.T, foreign bool) (resources.DeploymentBundle, []changeset.DesiredObject, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, *fakeKubectl) {
 	t.Helper()
 	root := filepath.Join("..", "..")
 	request, err := resources.LoadPlatformRequest(filepath.Join(root, "docs", "examples", "v0.2-platform-request.yaml"))
@@ -313,7 +313,49 @@ func executorFixture(t *testing.T, foreign bool) (resources.DeploymentBundle, []
 		desiredMap[keyOf(object.Reference)] = object.Object
 	}
 	fake := &fakeKubectl{planID: bundle.Spec.PlanID, namespace: bundle.Metadata.Name, desired: desiredMap, objects: objects, foreignNamespace: foreign}
-	return bundle, desired, changeSet, authorization, fake
+	modelArtifact := executorModelArtifact(t, bundle)
+	importReceipt := resources.ArtifactImportReceipt{
+		APIVersion: resources.APIVersion,
+		Kind:       "ArtifactImportReceipt",
+		Metadata:   resources.ArtifactImportReceiptMetadata{Name: "import"},
+		Spec: resources.ArtifactImportReceiptSpec{
+			RecordedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			PlanID:     bundle.Spec.PlanID,
+			BundleID:   bundle.Metadata.BundleID,
+			Target:     target,
+			Importer:   resources.ImporterIdentity{Name: "yara-importer", Version: "0.1.0"},
+			Verification: resources.ImportVerificationStatus{
+				DigestVerified: true,
+				SizeVerified:   true,
+				CompleteSet:    true,
+			},
+			ModelArtifacts: []resources.ImportedModelArtifact{{
+				Ref:      modelArtifact.Ref,
+				Revision: modelArtifact.Revision,
+				Files: []resources.ImportedModelArtifactBinding{
+					{Path: modelArtifact.Files[0].Path, Digest: modelArtifact.Files[0].Digest, SizeBytes: modelArtifact.Files[0].SizeBytes, InternalPath: "model/" + modelArtifact.Files[0].Path},
+					{Path: modelArtifact.Files[1].Path, Digest: modelArtifact.Files[1].Digest, SizeBytes: modelArtifact.Files[1].SizeBytes, InternalPath: "model/" + modelArtifact.Files[1].Path},
+				},
+			}},
+			Limitations: []string{"Import evidence is external to executor mutation."},
+		},
+	}
+	importReceipt, err = importReceipt.AssignImportReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bundle, desired, changeSet, authorization, importReceipt, fake
+}
+
+func executorModelArtifact(t *testing.T, bundle resources.DeploymentBundle) resources.BundleArtifact {
+	t.Helper()
+	for _, artifact := range bundle.Spec.Artifacts {
+		if artifact.Type == "huggingface-snapshot" {
+			return artifact
+		}
+	}
+	t.Fatal("fixture bundle missing huggingface-snapshot artifact")
+	return resources.BundleArtifact{}
 }
 
 func referenceOf(object map[string]any) resources.KubernetesObjectReference {

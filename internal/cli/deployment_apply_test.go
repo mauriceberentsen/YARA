@@ -18,11 +18,11 @@ import (
 )
 
 type fixedKubernetesExecutor struct {
-	execute func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.ExecutionResult, error)
+	execute func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
 }
 
-func (f fixedKubernetesExecutor) Execute(ctx context.Context, bundle resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, started time.Time) (executor.ExecutionResult, error) {
-	return f.execute(ctx, bundle, changeSet, authorization, started)
+func (f fixedKubernetesExecutor) Execute(ctx context.Context, bundle resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, started time.Time) (executor.ExecutionResult, error) {
+	return f.execute(ctx, bundle, changeSet, authorization, importReceipt, started)
 }
 
 func TestDeploymentApplyDurablyAuditsBeforeMutationAndBindsReceipt(t *testing.T) {
@@ -37,11 +37,14 @@ func TestDeploymentApplyDurablyAuditsBeforeMutationAndBindsReceipt(t *testing.T)
 		if kubeconfig != "/secret/kubeconfig" || contextName != "admin-context" {
 			t.Fatal("ephemeral connection options not forwarded")
 		}
-		return fixedKubernetesExecutor{execute: func(_ context.Context, bundle resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, started time.Time) (executor.ExecutionResult, error) {
+		return fixedKubernetesExecutor{execute: func(_ context.Context, bundle resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, started time.Time) (executor.ExecutionResult, error) {
 			called = true
 			events, err := audit.LoadJSONL(auditPath)
 			if err != nil || len(events) != 1 || events[0].Spec.Action != "deployment.apply.started" {
 				t.Fatalf("mutation was not preceded by durable start audit: %#v %v", events, err)
+			}
+			if importReceipt.Metadata.ImportReceiptID == "" {
+				t.Fatal("executor did not receive import receipt")
 			}
 			operations := make([]resources.DeploymentOperationReceipt, 0, len(changeSet.Spec.Operations))
 			for _, operation := range changeSet.Spec.Operations {
@@ -65,6 +68,9 @@ func TestDeploymentApplyDurablyAuditsBeforeMutationAndBindsReceipt(t *testing.T)
 	}
 	if receipt.Spec.AuthorizationID != authorization.Metadata.AuthorizationID || receipt.Spec.Outcome != "succeeded" {
 		t.Fatalf("receipt missing execution binding: %#v", receipt.Spec)
+	}
+	if receipt.Spec.ImportReceiptID == "" {
+		t.Fatalf("receipt missing import receipt binding: %#v", receipt.Spec)
 	}
 	events, err := audit.LoadJSONL(auditPath)
 	if err != nil {
@@ -111,6 +117,34 @@ func TestDeploymentApplyRejectsWrongConfirmationBeforeExecutor(t *testing.T) {
 	}
 }
 
+func TestDeploymentApplyRejectsMismatchedImportReceiptBeforeExecutor(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, directory, now)
+	receiptPath := filepath.Join(directory, "import-receipt.yaml")
+	importReceipt, err := resources.LoadArtifactImportReceipt(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	importReceipt.Spec.BundleID = testCLIDigest('f')
+	importReceipt, err = importReceipt.AssignImportReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeYAMLFixture(t, receiptPath, importReceipt)
+	originalFactory := newKubernetesExecutor
+	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
+	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
+		t.Fatal("executor reached after mismatched import receipt")
+		return nil, nil
+	}
+	args := append(paths, "--confirm-authorization", authorization.Metadata.AuthorizationID, "--name", "receipt", "--receipt-output", filepath.Join(directory, "receipt.yaml"), "--audit-output", filepath.Join(directory, "apply.audit.jsonl"))
+	var stdout, stderr bytes.Buffer
+	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitInfeasible {
+		t.Fatalf("mismatched import receipt exit=%d stdout=%s", exit, stdout.String())
+	}
+}
+
 func writeExecutionInputs(t *testing.T, directory string, now time.Time) ([]string, resources.ExecutionAuthorization) {
 	t.Helper()
 	bundlePath := writeKubernetesBundle(t, directory)
@@ -146,5 +180,41 @@ func writeExecutionInputs(t *testing.T, directory string, now time.Time) ([]stri
 	}
 	authorizationPath := filepath.Join(directory, "authorization.yaml")
 	writeYAMLFixture(t, authorizationPath, authorization)
-	return []string{"--bundle", bundlePath, "--preflight", preflightPath, "--change-set", changeSetPath, "--approval", approvalPath, "--authorization", authorizationPath, "--public-key", publicPath}, authorization
+	modelArtifact := testModelArtifact(t, bundle)
+	importReceipt := resources.ArtifactImportReceipt{APIVersion: resources.APIVersion, Kind: "ArtifactImportReceipt", Metadata: resources.ArtifactImportReceiptMetadata{Name: "reference-import"}, Spec: resources.ArtifactImportReceiptSpec{
+		RecordedAt: now.Add(time.Minute).Format(time.RFC3339Nano), PlanID: bundle.Spec.PlanID, BundleID: bundle.Metadata.BundleID, Target: target,
+		Importer: resources.ImporterIdentity{Name: "yara-importer", Version: "0.1.0"},
+		Verification: resources.ImportVerificationStatus{
+			DigestVerified: true,
+			SizeVerified:   true,
+			CompleteSet:    true,
+		},
+		ModelArtifacts: []resources.ImportedModelArtifact{{
+			Ref:      modelArtifact.Ref,
+			Revision: modelArtifact.Revision,
+			Files: []resources.ImportedModelArtifactBinding{
+				{Path: modelArtifact.Files[0].Path, Digest: modelArtifact.Files[0].Digest, SizeBytes: modelArtifact.Files[0].SizeBytes, InternalPath: "model/" + modelArtifact.Files[0].Path},
+				{Path: modelArtifact.Files[1].Path, Digest: modelArtifact.Files[1].Digest, SizeBytes: modelArtifact.Files[1].SizeBytes, InternalPath: "model/" + modelArtifact.Files[1].Path},
+			},
+		}},
+		Limitations: []string{"Import verification recorded before apply."},
+	}}
+	importReceipt, err = importReceipt.AssignImportReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	importPath := filepath.Join(directory, "import-receipt.yaml")
+	writeYAMLFixture(t, importPath, importReceipt)
+	return []string{"--bundle", bundlePath, "--preflight", preflightPath, "--change-set", changeSetPath, "--approval", approvalPath, "--import-receipt", importPath, "--authorization", authorizationPath, "--public-key", publicPath}, authorization
+}
+
+func testModelArtifact(t *testing.T, bundle resources.DeploymentBundle) resources.BundleArtifact {
+	t.Helper()
+	for _, artifact := range bundle.Spec.Artifacts {
+		if artifact.Type == "huggingface-snapshot" {
+			return artifact
+		}
+	}
+	t.Fatal("fixture bundle missing huggingface-snapshot artifact")
+	return resources.BundleArtifact{}
 }

@@ -34,6 +34,7 @@ type DeploymentReceiptSpec struct {
 	ChangeSetID            string                       `json:"changeSetId" yaml:"changeSetId"`
 	ApprovalID             string                       `json:"approvalId" yaml:"approvalId"`
 	AuthorizationID        string                       `json:"authorizationId" yaml:"authorizationId"`
+	ImportReceiptID        string                       `json:"importReceiptId" yaml:"importReceiptId"`
 	Target                 TargetIdentity               `json:"target" yaml:"target"`
 	Executor               DeploymentExecutorIdentity   `json:"executor" yaml:"executor"`
 	Operations             []DeploymentOperationReceipt `json:"operations" yaml:"operations"`
@@ -78,7 +79,7 @@ func (r DeploymentReceipt) Validate() diagnostics.Report {
 	for path, value := range map[string]string{
 		"metadata.receiptId": r.Metadata.ReceiptID, "spec.planId": r.Spec.PlanID, "spec.bundleId": r.Spec.BundleID,
 		"spec.preflightResultId": r.Spec.PreflightResultID, "spec.changeSetId": r.Spec.ChangeSetID,
-		"spec.approvalId": r.Spec.ApprovalID, "spec.authorizationId": r.Spec.AuthorizationID,
+		"spec.approvalId": r.Spec.ApprovalID, "spec.authorizationId": r.Spec.AuthorizationID, "spec.importReceiptId": r.Spec.ImportReceiptID,
 		"spec.target.referenceDigest": r.Spec.Target.ReferenceDigest,
 		"spec.executor.binaryDigest":  r.Spec.Executor.BinaryDigest,
 	} {
