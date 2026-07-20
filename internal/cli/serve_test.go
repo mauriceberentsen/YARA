@@ -345,10 +345,11 @@ func TestServeWorkflowPreflightRejectsOutOfWorkspaceOutput(t *testing.T) {
 
 func TestServeWorkflowPreflightAndChangeSetWriteArtifacts(t *testing.T) {
 	workspacePath := t.TempDir()
-	restorePreflightRunner, restoreChangeSetRunner := workflowPreflightRunner, workflowChangeSetRunner
+	restorePreflightRunner, restoreChangeSetRunner, restoreApprovalRunner := workflowPreflightRunner, workflowChangeSetRunner, workflowApprovalRunner
 	t.Cleanup(func() {
 		workflowPreflightRunner = restorePreflightRunner
 		workflowChangeSetRunner = restoreChangeSetRunner
+		workflowApprovalRunner = restoreApprovalRunner
 	})
 	workflowPreflightRunner = func(args []string, stdout, stderr io.Writer) int {
 		observation := targetpreflight.Observation{
@@ -398,6 +399,11 @@ func TestServeWorkflowPreflightAndChangeSetWriteArtifacts(t *testing.T) {
 		}
 		return runKubernetesChangeSet(args, stdout, stderr, factory, func() time.Time {
 			return time.Date(2026, 7, 20, 12, 1, 0, 0, time.UTC)
+		})
+	}
+	workflowApprovalRunner = func(args []string, stdout, stderr io.Writer) int {
+		return recordDeploymentApprovalAt(args, stdout, stderr, func() time.Time {
+			return time.Date(2026, 7, 20, 12, 2, 0, 0, time.UTC)
 		})
 	}
 	handler := serveHandlerFixture(t, false, workspacePath)
@@ -499,6 +505,36 @@ func TestServeWorkflowPreflightAndChangeSetWriteArtifacts(t *testing.T) {
 	if changeSet["changeSetId"] == "" || changeSet["changeSetPath"] == "" || changeSet["auditPath"] == "" {
 		t.Fatalf("changeset response omitted expected fields: %#v", changeSet)
 	}
+	approvalRequest := fmt.Sprintf(`{
+		"bundlePath": "%s",
+		"preflightPath": "%s",
+		"changeSetPath": "%s",
+		"decision": "approve",
+		"reasonReference": "ticket-123",
+		"outputPath": "%s",
+		"auditPath": "%s"
+	}`,
+		filepath.Join(workspacePath, "reference-stack.kubernetes.bundle.yaml"),
+		filepath.Join(workspacePath, "reference-preflight.yaml"),
+		filepath.Join(workspacePath, "reference-change-set.yaml"),
+		filepath.Join(workspacePath, "reference-approval.yaml"),
+		filepath.Join(workspacePath, "reference-approval.audit.jsonl"),
+	)
+	approvalRecorder := httptest.NewRecorder()
+	approvalHTTP := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/approval", strings.NewReader(approvalRequest))
+	approvalHTTP.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(approvalRecorder, approvalHTTP)
+	if approvalRecorder.Code != http.StatusOK {
+		t.Fatalf("expected approval success, got %d: %s", approvalRecorder.Code, approvalRecorder.Body.String())
+	}
+	var approvalPayload map[string]any
+	if err := json.Unmarshal(approvalRecorder.Body.Bytes(), &approvalPayload); err != nil {
+		t.Fatalf("decode approval response: %v", err)
+	}
+	approval, _ := approvalPayload["approval"].(map[string]any)
+	if approval["approvalId"] == "" || approval["approvalPath"] == "" || approval["auditPath"] == "" || approval["bundleId"] == "" || approval["preflightResultId"] == "" || approval["changeSetId"] == "" {
+		t.Fatalf("approval response omitted expected fields: %#v", approval)
+	}
 	workspaceRequest := httptest.NewRequest(http.MethodGet, "/api/v1/workspace", nil)
 	workspaceRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(workspaceRecorder, workspaceRequest)
@@ -521,6 +557,40 @@ func TestServeWorkflowPreflightAndChangeSetWriteArtifacts(t *testing.T) {
 	changeSetStage, _ := stages[3].(map[string]any)
 	if changeSetStage["status"] != "complete" {
 		t.Fatalf("expected changeset stage complete, got %#v", changeSetStage)
+	}
+	approvalStage, _ := stages[4].(map[string]any)
+	if approvalStage["status"] != "complete" {
+		t.Fatalf("expected approval stage complete, got %#v", approvalStage)
+	}
+}
+
+func TestServeWorkflowApprovalRejectsInvalidDecision(t *testing.T) {
+	workspacePath := t.TempDir()
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{
+		"bundlePath": "%s",
+		"preflightPath": "%s",
+		"changeSetPath": "%s",
+		"decision": "maybe",
+		"reasonReference": "ticket-123",
+		"outputPath": "%s",
+		"auditPath": "%s"
+	}`,
+		filepath.Join(workspacePath, "reference-stack.kubernetes.bundle.yaml"),
+		filepath.Join(workspacePath, "reference-preflight.yaml"),
+		filepath.Join(workspacePath, "reference-change-set.yaml"),
+		filepath.Join(workspacePath, "reference-approval.yaml"),
+		filepath.Join(workspacePath, "reference-approval.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/approval", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid approval decision, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-SRV-019") {
+		t.Fatalf("expected structured approval decision error, got %s", recorder.Body.String())
 	}
 }
 

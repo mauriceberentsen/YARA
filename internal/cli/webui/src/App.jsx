@@ -6,6 +6,7 @@ const views = [
   { id: "render", label: "Render", endpoint: "/api/v1/workspace" },
   { id: "preflight", label: "Preflight", endpoint: "/api/v1/workspace" },
   { id: "changeset", label: "Change-set", endpoint: "/api/v1/workspace" },
+  { id: "approval", label: "Approval", endpoint: "/api/v1/workspace" },
   { id: "catalog", label: "Catalog", endpoint: "/api/v1/catalog" },
   { id: "coverage", label: "Coverage", endpoint: "/api/v1/coverage" },
   { id: "drift", label: "Drift", endpoint: "/api/v1/drift-posture" },
@@ -737,6 +738,148 @@ function ChangeSetView({ workspacePayload, onChangeSetCreated }) {
   );
 }
 
+function ApprovalView({ workspacePayload, onApprovalCreated }) {
+  const workspacePath = workspacePayload?.workspace?.path || "";
+  const stages = Array.isArray(workspacePayload?.workspace?.stages) ? workspacePayload.workspace.stages : [];
+  const stageByID = new Map(stages.map((stage) => [stage.id, stage]));
+  const [form, setForm] = useState(() => ({
+    bundlePath: stageByID.get("bundle")?.artifactPath !== "none" ? stageByID.get("bundle")?.artifactPath || "" : "",
+    preflightPath: stageByID.get("preflight")?.artifactPath !== "none" ? stageByID.get("preflight")?.artifactPath || "" : "",
+    changeSetPath: stageByID.get("changeset")?.artifactPath !== "none" ? stageByID.get("changeset")?.artifactPath || "" : "",
+    decision: "",
+    reasonReference: "",
+    outputPath: workspacePath ? `${workspacePath}/reference-approval.yaml` : "",
+    auditPath: workspacePath ? `${workspacePath}/reference-approval.audit.jsonl` : "",
+  }));
+  const [submitState, setSubmitState] = useState({ loading: false, error: "", result: null });
+
+  useEffect(() => {
+    const nextBundle = stageByID.get("bundle")?.artifactPath || "";
+    const nextPreflight = stageByID.get("preflight")?.artifactPath || "";
+    const nextChangeSet = stageByID.get("changeset")?.artifactPath || "";
+    setForm((previous) => {
+      const next = { ...previous };
+      let changed = false;
+      if (!previous.bundlePath && nextBundle !== "none") {
+        next.bundlePath = nextBundle;
+        changed = true;
+      }
+      if (!previous.preflightPath && nextPreflight !== "none") {
+        next.preflightPath = nextPreflight;
+        changed = true;
+      }
+      if (!previous.changeSetPath && nextChangeSet !== "none") {
+        next.changeSetPath = nextChangeSet;
+        changed = true;
+      }
+      if (!previous.outputPath && workspacePath) {
+        next.outputPath = `${workspacePath}/reference-approval.yaml`;
+        changed = true;
+      }
+      if (!previous.auditPath && workspacePath) {
+        next.auditPath = `${workspacePath}/reference-approval.audit.jsonl`;
+        changed = true;
+      }
+      return changed ? next : previous;
+    });
+  }, [stages, workspacePath]);
+
+  const update = (key) => (event) => {
+    setForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+
+  const canSubmit = form.decision !== "" && form.reasonReference.trim() !== "";
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!canSubmit) {
+      return;
+    }
+    setSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.diagnostics?.[0]?.message || "Approval failed");
+      }
+      setSubmitState({ loading: false, error: "", result: payload.approval || null });
+      onApprovalCreated();
+    } catch (error) {
+      setSubmitState({ loading: false, error: error.message || "Approval failed", result: null });
+    }
+  };
+
+  return (
+    <>
+      <p>Workspace: {workspacePath || "unknown"}</p>
+      <h3>Review checklist</h3>
+      <ul>
+        <li>Plan artifact: {stageByID.get("plan")?.artifactPath || "none"}</li>
+        <li>Bundle artifact: {form.bundlePath || "none"}</li>
+        <li>Preflight artifact: {form.preflightPath || "none"}</li>
+        <li>Change-set artifact: {form.changeSetPath || "none"}</li>
+      </ul>
+      <form onSubmit={submit}>
+        <div className="formRow">
+          <label htmlFor="approval-bundle-path">Bundle path</label>
+          <input id="approval-bundle-path" value={form.bundlePath} onChange={update("bundlePath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="approval-preflight-path">Preflight path</label>
+          <input id="approval-preflight-path" value={form.preflightPath} onChange={update("preflightPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="approval-changeset-path">Change-set path</label>
+          <input id="approval-changeset-path" value={form.changeSetPath} onChange={update("changeSetPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="approval-decision">Decision</label>
+          <select id="approval-decision" value={form.decision} onChange={update("decision")}>
+            <option value="">Select decision</option>
+            <option value="approve">approve</option>
+            <option value="reject">reject</option>
+          </select>
+        </div>
+        <div className="formRow">
+          <label htmlFor="approval-reason-reference">Reason reference</label>
+          <input id="approval-reason-reference" value={form.reasonReference} onChange={update("reasonReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="approval-output-path">Approval output path</label>
+          <input id="approval-output-path" value={form.outputPath} onChange={update("outputPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="approval-audit-path">Audit output path</label>
+          <input id="approval-audit-path" value={form.auditPath} onChange={update("auditPath")} />
+        </div>
+        <button type="submit" disabled={submitState.loading || !canSubmit}>
+          {submitState.loading ? "Recording approval..." : "Record approval"}
+        </button>
+      </form>
+      {submitState.error && <p className="error">Error: {submitState.error}</p>}
+      {submitState.result && (
+        <dl className="grid">
+          <div><dt>Approval ID</dt><dd>{submitState.result.approvalId || "n/a"}</dd></div>
+          <div><dt>Decision</dt><dd>{submitState.result.decision || "n/a"}</dd></div>
+          <div><dt>Effect</dt><dd>{submitState.result.effect || "n/a"}</dd></div>
+          <div><dt>Approval path</dt><dd>{submitState.result.approvalPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{submitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Plan ID</dt><dd>{submitState.result.planId || "n/a"}</dd></div>
+          <div><dt>Bundle ID</dt><dd>{submitState.result.bundleId || "n/a"}</dd></div>
+          <div><dt>Preflight ID</dt><dd>{submitState.result.preflightResultId || "n/a"}</dd></div>
+          <div><dt>Change-set ID</dt><dd>{submitState.result.changeSetId || "n/a"}</dd></div>
+          <div><dt>Target digest</dt><dd>{submitState.result.targetReferenceDigest || "n/a"}</dd></div>
+          <div><dt>Reason reference</dt><dd>{submitState.result.reasonReference || "n/a"}</dd></div>
+        </dl>
+      )}
+    </>
+  );
+}
+
 function renderView(viewID, payload, extra = {}) {
   if (viewID === "pipeline") {
     return <PipelineView payload={payload} />;
@@ -752,6 +895,9 @@ function renderView(viewID, payload, extra = {}) {
   }
   if (viewID === "changeset") {
     return <ChangeSetView workspacePayload={payload} onChangeSetCreated={extra.onChangeSetCreated || (() => {})} />;
+  }
+  if (viewID === "approval") {
+    return <ApprovalView workspacePayload={payload} onApprovalCreated={extra.onApprovalCreated || (() => {})} />;
   }
   if (viewID === "catalog") {
     return (
@@ -790,13 +936,13 @@ export function App() {
   const driftEndpoint = driftAssertion ? `/api/v1/drift-posture?assertion=${encodeURIComponent(driftAssertion)}` : "/api/v1/drift-posture";
   const lifecycleEndpoint = lifecycleAssertion ? `/api/v1/lifecycle-policy?assertion=${encodeURIComponent(lifecycleAssertion)}` : "/api/v1/lifecycle-policy";
   const activeView = useMemo(() => views.find((view) => view.id === activeViewID) || views[0], [activeViewID]);
-  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" || activeView.id === "preflight" || activeView.id === "changeset" ? workspaceEndpoint : activeView.endpoint;
+  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" || activeView.id === "preflight" || activeView.id === "changeset" || activeView.id === "approval" ? workspaceEndpoint : activeView.endpoint;
   const decoder =
     activeView.id === "drift"
       ? decodeDriftPayload
       : activeView.id === "lifecycle"
         ? decodeLifecyclePayload
-        : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" || activeView.id === "preflight" || activeView.id === "changeset"
+        : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" || activeView.id === "preflight" || activeView.id === "changeset" || activeView.id === "approval"
           ? decodeWorkspacePayload
           : undefined;
   const { loading, payload, error } = useEndpoint(endpoint, decoder);
@@ -838,6 +984,7 @@ export function App() {
             onRenderCreated: () => setWorkspaceRefresh((value) => value + 1),
             onPreflightCreated: () => setWorkspaceRefresh((value) => value + 1),
             onChangeSetCreated: () => setWorkspaceRefresh((value) => value + 1),
+            onApprovalCreated: () => setWorkspaceRefresh((value) => value + 1),
           })}
       </section>
     </main>

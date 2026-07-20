@@ -676,6 +676,91 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		}
 		writeServeJSON(writer, workflowChangeSetStatus(exitCode), response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/approval", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow approval requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowApprovalRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-019", err.Error())
+			return
+		}
+		outputPath, err := ensureWorkspaceFilePath(workspacePath, payload.OutputPath, "outputPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-019", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-019", err.Error())
+			return
+		}
+		if strings.EqualFold(outputPath, auditPath) {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-019", "outputPath and auditPath must be different files")
+			return
+		}
+		var commandStdout bytes.Buffer
+		var commandStderr bytes.Buffer
+		exitCode := workflowApprovalRunner([]string{
+			"--bundle", payload.BundlePath,
+			"--preflight", payload.PreflightPath,
+			"--change-set", payload.ChangeSetPath,
+			"--name", "workflow-approval",
+			"--decision", payload.Decision,
+			"--reason-reference", payload.ReasonReference,
+			"--output", outputPath,
+			"--audit-output", auditPath,
+		}, &commandStdout, &commandStderr)
+		if exitCode != ExitSuccess {
+			var failurePayload any
+			if err := json.Unmarshal(commandStdout.Bytes(), &failurePayload); err == nil {
+				writeServeJSON(writer, workflowApprovalStatus(exitCode), failurePayload)
+				return
+			}
+			writeServeError(writer, workflowApprovalStatus(exitCode), "YARA-SRV-020", strings.TrimSpace(commandStderr.String()))
+			return
+		}
+		var approvalCommandResult struct {
+			Valid       bool   `json:"valid"`
+			ApprovalID  string `json:"approvalId"`
+			Decision    string `json:"decision"`
+			Effect      string `json:"effect"`
+			Output      string `json:"output"`
+			AuditOutput string `json:"auditOutput"`
+		}
+		if err := json.Unmarshal(commandStdout.Bytes(), &approvalCommandResult); err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("decode approval workflow output: %v", err))
+			return
+		}
+		approval, err := resources.LoadDeploymentApproval(approvalCommandResult.Output)
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("load generated approval: %v", err))
+			return
+		}
+		report := approval.Validate()
+		if !report.Valid {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("generated approval failed validation: %s", report.Diagnostics[0].Code))
+			return
+		}
+		response := workflowApprovalResponse{Valid: true}
+		response.Approval.ApprovalID = approval.Metadata.ApprovalID
+		response.Approval.Decision = approval.Spec.Decision
+		response.Approval.Effect = approval.Spec.Effect
+		response.Approval.ApprovalPath = approvalCommandResult.Output
+		response.Approval.AuditPath = approvalCommandResult.AuditOutput
+		response.Approval.PlanID = approval.Spec.PlanID
+		response.Approval.BundleID = approval.Spec.BundleID
+		response.Approval.PreflightResultID = approval.Spec.PreflightResultID
+		response.Approval.ChangeSetID = approval.Spec.ChangeSetID
+		response.Approval.TargetReferenceDigest = approval.Spec.Target.ReferenceDigest
+		response.Approval.ReasonReference = approval.Spec.Reason.Reference
+		writeServeJSON(writer, workflowApprovalStatus(exitCode), response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -831,6 +916,34 @@ type workflowChangeSetResponse struct {
 
 var workflowPreflightRunner = kubernetesTargetPreflight
 var workflowChangeSetRunner = kubernetesChangeSet
+var workflowApprovalRunner = recordDeploymentApproval
+
+type workflowApprovalRequest struct {
+	BundlePath      string `json:"bundlePath"`
+	PreflightPath   string `json:"preflightPath"`
+	ChangeSetPath   string `json:"changeSetPath"`
+	Decision        string `json:"decision"`
+	ReasonReference string `json:"reasonReference"`
+	OutputPath      string `json:"outputPath"`
+	AuditPath       string `json:"auditPath"`
+}
+
+type workflowApprovalResponse struct {
+	Valid    bool `json:"valid"`
+	Approval struct {
+		ApprovalID            string `json:"approvalId"`
+		Decision              string `json:"decision"`
+		Effect                string `json:"effect"`
+		ApprovalPath          string `json:"approvalPath"`
+		AuditPath             string `json:"auditPath"`
+		PlanID                string `json:"planId"`
+		BundleID              string `json:"bundleId"`
+		PreflightResultID     string `json:"preflightResultId"`
+		ChangeSetID           string `json:"changeSetId"`
+		TargetReferenceDigest string `json:"targetReferenceDigest"`
+		ReasonReference       string `json:"reasonReference"`
+	} `json:"approval"`
+}
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
 	entries, err := os.ReadDir(workspacePath)
@@ -1018,6 +1131,19 @@ func workflowChangeSetStatus(exitCode int) int {
 	}
 }
 
+func workflowApprovalStatus(exitCode int) int {
+	switch exitCode {
+	case ExitSuccess:
+		return http.StatusOK
+	case ExitInvalidInput:
+		return http.StatusBadRequest
+	case ExitInfeasible, ExitUnsupported:
+		return http.StatusUnprocessableEntity
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
 func decodeWorkflowRenderRequest(request *http.Request) (workflowRenderRequest, error) {
 	var payload workflowRenderRequest
 	decoder := json.NewDecoder(request.Body)
@@ -1087,6 +1213,29 @@ func decodeWorkflowChangeSetRequest(request *http.Request) (workflowChangeSetReq
 		if _, err := time.ParseDuration(payload.Timeout); err != nil {
 			return payload, errors.New("timeout must be a valid Go duration string")
 		}
+	}
+	return payload, nil
+}
+
+func decodeWorkflowApprovalRequest(request *http.Request) (workflowApprovalRequest, error) {
+	var payload workflowApprovalRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.BundlePath) == "" || strings.TrimSpace(payload.PreflightPath) == "" || strings.TrimSpace(payload.ChangeSetPath) == "" || strings.TrimSpace(payload.Decision) == "" || strings.TrimSpace(payload.ReasonReference) == "" || strings.TrimSpace(payload.OutputPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("bundlePath, preflightPath, changeSetPath, decision, reasonReference, outputPath and auditPath are required")
+	}
+	if payload.OutputPath == payload.AuditPath {
+		return payload, errors.New("outputPath and auditPath must be different files")
+	}
+	if payload.Decision != "approve" && payload.Decision != "reject" {
+		return payload, errors.New("decision must be either approve or reject")
 	}
 	return payload, nil
 }
