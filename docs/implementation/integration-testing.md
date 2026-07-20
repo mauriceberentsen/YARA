@@ -90,3 +90,16 @@ go run ./cmd/yara catalog coverage lifecycle-publication-policy \
 ```
 
 The command does not mutate manifests or execution evidence. It emits bounded diagnostics only, and fails closed when report structure, lifecycle blocker encoding, or summary counts drift from deterministic coverage semantics.
+
+Canonical lifecycle publication blocker taxonomy:
+
+- `lifecycle-proof-approval-not-recorded` -> `record-lifecycle-proof-approval`
+- `no-accepted-lifecycle-contract-evidence` -> `run-lifecycle-contract`
+- `selected-approval-catalog-mismatch` -> `reissue-approval-for-catalog`
+- `selected-approval-decision-abstained` -> `collect-explicit-approval-decision`
+- `selected-approval-decision-changes-required` -> `address-review-feedback-and-reapprove`
+- `selected-approval-does-not-bind-lifecycle-evidence` -> `reissue-approval-with-lifecycle-evidence`
+- `selected-approval-expiry-invalid` -> `reissue-approval-with-valid-expiry`
+- `selected-approval-expired-for-lifecycle-evidence` -> `renew-lifecycle-proof-approval`
+
+`catalog coverage lifecycle-publication-policy` fails closed when blockers use unknown codes, mismatched remediation text, or ambiguous remediation encoding.

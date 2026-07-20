@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"sort"
-	"strings"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
@@ -100,10 +99,15 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		if assertion.LifecyclePublicationReady {
 			continue
 		}
+		parsedBlocker, parseErr := catalogcoverage.ParseLifecyclePublicationBlocker(assertion.LifecyclePublicationBlocker)
+		if parseErr != nil {
+			return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", fmt.Errorf("assertion %s has invalid lifecycle publication blocker: %w", assertion.ID, parseErr), ExitInternal)
+		}
 		blocked = append(blocked, map[string]string{
 			"assertion":   assertion.ID,
 			"blocker":     assertion.LifecyclePublicationBlocker,
-			"remediation": lifecyclePublicationRemediation(assertion.LifecyclePublicationBlocker),
+			"code":        parsedBlocker.Code,
+			"remediation": parsedBlocker.Remediation,
 		})
 	}
 	sort.Slice(blocked, func(i, j int) bool { return blocked[i]["assertion"] < blocked[j]["assertion"] })
@@ -115,9 +119,12 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 	if err := encoder.Encode(map[string]any{
 		"valid":                                 true,
 		"reportId":                              report.Metadata.ReportID,
+		"reportSubject":                         map[string]string{"kind": catalogcoverage.Kind, "digest": report.Metadata.ReportID},
+		"assertionScope":                        lifecyclePublicationAssertionScope(options.assertion),
 		"lifecyclePublicationReadyAssertions":   report.Spec.Summary.LifecyclePublicationReadyAssertions,
 		"lifecyclePublicationBlockedAssertions": report.Spec.Summary.LifecyclePublicationBlockedAssertions,
 		"blockedAssertions":                     blocked,
+		"taxonomy":                              catalogcoverage.LifecyclePublicationBlockerTaxonomy(),
 		"auditOutput":                           options.auditPath,
 	}); err != nil {
 		return ExitInternal
@@ -142,12 +149,11 @@ func parseLifecyclePublicationPolicyOptions(args []string, stderr io.Writer) (li
 	return options, true
 }
 
-func lifecyclePublicationRemediation(blocker string) string {
-	parts := strings.Split(blocker, "|remediation:")
-	if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
-		return "unknown"
+func lifecyclePublicationAssertionScope(assertion string) map[string]string {
+	if assertion == "" {
+		return map[string]string{"mode": "all"}
 	}
-	return parts[1]
+	return map[string]string{"mode": "single-assertion", "assertion": assertion}
 }
 
 func writeCatalogCoveragePolicyFailure(output io.Writer, auditPath string, subjects []audit.Subject, code string, err error, exitCode int) int {

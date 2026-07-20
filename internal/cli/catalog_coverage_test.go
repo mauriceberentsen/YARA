@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/catalogcoverage"
+	"gopkg.in/yaml.v3"
 )
 
 func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
@@ -114,11 +114,20 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 		Valid                                 bool `json:"valid"`
 		LifecyclePublicationReadyAssertions   int  `json:"lifecyclePublicationReadyAssertions"`
 		LifecyclePublicationBlockedAssertions int  `json:"lifecyclePublicationBlockedAssertions"`
-		BlockedAssertions                     []struct {
+		ReportSubject                         struct {
+			Kind   string `json:"kind"`
+			Digest string `json:"digest"`
+		} `json:"reportSubject"`
+		AssertionScope struct {
+			Mode string `json:"mode"`
+		} `json:"assertionScope"`
+		BlockedAssertions []struct {
 			Assertion   string `json:"assertion"`
 			Blocker     string `json:"blocker"`
+			Code        string `json:"code"`
 			Remediation string `json:"remediation"`
 		} `json:"blockedAssertions"`
+		Taxonomy []catalogcoverage.LifecyclePublicationBlockerDefinition `json:"taxonomy"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
 		t.Fatalf("decode policy response: %v", err)
@@ -126,8 +135,17 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 	if !response.Valid || response.LifecyclePublicationReadyAssertions != 0 || response.LifecyclePublicationBlockedAssertions == 0 || len(response.BlockedAssertions) == 0 {
 		t.Fatalf("unexpected lifecycle publication policy response: %#v", response)
 	}
-	if !strings.Contains(response.BlockedAssertions[0].Blocker, "|remediation:") || response.BlockedAssertions[0].Remediation == "unknown" {
+	if response.ReportSubject.Kind != catalogcoverage.Kind || response.ReportSubject.Digest == "" {
+		t.Fatalf("report subject explainability metadata missing: %#v", response.ReportSubject)
+	}
+	if response.AssertionScope.Mode != "all" {
+		t.Fatalf("unexpected assertion scope metadata: %#v", response.AssertionScope)
+	}
+	if response.BlockedAssertions[0].Code == "" || response.BlockedAssertions[0].Remediation == "" {
 		t.Fatalf("blocked assertion remediation is not surfaced: %#v", response.BlockedAssertions[0])
+	}
+	if len(response.Taxonomy) == 0 {
+		t.Fatalf("blocker taxonomy must be included in policy diagnostics response")
 	}
 	events, err := audit.LoadJSONL(policyAuditPath)
 	if err != nil {
@@ -136,6 +154,70 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 	terminal := events[len(events)-1]
 	if terminal.Spec.Action != "catalog.coverage.lifecycle-publication-policy.completed" {
 		t.Fatalf("unexpected policy audit terminal event: %#v", terminal.Spec)
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyRejectsUnknownBlockerTaxonomyCode(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	report, err := catalogcoverage.Load(outputPath)
+	if err != nil {
+		t.Fatalf("load report: %v", err)
+	}
+	report.Spec.Assertions[0].LifecyclePublicationReady = false
+	report.Spec.Assertions[0].LifecyclePublicationBlocker = "unknown-taxonomy-code|remediation:unknown-action"
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	reportData, err := yaml.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(outputPath, reportData, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInvalidInput {
+		t.Fatalf("expected invalid input for unknown blocker taxonomy code, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyRejectsAmbiguousRemediationEncoding(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	report, err := catalogcoverage.Load(outputPath)
+	if err != nil {
+		t.Fatalf("load report: %v", err)
+	}
+	report.Spec.Assertions[0].LifecyclePublicationReady = false
+	report.Spec.Assertions[0].LifecyclePublicationBlocker = "selected-approval-expiry-invalid|remediation:first|remediation:second"
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	reportData, err := yaml.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(outputPath, reportData, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInvalidInput {
+		t.Fatalf("expected invalid input for ambiguous remediation encoding, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
 	}
 }
 

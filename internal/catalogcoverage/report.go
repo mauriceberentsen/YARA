@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -39,6 +40,22 @@ var (
 	namePattern                        = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 	lifecyclePublicationBlockerPattern = regexp.MustCompile(`^[a-z0-9-]+\|remediation:[a-z0-9-]+$`)
 )
+
+var lifecyclePublicationBlockerRemediations = map[string]string{
+	"lifecycle-proof-approval-not-recorded":              "record-lifecycle-proof-approval",
+	"no-accepted-lifecycle-contract-evidence":            "run-lifecycle-contract",
+	"selected-approval-catalog-mismatch":                 "reissue-approval-for-catalog",
+	"selected-approval-decision-abstained":               "collect-explicit-approval-decision",
+	"selected-approval-decision-changes-required":        "address-review-feedback-and-reapprove",
+	"selected-approval-does-not-bind-lifecycle-evidence": "reissue-approval-with-lifecycle-evidence",
+	"selected-approval-expiry-invalid":                   "reissue-approval-with-valid-expiry",
+	"selected-approval-expired-for-lifecycle-evidence":   "renew-lifecycle-proof-approval",
+}
+
+type LifecyclePublicationBlockerDefinition struct {
+	Code        string `json:"code" yaml:"code"`
+	Remediation string `json:"remediation" yaml:"remediation"`
+}
 
 type Report struct {
 	APIVersion string         `json:"apiVersion" yaml:"apiVersion"`
@@ -385,21 +402,48 @@ func lifecycleProofApprovalGate(lifecycleEvidence []acceptedEvidence, approvals 
 }
 
 func lifecyclePublicationBlocker(code string) string {
-	remediation := map[string]string{
-		"lifecycle-proof-approval-not-recorded":              "record-lifecycle-proof-approval",
-		"no-accepted-lifecycle-contract-evidence":            "run-lifecycle-contract",
-		"selected-approval-catalog-mismatch":                 "reissue-approval-for-catalog",
-		"selected-approval-decision-abstained":               "collect-explicit-approval-decision",
-		"selected-approval-decision-changes-required":        "address-review-feedback-and-reapprove",
-		"selected-approval-does-not-bind-lifecycle-evidence": "reissue-approval-with-lifecycle-evidence",
-		"selected-approval-expiry-invalid":                   "reissue-approval-with-valid-expiry",
-		"selected-approval-expired-for-lifecycle-evidence":   "renew-lifecycle-proof-approval",
-	}
-	step, ok := remediation[code]
+	step, ok := lifecyclePublicationBlockerRemediations[code]
 	if !ok {
 		return code
 	}
 	return code + "|remediation:" + step
+}
+
+func LifecyclePublicationBlockerTaxonomy() []LifecyclePublicationBlockerDefinition {
+	keys := make([]string, 0, len(lifecyclePublicationBlockerRemediations))
+	for code := range lifecyclePublicationBlockerRemediations {
+		keys = append(keys, code)
+	}
+	sort.Strings(keys)
+	definitions := make([]LifecyclePublicationBlockerDefinition, 0, len(keys))
+	for _, code := range keys {
+		definitions = append(definitions, LifecyclePublicationBlockerDefinition{
+			Code:        code,
+			Remediation: lifecyclePublicationBlockerRemediations[code],
+		})
+	}
+	return definitions
+}
+
+func ParseLifecyclePublicationBlocker(blocker string) (LifecyclePublicationBlockerDefinition, error) {
+	if strings.Count(blocker, "|remediation:") != 1 {
+		return LifecyclePublicationBlockerDefinition{}, errors.New("lifecycle publication blocker must include exactly one remediation delimiter")
+	}
+	parts := strings.SplitN(blocker, "|remediation:", 2)
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return LifecyclePublicationBlockerDefinition{}, errors.New("lifecycle publication blocker is malformed")
+	}
+	if !lifecyclePublicationBlockerPattern.MatchString(blocker) {
+		return LifecyclePublicationBlockerDefinition{}, errors.New("lifecycle publication blocker encoding is invalid")
+	}
+	expected, ok := lifecyclePublicationBlockerRemediations[parts[0]]
+	if !ok {
+		return LifecyclePublicationBlockerDefinition{}, errors.New("lifecycle publication blocker code is not in taxonomy")
+	}
+	if parts[1] != expected {
+		return LifecyclePublicationBlockerDefinition{}, errors.New("lifecycle publication blocker remediation does not match taxonomy")
+	}
+	return LifecyclePublicationBlockerDefinition{Code: parts[0], Remediation: parts[1]}, nil
 }
 
 func contractGate(mode string, evidence []acceptedEvidence) GateCoverage {
@@ -962,8 +1006,13 @@ func (r Report) Validate() error {
 		if item.LifecyclePublicationReady && item.LifecyclePublicationBlocker != "" {
 			return errors.New("lifecycle publication blocker must be empty when lifecycle publication is ready")
 		}
-		if !item.LifecyclePublicationReady && (strings.TrimSpace(item.LifecyclePublicationBlocker) == "" || !lifecyclePublicationBlockerPattern.MatchString(item.LifecyclePublicationBlocker)) {
+		if !item.LifecyclePublicationReady && strings.TrimSpace(item.LifecyclePublicationBlocker) == "" {
 			return errors.New("lifecycle publication blocker is required when lifecycle publication is not ready")
+		}
+		if !item.LifecyclePublicationReady {
+			if _, err := ParseLifecyclePublicationBlocker(item.LifecyclePublicationBlocker); err != nil {
+				return errors.New("lifecycle publication blocker is required when lifecycle publication is not ready")
+			}
 		}
 		previousGate := ""
 		for _, gate := range item.Gates {

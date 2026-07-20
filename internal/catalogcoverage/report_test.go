@@ -522,6 +522,40 @@ func TestCatalogCoverageValidationRejectsLifecyclePublicationSummaryDrift(t *tes
 	}
 }
 
+func TestLifecyclePublicationBlockerTaxonomyHasCanonicalMappings(t *testing.T) {
+	taxonomy := LifecyclePublicationBlockerTaxonomy()
+	if len(taxonomy) == 0 {
+		t.Fatal("lifecycle publication blocker taxonomy is empty")
+	}
+	seenCodes := map[string]struct{}{}
+	for _, definition := range taxonomy {
+		if definition.Code == "" || definition.Remediation == "" {
+			t.Fatalf("taxonomy entry must include code and remediation: %#v", definition)
+		}
+		if _, exists := seenCodes[definition.Code]; exists {
+			t.Fatalf("taxonomy contains duplicate blocker code: %s", definition.Code)
+		}
+		seenCodes[definition.Code] = struct{}{}
+		blocker := lifecyclePublicationBlocker(definition.Code)
+		parsed, err := ParseLifecyclePublicationBlocker(blocker)
+		if err != nil {
+			t.Fatalf("taxonomy blocker %q did not round-trip: %v", blocker, err)
+		}
+		if parsed.Code != definition.Code || parsed.Remediation != definition.Remediation {
+			t.Fatalf("taxonomy mapping drifted for %s: parsed=%#v expected=%#v", definition.Code, parsed, definition)
+		}
+	}
+}
+
+func TestParseLifecyclePublicationBlockerRejectsAmbiguousOrUnknownTaxonomy(t *testing.T) {
+	if _, err := ParseLifecyclePublicationBlocker("selected-approval-expiry-invalid|remediation:first|remediation:second"); err == nil {
+		t.Fatal("ambiguous lifecycle publication blocker encoding was accepted")
+	}
+	if _, err := ParseLifecyclePublicationBlocker("unknown-code|remediation:unknown-action"); err == nil {
+		t.Fatal("unknown lifecycle publication blocker taxonomy code was accepted")
+	}
+}
+
 func findAssertion(t *testing.T, report Report, id string) AssertionCoverage {
 	t.Helper()
 	for _, item := range report.Spec.Assertions {
