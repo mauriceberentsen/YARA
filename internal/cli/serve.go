@@ -964,6 +964,12 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Apply.ChangeSetID = receipt.Spec.ChangeSetID
 		response.Apply.ApprovalID = receipt.Spec.ApprovalID
 		response.Apply.TargetReferenceDigest = receipt.Spec.Target.ReferenceDigest
+		response.Apply.TransferReceiptIDs = append([]string(nil), receipt.Spec.TransferReceiptIDs...)
+		response.Apply.ScanReceiptIDs = append([]string(nil), receipt.Spec.ScanReceiptIDs...)
+		response.Apply.AirgapGateResultID = receipt.Spec.AirgapGateResultID
+		response.Apply.AirgapTrustPolicyID = receipt.Spec.AirgapGateTrustPolicyID
+		response.Apply.AirgapPolicyDiffID = receipt.Spec.AirgapGateTrustPolicyDiffID
+		response.Apply.AirgapReviewID = receipt.Spec.AirgapGateTransitionReviewID
 		writeServeJSON(writer, workflowApplyStatus(exitCode), response)
 	})
 	var (
@@ -1192,17 +1198,23 @@ type workflowApplyRequest struct {
 type workflowApplyResponse struct {
 	Valid bool `json:"valid"`
 	Apply struct {
-		Outcome               string `json:"outcome"`
-		ReceiptID             string `json:"receiptId"`
-		AuthorizationID       string `json:"authorizationId"`
-		ReceiptPath           string `json:"receiptPath"`
-		AuditPath             string `json:"auditPath"`
-		PlanID                string `json:"planId"`
-		BundleID              string `json:"bundleId"`
-		PreflightResultID     string `json:"preflightResultId"`
-		ChangeSetID           string `json:"changeSetId"`
-		ApprovalID            string `json:"approvalId"`
-		TargetReferenceDigest string `json:"targetReferenceDigest"`
+		Outcome               string   `json:"outcome"`
+		ReceiptID             string   `json:"receiptId"`
+		AuthorizationID       string   `json:"authorizationId"`
+		ReceiptPath           string   `json:"receiptPath"`
+		AuditPath             string   `json:"auditPath"`
+		PlanID                string   `json:"planId"`
+		BundleID              string   `json:"bundleId"`
+		PreflightResultID     string   `json:"preflightResultId"`
+		ChangeSetID           string   `json:"changeSetId"`
+		ApprovalID            string   `json:"approvalId"`
+		TargetReferenceDigest string   `json:"targetReferenceDigest"`
+		TransferReceiptIDs    []string `json:"transferReceiptIds,omitempty"`
+		ScanReceiptIDs        []string `json:"scanReceiptIds,omitempty"`
+		AirgapGateResultID    string   `json:"airgapGateResultId,omitempty"`
+		AirgapTrustPolicyID   string   `json:"airgapTrustPolicyId,omitempty"`
+		AirgapPolicyDiffID    string   `json:"airgapPolicyDiffId,omitempty"`
+		AirgapReviewID        string   `json:"airgapReviewId,omitempty"`
 	} `json:"apply"`
 }
 
@@ -1547,6 +1559,15 @@ func decodeWorkflowApplyRequest(request *http.Request) (workflowApplyRequest, er
 	}
 	if payload.ConfirmAuthorization != payload.TypedConfirmationDigest {
 		return payload, errors.New("typedConfirmationDigest must exactly match confirmAuthorization")
+	}
+	if payload.AirgapGateResultPath != "" && (strings.TrimSpace(payload.AirgapGateTrustPolicyPath) == "" || strings.TrimSpace(payload.ConfirmAirgapGateTrustPolicy) == "") {
+		return payload, errors.New("airgapGateTrustPolicyPath and confirmAirgapGateTrustPolicy are required when airgapGateResultPath is set")
+	}
+	if (strings.TrimSpace(payload.AirgapGatePolicyDiffPath) == "") != (strings.TrimSpace(payload.ConfirmAirgapGatePolicyDiff) == "") {
+		return payload, errors.New("airgapGatePolicyDiffPath and confirmAirgapGatePolicyDiff must both be set when either is provided")
+	}
+	if (strings.TrimSpace(payload.AirgapGateTransitionReviewPath) == "") != (strings.TrimSpace(payload.ConfirmAirgapGateTransitionReview) == "") {
+		return payload, errors.New("airgapGateTransitionReviewPath and confirmAirgapGateTransitionReview must both be set when either is provided")
 	}
 	if payload.Timeout != "" {
 		if _, err := time.ParseDuration(payload.Timeout); err != nil {

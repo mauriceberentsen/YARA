@@ -704,6 +704,14 @@ func TestServeWorkflowApplyWritesReceiptAndCompletesStage(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected apply success response, got %d: %s", recorder.Code, recorder.Body.String())
 	}
+	var applyPayload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &applyPayload); err != nil {
+		t.Fatalf("decode apply payload: %v", err)
+	}
+	apply, _ := applyPayload["apply"].(map[string]any)
+	if apply["receiptId"] == "" || apply["transferReceiptIds"] == nil || apply["scanReceiptIds"] == nil {
+		t.Fatalf("apply response omitted provenance identifiers: %#v", apply)
+	}
 	workspaceRequest := httptest.NewRequest(http.MethodGet, "/api/v1/workspace", nil)
 	workspaceRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(workspaceRecorder, workspaceRequest)
@@ -719,6 +727,182 @@ func TestServeWorkflowApplyWritesReceiptAndCompletesStage(t *testing.T) {
 	receiptStage, _ := stages[6].(map[string]any)
 	if receiptStage["status"] != "complete" {
 		t.Fatalf("expected receipt stage complete, got %#v", receiptStage)
+	}
+}
+
+func TestServeWorkflowApplyRejectsAirgapTrustPolicyConfirmationMismatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, sourcePath, now)
+	gatePath := filepath.Join(sourcePath, "airgap-gate.yaml")
+	gateTrustPolicyPath := writeAirgapGateFixture(t, gatePath, paths)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{
+		"bundlePath": "%s",
+		"preflightPath": "%s",
+		"changeSetPath": "%s",
+		"approvalPath": "%s",
+		"importReceiptPath": "%s",
+		"authorizationPath": "%s",
+		"publicKeyPath": "%s",
+		"confirmAuthorization": "%s",
+		"typedConfirmationDigest": "%s",
+		"name": "reference-receipt",
+		"receiptPath": "%s",
+		"auditPath": "%s",
+		"airgapGateResultPath": "%s",
+		"airgapGateTrustPolicyPath": "%s",
+		"confirmAirgapGateTrustPolicy": "%s"
+	}`,
+		valueForFlag(paths, "--bundle"),
+		valueForFlag(paths, "--preflight"),
+		valueForFlag(paths, "--change-set"),
+		valueForFlag(paths, "--approval"),
+		valueForFlag(paths, "--import-receipt"),
+		valueForFlag(paths, "--authorization"),
+		valueForFlag(paths, "--public-key"),
+		authorization.Metadata.AuthorizationID,
+		authorization.Metadata.AuthorizationID,
+		filepath.Join(workspacePath, "reference-receipt.yaml"),
+		filepath.Join(workspacePath, "reference-apply.audit.jsonl"),
+		gatePath,
+		gateTrustPolicyPath,
+		testCLIDigest('f'),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/apply", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for trust policy confirmation mismatch, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowApplyRejectsDestructivePolicyDiffWithoutTransitionReview(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, sourcePath, now)
+	gatePath := filepath.Join(sourcePath, "airgap-gate.yaml")
+	gateTrustPolicyPath := writeAirgapGateFixture(t, gatePath, paths)
+	gateTrustPolicy, err := resources.LoadAirgapGateTrustPolicy(gateTrustPolicyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff := resources.AirgapGateTrustPolicyDiff{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicyDiff",
+		Metadata:   resources.AirgapGateTrustPolicyDiffMetadata{Name: "destructive-policy-diff"},
+		Spec: resources.AirgapGateTrustPolicyDiffSpec{
+			RecordedAt:            now.Add(2 * time.Minute).Format(time.RFC3339Nano),
+			FromPolicyID:          testCLIDigest('e'),
+			ToPolicyID:            gateTrustPolicy.Metadata.PolicyID,
+			TargetReferenceDigest: gateTrustPolicy.Spec.TargetReferenceDigest,
+			HighestImpact:         "destructive",
+			Changes: []resources.AirgapGateTrustPolicyChange{{
+				ID:       "change-001",
+				KeyID:    "operations-key-1",
+				Digest:   gateTrustPolicy.Spec.TrustedSignerIdentities[0].PublicKeyDigest,
+				Category: "removed",
+				Impact:   "destructive",
+				Summary:  "Signer removed.",
+			}},
+			Limitations: []string{"Policy diff fixture."},
+		},
+	}
+	diff, err = diff.AssignDiffID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	diffPath := filepath.Join(sourcePath, "destructive-policy-diff.yaml")
+	writeYAMLFixture(t, diffPath, diff)
+	requestBody := fmt.Sprintf(`{
+		"bundlePath": "%s",
+		"preflightPath": "%s",
+		"changeSetPath": "%s",
+		"approvalPath": "%s",
+		"importReceiptPath": "%s",
+		"authorizationPath": "%s",
+		"publicKeyPath": "%s",
+		"confirmAuthorization": "%s",
+		"typedConfirmationDigest": "%s",
+		"name": "reference-receipt",
+		"receiptPath": "%s",
+		"auditPath": "%s",
+		"airgapGateResultPath": "%s",
+		"airgapGateTrustPolicyPath": "%s",
+		"confirmAirgapGateTrustPolicy": "%s",
+		"airgapGatePolicyDiffPath": "%s",
+		"confirmAirgapGatePolicyDiff": "%s"
+	}`,
+		valueForFlag(paths, "--bundle"),
+		valueForFlag(paths, "--preflight"),
+		valueForFlag(paths, "--change-set"),
+		valueForFlag(paths, "--approval"),
+		valueForFlag(paths, "--import-receipt"),
+		valueForFlag(paths, "--authorization"),
+		valueForFlag(paths, "--public-key"),
+		authorization.Metadata.AuthorizationID,
+		authorization.Metadata.AuthorizationID,
+		filepath.Join(workspacePath, "reference-receipt.yaml"),
+		filepath.Join(workspacePath, "reference-apply.audit.jsonl"),
+		gatePath,
+		gateTrustPolicyPath,
+		gateTrustPolicy.Metadata.PolicyID,
+		diffPath,
+		diff.Metadata.DiffID,
+	)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/apply", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing destructive transition review, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowApplyRejectsIncompleteTransferScanChain(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, sourcePath, now)
+	requestBody := fmt.Sprintf(`{
+		"bundlePath": "%s",
+		"preflightPath": "%s",
+		"changeSetPath": "%s",
+		"approvalPath": "%s",
+		"importReceiptPath": "%s",
+		"transferReceiptPaths": ["%s"],
+		"authorizationPath": "%s",
+		"publicKeyPath": "%s",
+		"confirmAuthorization": "%s",
+		"typedConfirmationDigest": "%s",
+		"name": "reference-receipt",
+		"receiptPath": "%s",
+		"auditPath": "%s"
+	}`,
+		valueForFlag(paths, "--bundle"),
+		valueForFlag(paths, "--preflight"),
+		valueForFlag(paths, "--change-set"),
+		valueForFlag(paths, "--approval"),
+		valueForFlag(paths, "--import-receipt"),
+		valueForFlag(paths, "--transfer-receipt"),
+		valueForFlag(paths, "--authorization"),
+		valueForFlag(paths, "--public-key"),
+		authorization.Metadata.AuthorizationID,
+		authorization.Metadata.AuthorizationID,
+		filepath.Join(workspacePath, "reference-receipt.yaml"),
+		filepath.Join(workspacePath, "reference-apply.audit.jsonl"),
+	)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/apply", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for incomplete transfer/scan chain, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
 

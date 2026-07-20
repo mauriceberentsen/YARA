@@ -1,15 +1,11 @@
 # Cursor handoff
-
 ## Current repository state
-
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `e2c01ae`, `1df715e`, `1dfac12`, `db20d03`, `833ccba`.
+- Recent commits (newest first): `ee70422`, `e2c01ae`, `1df715e`, `1dfac12`, `db20d03`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
-
 ## Current product boundary
-
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
 - Air-gap provenance chain is implemented as immutable receipts/gates (import, transfer, scan, gate result, trust policy, trust policy diff, transition review) and bound into apply-time validation.
 - Lifecycle publication readiness for integration-required assertions is fail-closed and requires all four pillars:
@@ -20,7 +16,7 @@
 - `catalog coverage create` and `catalog coverage lifecycle-publication-policy` expose deterministic assertion-scoped blocker/remediation diagnostics and fail-closed parity checks.
 - Runtime drift signaling is now implemented as a read-only evidence contract:
   - `runtime drift-signal record` emits immutable `RuntimeDriftSignal` resources bound to catalog/assertion/runtime/bundle/preflight/target identities;
-  - `runtime-drift-signal validate` enforces schema + deterministic identity checks;
+- `runtime-drift-signal validate` enforces schema + deterministic identity checks;
   - catalog coverage responses now expose assertion-scoped `runtimeDriftPosture` diagnostics derived from deterministic limitation records.
 - Runtime drift policy gating is now implemented as a read-only fail-closed decision path:
   - `catalog coverage runtime-drift-policy` evaluates `runtimeDriftPosture` for all assertions or one selected assertion;
@@ -50,6 +46,10 @@
   - `GET /api/v1/workflow/authorization-command` returns the deterministic `yara authorization issue` command with workspace-resolved bundle/preflight/change-set/approval paths and no private key material in API payloads;
   - `POST /api/v1/workflow/apply` executes bounded `deployment apply kubernetes` with explicit confirmation binding (`confirmAuthorization` + `typedConfirmationDigest`) and workspace-bounded receipt/audit outputs;
   - apply responses return deterministic receipt/evidence bindings, and failures preserve fail-closed diagnostics from CLI validation and stale/mismatch checks.
+- Interactive workflow cockpit I7 is implemented:
+  - apply API/UI now support optional air-gap gate bindings (`airgapGateResultPath`, trust-policy confirmation, policy-diff confirmation, transition-review confirmation) with fail-closed guardrails;
+  - apply responses now include provenance and gate identifiers (transfer/scan receipt IDs and gate policy/review IDs) for deterministic operator verification;
+  - fail-closed apply checks are covered for trust-policy mismatch, destructive diff without transition review, and incomplete transfer/scan chain.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -61,31 +61,24 @@
 - **Pre-alpha docs clarity:** `README.md`, `docs/quickstart.md`, `docs/reference/commands.md`, and `docs/architecture/README.md` separate implemented behavior from deferred roadmap scope.
 - **Runtime drift policy gate verification:** dedicated policy command emits deterministic blocker/remediation output, produces auditable pass/fail responses, and enforces assertion-scoped infeasible exits for non-`in-sync` posture.
 - **Web UI verification (simulated/local):** endpoint tests cover read endpoints (including workspace pipeline discovery), assertion-scoped drift/lifecycle filtering, payload validation failures, and fail-closed handling.
-
 ## Current branch and working tree
-
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `GET /api/v1/workflow/authorization-command` endpoint implemented with deterministic workspace-stage binding and exact CLI text output for external signing workflows;
-  - `POST /api/v1/workflow/apply` endpoint implemented with strict JSON decoding, explicit typed-confirmation digest matching, exit-code aware HTTP status mapping, and workspace-bounded receipt/audit output enforcement;
-  - Web UI adds an `Authorization + apply` cockpit view showing command copy text, full evidence-chain checklist, and explicit apply confirmation form requiring digest re-entry before submit.
+  - `POST /api/v1/workflow/apply` request decoding now enforces air-gap gate field-pair requirements before execution (`airgapGateResultPath` requires trust policy + confirmation; diff/review IDs require paired paths);
+  - apply API response now includes transfer/scan receipt IDs and optional air-gap gate policy/diff/review IDs from generated receipt metadata;
+  - `Authorization + apply` cockpit view now includes explicit air-gap gate fields and pre-submit guardrails for gate and receipt-chain combinations, with targeted UI fail-closed messaging.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui`;
   - `git diff --check`, `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`, and `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
-
 ## MVP milestone path
-
 - M1–M5 — completed (publication gating, artifact import, bootstrap, CI/release, public documentation).
-
 ## Open limitations and unproven claims
-
 - No live cluster validation was executed in this run; run validated release publication and artifacts only.
 - Air-gap external trust chain remains outside YARA proof boundary.
 - Bootstrap remains intentionally narrow (single YARA-owned namespace + model PVC).
 - Web UI remains local-only in this stage (no auth, no multi-user/session); private-key signing still runs outside the server boundary.
-
 ## MVP-2 milestone path — Web UI
 - W1 Backend HTTP API, W2 Dashboard shell, W3 Drift posture view, W4 Lifecycle readiness view, W5 Release/docs — all completed.
 - Running the UI: `yara serve --catalog catalog/v0.2/snapshot.yaml --coverage-report .yara/catalog-v0.2-coverage.yaml --ui --port 7474` then open `http://127.0.0.1:7474`.
@@ -116,18 +109,24 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 - extend `POST /api/v1/workflow/apply` request/response coverage and UI to drive optional air-gap gate inputs (`airgapGateResultPath`, trust-policy confirmation, policy-diff/transition-review confirmations) with explicit fail-closed diagnostics;
 - expose deterministic transfer + scan receipt chain assistant fields in the UI with pre-submit validation and clear blocker remediation;
 - add end-to-end API/UI tests for optional gate paths (including destructive trust-policy transition review requirement) so cockpit behavior matches CLI policy gates exactly.
+- Status: completed.
+
+### I8 — Workflow execution runbook export
+- add `GET /api/v1/workflow/runbook` that emits a deterministic, redact-safe step list for plan→render→preflight→change-set→approval→authorization→apply using current workspace artifact paths and IDs;
+- include explicit fail-closed reminders for private-key handling, digest confirmation, and air-gap gate decision points;
+- extend UI with a runbook panel that operators can copy as a single artifact for review and controlled execution sessions.
 
 ## Next implementation slice
-Implement **I7 — Air-gap gate and provenance controls in apply cockpit**:
-- add/verify full API pass-through for optional gate bindings (`airgap-gate-result`, trust-policy ID confirm, policy-diff ID confirm, transition-review ID confirm) with structured diagnostics preserved for UI;
-- extend apply cockpit UI with explicit optional gate + receipt-chain fields, guardrails, and pre-submit validation so operators can complete air-gapped execution without shell-only fallbacks;
-- add backend and frontend tests for success + failure paths (missing transition review on destructive diff, trust-policy confirmation mismatch, incomplete transfer/scan chain) to keep fail-closed parity with CLI;
-- keep receipt/audit workspace-bounded behavior unchanged and verified.
+Implement **I8 — Workflow execution runbook export**:
+- add `GET /api/v1/workflow/runbook` producing deterministic JSON/markdown-safe steps using current workspace stage artifacts and known evidence IDs;
+- keep output redact-safe (no private key material, no kubeconfig contents, no secrets), while clearly marking operator-supplied sensitive arguments;
+- add UI panel to render/copy the runbook and highlight fail-closed checkpoints (authorization confirmation digest, gate policy confirmations, transition review requirement);
+- add backend and frontend tests for stage-missing, malformed-workspace, and happy-path runbook generation.
 
 Acceptance criteria:
-- apply cockpit supports optional air-gap gate evidence and provenance chain confirmations without exposing private key material;
-- apply endpoint and UI reject mismatched/partial gate confirmations with deterministic fail-closed diagnostics;
-- successful explicit apply with optional gate bindings writes receipt + audit artifacts in workspace and Pipeline shows Receipt stage complete;
+- runbook endpoint emits deterministic, workspace-bound execution guidance without secret-bearing fields;
+- UI runbook panel exposes all fail-closed checkpoints and updates when workspace artifacts change;
+- missing prerequisite artifacts return structured diagnostics and never emit partial/ambiguous execution guidance;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 
 ## Validation requirements

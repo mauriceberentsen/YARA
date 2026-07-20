@@ -890,6 +890,13 @@ function AuthorizationApplyView({ workspacePayload, onApplyCreated }) {
     importReceiptPath: "",
     transferReceiptPaths: "",
     scanReceiptPaths: "",
+    airgapGateResultPath: "",
+    airgapGateTrustPolicyPath: "",
+    confirmAirgapGateTrustPolicy: "",
+    airgapGatePolicyDiffPath: "",
+    confirmAirgapGatePolicyDiff: "",
+    airgapGateTransitionReviewPath: "",
+    confirmAirgapGateTransitionReview: "",
     publicKeyPath: "",
     authorizationPath: stageByID.get("authorization")?.artifactPath !== "none" ? stageByID.get("authorization")?.artifactPath || "" : "",
     confirmAuthorization: "",
@@ -956,7 +963,25 @@ function AuthorizationApplyView({ workspacePayload, onApplyCreated }) {
   };
 
   const parseCSV = (value) => value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
-  const canSubmit = form.confirmAuthorization !== "" && form.confirmAuthorization === form.typedConfirmationDigest;
+  const transferReceipts = parseCSV(form.transferReceiptPaths);
+  const scanReceipts = parseCSV(form.scanReceiptPaths);
+  const validationErrors = [];
+  if (form.confirmAuthorization === "" || form.confirmAuthorization !== form.typedConfirmationDigest) {
+    validationErrors.push("Typed confirmation digest must exactly match the authorization digest.");
+  }
+  if (form.airgapGateResultPath.trim() !== "" && (form.airgapGateTrustPolicyPath.trim() === "" || form.confirmAirgapGateTrustPolicy.trim() === "")) {
+    validationErrors.push("Providing an air-gap gate result also requires trust policy path and confirmed trust policy ID.");
+  }
+  if ((form.airgapGatePolicyDiffPath.trim() === "") !== (form.confirmAirgapGatePolicyDiff.trim() === "")) {
+    validationErrors.push("Trust policy diff path and confirmed trust policy diff ID must be provided together.");
+  }
+  if ((form.airgapGateTransitionReviewPath.trim() === "") !== (form.confirmAirgapGateTransitionReview.trim() === "")) {
+    validationErrors.push("Transition review path and confirmed transition review ID must be provided together.");
+  }
+  if (form.airgapGateResultPath.trim() === "" && ((transferReceipts.length > 0 && scanReceipts.length === 0) || (scanReceipts.length > 0 && transferReceipts.length === 0))) {
+    validationErrors.push("Without a gate result, transfer and scan receipt chains must both be provided or both omitted.");
+  }
+  const canSubmit = validationErrors.length === 0;
 
   const submit = async (event) => {
     event.preventDefault();
@@ -971,8 +996,15 @@ function AuthorizationApplyView({ workspacePayload, onApplyCreated }) {
         changeSetPath: commandState.result?.changeSetPath || stageByID.get("changeset")?.artifactPath || "",
         approvalPath: commandState.result?.approvalPath || stageByID.get("approval")?.artifactPath || "",
         importReceiptPath: form.importReceiptPath,
-        transferReceiptPaths: parseCSV(form.transferReceiptPaths),
-        scanReceiptPaths: parseCSV(form.scanReceiptPaths),
+        transferReceiptPaths: transferReceipts,
+        scanReceiptPaths: scanReceipts,
+        airgapGateResultPath: form.airgapGateResultPath,
+        airgapGateTrustPolicyPath: form.airgapGateTrustPolicyPath,
+        confirmAirgapGateTrustPolicy: form.confirmAirgapGateTrustPolicy,
+        airgapGatePolicyDiffPath: form.airgapGatePolicyDiffPath,
+        confirmAirgapGatePolicyDiff: form.confirmAirgapGatePolicyDiff,
+        airgapGateTransitionReviewPath: form.airgapGateTransitionReviewPath,
+        confirmAirgapGateTransitionReview: form.confirmAirgapGateTransitionReview,
         authorizationPath: form.authorizationPath,
         publicKeyPath: form.publicKeyPath,
         confirmAuthorization: form.confirmAuthorization,
@@ -1033,6 +1065,34 @@ function AuthorizationApplyView({ workspacePayload, onApplyCreated }) {
           <input id="apply-scan-receipts" value={form.scanReceiptPaths} onChange={update("scanReceiptPaths")} />
         </div>
         <div className="formRow">
+          <label htmlFor="apply-airgap-gate-result-path">Air-gap gate result path (optional)</label>
+          <input id="apply-airgap-gate-result-path" value={form.airgapGateResultPath} onChange={update("airgapGateResultPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-airgap-trust-policy-path">Air-gap trust policy path (optional)</label>
+          <input id="apply-airgap-trust-policy-path" value={form.airgapGateTrustPolicyPath} onChange={update("airgapGateTrustPolicyPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-airgap-trust-policy-confirm">Confirm air-gap trust policy ID (optional)</label>
+          <input id="apply-airgap-trust-policy-confirm" value={form.confirmAirgapGateTrustPolicy} onChange={update("confirmAirgapGateTrustPolicy")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-airgap-policy-diff-path">Air-gap trust policy diff path (optional)</label>
+          <input id="apply-airgap-policy-diff-path" value={form.airgapGatePolicyDiffPath} onChange={update("airgapGatePolicyDiffPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-airgap-policy-diff-confirm">Confirm air-gap trust policy diff ID (optional)</label>
+          <input id="apply-airgap-policy-diff-confirm" value={form.confirmAirgapGatePolicyDiff} onChange={update("confirmAirgapGatePolicyDiff")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-airgap-review-path">Air-gap transition review path (optional)</label>
+          <input id="apply-airgap-review-path" value={form.airgapGateTransitionReviewPath} onChange={update("airgapGateTransitionReviewPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="apply-airgap-review-confirm">Confirm air-gap transition review ID (optional)</label>
+          <input id="apply-airgap-review-confirm" value={form.confirmAirgapGateTransitionReview} onChange={update("confirmAirgapGateTransitionReview")} />
+        </div>
+        <div className="formRow">
           <label htmlFor="apply-authorization-path">Authorization path</label>
           <input id="apply-authorization-path" value={form.authorizationPath} onChange={update("authorizationPath")} />
         </div>
@@ -1076,7 +1136,7 @@ function AuthorizationApplyView({ workspacePayload, onApplyCreated }) {
           {submitState.loading ? "Applying..." : "Confirm and apply"}
         </button>
       </form>
-      {!canSubmit && <p className="error">Typed confirmation digest must exactly match the authorization digest.</p>}
+      {!canSubmit && validationErrors.map((message) => <p key={message} className="error">{message}</p>)}
       {submitState.error && <p className="error">Error: {submitState.error}</p>}
       {submitState.result && (
         <dl className="grid">
@@ -1091,6 +1151,12 @@ function AuthorizationApplyView({ workspacePayload, onApplyCreated }) {
           <div><dt>Change-set ID</dt><dd>{submitState.result.changeSetId || "n/a"}</dd></div>
           <div><dt>Approval ID</dt><dd>{submitState.result.approvalId || "n/a"}</dd></div>
           <div><dt>Target digest</dt><dd>{submitState.result.targetReferenceDigest || "n/a"}</dd></div>
+          <div><dt>Transfer receipts</dt><dd>{Array.isArray(submitState.result.transferReceiptIds) && submitState.result.transferReceiptIds.length > 0 ? submitState.result.transferReceiptIds.join(", ") : "none"}</dd></div>
+          <div><dt>Scan receipts</dt><dd>{Array.isArray(submitState.result.scanReceiptIds) && submitState.result.scanReceiptIds.length > 0 ? submitState.result.scanReceiptIds.join(", ") : "none"}</dd></div>
+          <div><dt>Air-gap gate result ID</dt><dd>{submitState.result.airgapGateResultId || "none"}</dd></div>
+          <div><dt>Air-gap trust policy ID</dt><dd>{submitState.result.airgapTrustPolicyId || "none"}</dd></div>
+          <div><dt>Air-gap policy diff ID</dt><dd>{submitState.result.airgapPolicyDiffId || "none"}</dd></div>
+          <div><dt>Air-gap transition review ID</dt><dd>{submitState.result.airgapReviewId || "none"}</dd></div>
         </dl>
       )}
     </>

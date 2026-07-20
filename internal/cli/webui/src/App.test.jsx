@@ -102,6 +102,13 @@ describe("App", () => {
         }), { status: 200 }));
       }
       if (parsed.pathname === "/api/v1/workflow/apply" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        if (requestPayload.airgapGateResultPath && requestPayload.confirmAirgapGateTrustPolicy === "sha256:mismatch") {
+          return Promise.resolve(new Response(JSON.stringify({
+            valid: false,
+            diagnostics: [{ code: "YARA-EXE-119", message: "explicit trust-policy confirmation does not match the supplied policy", severity: "error" }],
+          }), { status: 422 }));
+        }
         return Promise.resolve(new Response(JSON.stringify({
           valid: true,
           apply: {
@@ -116,6 +123,12 @@ describe("App", () => {
             changeSetId: "sha256:changeset",
             approvalId: "sha256:approval",
             targetReferenceDigest: "sha256:target",
+            transferReceiptIds: ["sha256:transfer"],
+            scanReceiptIds: ["sha256:scan"],
+            airgapGateResultId: "sha256:gate",
+            airgapTrustPolicyId: "sha256:policy",
+            airgapPolicyDiffId: "sha256:diff",
+            airgapReviewId: "sha256:review",
           },
         }), { status: 200 }));
       }
@@ -353,6 +366,18 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Assertion filter"), { target: { value: "compat.a" } });
     await waitFor(() => expect(screen.getByText("missing-proof")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("record-proof")).toBeInTheDocument());
+  });
+
+  it("enforces air-gap apply guardrails in UI", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Authorization + apply" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh authorization command" })).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Import receipt path"), { target: { value: ".yara/workspaces/default/reference-import-receipt.yaml" } });
+    fireEvent.change(screen.getByLabelText("Public key path"), { target: { value: ".yara/keys/operations.pub.pem" } });
+    fireEvent.change(screen.getByLabelText("Confirm authorization digest"), { target: { value: "sha256:authorization" } });
+    fireEvent.change(screen.getByLabelText("Type confirmation digest"), { target: { value: "sha256:authorization" } });
+    fireEvent.change(screen.getByLabelText("Air-gap gate result path (optional)"), { target: { value: ".yara/workspaces/default/airgap-gate.yaml" } });
+    await waitFor(() => expect(screen.getByText("Providing an air-gap gate result also requires trust policy path and confirmed trust policy ID.")).toBeInTheDocument());
   });
 
   it("fails closed on malformed drift payload", async () => {
