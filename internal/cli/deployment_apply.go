@@ -30,6 +30,8 @@ type deploymentApplyOptions struct {
 	airgapGateResultPath                                   string
 	airgapGateTrustPolicyPath                              string
 	confirmAirgapGateTrustPolicy                           string
+	airgapGatePolicyDiffPath                               string
+	confirmAirgapGatePolicyDiff                            string
 	authorizationPath, publicKeyPath, confirmAuthorization string
 	name, receiptPath, auditPath, kubeconfig, contextName  string
 	timeout                                                time.Duration
@@ -54,12 +56,12 @@ func applyKubernetesDeploymentAt(args []string, stdout, stderr io.Writer, now fu
 	if !ok {
 		return ExitInvalidInput
 	}
-	bundle, preflight, changeSet, approval, authorization, importReceipt, transferReceipts, scanReceipts, gateResult, gateTrustPolicy, code, err := loadAndValidateExecutionInputs(options, now())
+	bundle, preflight, changeSet, approval, authorization, importReceipt, transferReceipts, scanReceipts, gateResult, gateTrustPolicy, gateTrustPolicyDiff, code, err := loadAndValidateExecutionInputs(options, now())
 	if err != nil {
 		return writeLoadErrorWithExit(stdout, code, err, ExitInfeasible)
 	}
 	correlationID := fmt.Sprintf("deployment-%d", now().UTC().UnixNano())
-	subjects := executionSubjects(bundle, preflight, changeSet, approval, authorization, importReceipt, transferReceipts, scanReceipts, gateResult, gateTrustPolicy)
+	subjects := executionSubjects(bundle, preflight, changeSet, approval, authorization, importReceipt, transferReceipts, scanReceipts, gateResult, gateTrustPolicy, gateTrustPolicyDiff)
 	auditWriter, err := newExecutionAudit(options.auditPath, correlationID, "deployment.apply", "kubernetes:"+authorization.Spec.Target.ReferenceDigest, subjects, now())
 	if err != nil {
 		return writeLoadErrorWithExit(stdout, "YARA-AUD-005", err, ExitInvalidInput)
@@ -123,7 +125,7 @@ func applyKubernetesDeploymentAt(args []string, stdout, stderr io.Writer, now fu
 		}
 		return fail("YARA-EXE-114", executeErr, ExitInfeasible)
 	}
-	receipt, err := buildDeploymentReceipt(options.name, correlationID, binaryDigest, bundle, preflight, changeSet, approval, authorization, importReceipt, transferReceipts, scanReceipts, gateResult, gateTrustPolicy, result)
+	receipt, err := buildDeploymentReceipt(options.name, correlationID, binaryDigest, bundle, preflight, changeSet, approval, authorization, importReceipt, transferReceipts, scanReceipts, gateResult, gateTrustPolicy, gateTrustPolicyDiff, result)
 	if err != nil {
 		return fail("YARA-EXE-500", err, ExitInternal)
 	}
@@ -176,6 +178,8 @@ func parseDeploymentApplyOptions(args []string, stderr io.Writer) (deploymentApp
 	flags.StringVar(&options.airgapGateResultPath, "airgap-gate-result", "", "Optional AirgapProvenanceGateResult used for fail-closed apply-time policy binding")
 	flags.StringVar(&options.airgapGateTrustPolicyPath, "airgap-gate-trust-policy", "", "Content-addressed AirgapGateTrustPolicy used for gate signature verification")
 	flags.StringVar(&options.confirmAirgapGateTrustPolicy, "confirm-airgap-gate-trust-policy", "", "Exact trust-policy ID operator confirmation")
+	flags.StringVar(&options.airgapGatePolicyDiffPath, "airgap-gate-policy-diff", "", "Optional reviewed AirgapGateTrustPolicyDiff used for policy transition evidence")
+	flags.StringVar(&options.confirmAirgapGatePolicyDiff, "confirm-airgap-gate-policy-diff", "", "Optional explicit trust-policy diff ID confirmation")
 	flags.StringVar(&options.authorizationPath, "authorization", "", "Signed ExecutionAuthorization")
 	flags.StringVar(&options.publicKeyPath, "public-key", "", "Trusted PEM PKIX Ed25519 public key")
 	flags.StringVar(&options.confirmAuthorization, "confirm-authorization", "", "Exact authorization ID operator confirmation")
@@ -196,6 +200,10 @@ func parseDeploymentApplyOptions(args []string, stderr io.Writer) (deploymentApp
 		fmt.Fprintln(stderr, "deployment apply kubernetes requires --airgap-gate-trust-policy and --confirm-airgap-gate-trust-policy when --airgap-gate-result is provided")
 		return options, false
 	}
+	if (options.airgapGatePolicyDiffPath == "") != (options.confirmAirgapGatePolicyDiff == "") {
+		fmt.Fprintln(stderr, "deployment apply kubernetes requires both --airgap-gate-policy-diff and --confirm-airgap-gate-policy-diff when either is provided")
+		return options, false
+	}
 	if options.receiptPath == options.auditPath {
 		fmt.Fprintln(stderr, "receipt and audit output paths must differ")
 		return options, false
@@ -203,37 +211,37 @@ func parseDeploymentApplyOptions(args []string, stderr io.Writer) (deploymentApp
 	return options, true
 }
 
-func loadAndValidateExecutionInputs(options deploymentApplyOptions, at time.Time) (resources.DeploymentBundle, resources.TargetPreflightResult, resources.KubernetesChangeSet, resources.DeploymentApproval, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, []resources.ArtifactTransferReceipt, []resources.ArtifactScanReceipt, *resources.AirgapProvenanceGateResult, *resources.AirgapGateTrustPolicy, string, error) {
+func loadAndValidateExecutionInputs(options deploymentApplyOptions, at time.Time) (resources.DeploymentBundle, resources.TargetPreflightResult, resources.KubernetesChangeSet, resources.DeploymentApproval, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, []resources.ArtifactTransferReceipt, []resources.ArtifactScanReceipt, *resources.AirgapProvenanceGateResult, *resources.AirgapGateTrustPolicy, *resources.AirgapGateTrustPolicyDiff, string, error) {
 	bundle, err := resources.LoadDeploymentBundle(options.bundlePath)
 	if err != nil || !bundle.Validate().Valid {
-		return bundle, resources.TargetPreflightResult{}, resources.KubernetesChangeSet{}, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, nil, nil, nil, nil, "YARA-EXE-101", errors.New("deployment bundle is invalid")
+		return bundle, resources.TargetPreflightResult{}, resources.KubernetesChangeSet{}, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, nil, nil, nil, nil, nil, "YARA-EXE-101", errors.New("deployment bundle is invalid")
 	}
 	preflight, err := resources.LoadTargetPreflightResult(options.preflightPath)
 	if err != nil || !preflight.Validate().Valid {
-		return bundle, preflight, resources.KubernetesChangeSet{}, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, nil, nil, nil, nil, "YARA-EXE-102", errors.New("target preflight is invalid")
+		return bundle, preflight, resources.KubernetesChangeSet{}, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, nil, nil, nil, nil, nil, "YARA-EXE-102", errors.New("target preflight is invalid")
 	}
 	changeSet, err := resources.LoadKubernetesChangeSet(options.changeSetPath)
 	if err != nil || !changeSet.Validate().Valid {
-		return bundle, preflight, changeSet, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, nil, nil, nil, nil, "YARA-EXE-103", errors.New("change set is invalid")
+		return bundle, preflight, changeSet, resources.DeploymentApproval{}, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, nil, nil, nil, nil, nil, "YARA-EXE-103", errors.New("change set is invalid")
 	}
 	approval, err := resources.LoadDeploymentApproval(options.approvalPath)
 	if err != nil || !approval.Validate().Valid {
-		return bundle, preflight, changeSet, approval, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, nil, nil, nil, nil, "YARA-EXE-104", errors.New("approval is invalid")
+		return bundle, preflight, changeSet, approval, resources.ExecutionAuthorization{}, resources.ArtifactImportReceipt{}, nil, nil, nil, nil, nil, "YARA-EXE-104", errors.New("approval is invalid")
 	}
 	importReceipt, err := resources.LoadArtifactImportReceipt(options.importReceiptPath)
 	if err != nil || !importReceipt.Validate().Valid {
-		return bundle, preflight, changeSet, approval, resources.ExecutionAuthorization{}, importReceipt, nil, nil, nil, nil, "YARA-EXE-116", errors.New("artifact import receipt is invalid")
+		return bundle, preflight, changeSet, approval, resources.ExecutionAuthorization{}, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-116", errors.New("artifact import receipt is invalid")
 	}
 	authorization, err := resources.LoadExecutionAuthorization(options.authorizationPath)
 	if err != nil || !authorization.Validate().Valid {
-		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-105", errors.New("execution authorization is invalid")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-105", errors.New("execution authorization is invalid")
 	}
 	if approval.Spec.Decision != "approved" || approval.Spec.Effect != "review-only" || changeSet.Spec.Outcome != "review-required" {
-		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-106", errors.New("approved conflict-free review inputs are required")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-106", errors.New("approved conflict-free review inputs are required")
 	}
 	approvalExpiry, _ := time.Parse(time.RFC3339Nano, approval.Spec.ExpiresAt)
 	if !at.UTC().Before(approvalExpiry) {
-		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-107", errors.New("approval has expired")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-107", errors.New("approval has expired")
 	}
 	issuedAt, _ := time.Parse(time.RFC3339Nano, authorization.Spec.IssuedAt)
 	authorizationExpiry, _ := time.Parse(time.RFC3339Nano, authorization.Spec.ExpiresAt)
@@ -241,26 +249,26 @@ func loadAndValidateExecutionInputs(options deploymentApplyOptions, at time.Time
 	changeSetAt, _ := time.Parse(time.RFC3339Nano, changeSet.Spec.ObservedAt)
 	approvalAt, _ := time.Parse(time.RFC3339Nano, approval.Spec.RecordedAt)
 	if issuedAt.Before(preflightAt) || issuedAt.Sub(preflightAt) > 15*time.Minute || issuedAt.Before(changeSetAt) || issuedAt.Sub(changeSetAt) > 5*time.Minute || issuedAt.Before(approvalAt) || authorizationExpiry.After(approvalExpiry) {
-		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-107", errors.New("authorization was not issued from fresh inputs within approval validity")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-107", errors.New("authorization was not issued from fresh inputs within approval validity")
 	}
 	if bundle.Spec.PlanID != preflight.Spec.PlanID || bundle.Spec.PlanID != changeSet.Spec.PlanID || bundle.Spec.PlanID != approval.Spec.PlanID || bundle.Spec.PlanID != authorization.Spec.PlanID ||
 		bundle.Metadata.BundleID != preflight.Spec.BundleID || bundle.Metadata.BundleID != changeSet.Spec.BundleID || bundle.Metadata.BundleID != approval.Spec.BundleID || bundle.Metadata.BundleID != authorization.Spec.BundleID ||
 		preflight.Metadata.ResultID != changeSet.Spec.PreflightResultID || preflight.Metadata.ResultID != approval.Spec.PreflightResultID || preflight.Metadata.ResultID != authorization.Spec.PreflightResultID ||
 		changeSet.Metadata.ChangeSetID != approval.Spec.ChangeSetID || changeSet.Metadata.ChangeSetID != authorization.Spec.ChangeSetID || approval.Metadata.ApprovalID != authorization.Spec.ApprovalID ||
 		preflight.Spec.Target != changeSet.Spec.Target || preflight.Spec.Target != approval.Spec.Target || preflight.Spec.Target != authorization.Spec.Target {
-		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-106", errors.New("execution inputs do not bind the same deployment")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-106", errors.New("execution inputs do not bind the same deployment")
 	}
 	if importReceipt.Spec.PlanID != bundle.Spec.PlanID || importReceipt.Spec.BundleID != bundle.Metadata.BundleID || importReceipt.Spec.Target != preflight.Spec.Target {
-		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-116", errors.New("import receipt does not bind the same plan, bundle and target")
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-116", errors.New("import receipt does not bind the same plan, bundle and target")
 	}
 	if err := validateImportReceiptCoverage(bundle, importReceipt); err != nil {
-		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-116", err
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-116", err
 	}
 	transferReceipts := make([]resources.ArtifactTransferReceipt, 0, len(options.transferReceiptPaths))
 	for _, path := range uniqueSortedStrings(options.transferReceiptPaths) {
 		receipt, err := resources.LoadArtifactTransferReceipt(path)
 		if err != nil || !receipt.Validate().Valid {
-			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-117", errors.New("artifact transfer receipt is invalid")
+			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-117", errors.New("artifact transfer receipt is invalid")
 		}
 		transferReceipts = append(transferReceipts, receipt)
 	}
@@ -268,49 +276,63 @@ func loadAndValidateExecutionInputs(options deploymentApplyOptions, at time.Time
 	for _, path := range uniqueSortedStrings(options.scanReceiptPaths) {
 		receipt, err := resources.LoadArtifactScanReceipt(path)
 		if err != nil || !receipt.Validate().Valid {
-			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-118", errors.New("artifact scan receipt is invalid")
+			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-118", errors.New("artifact scan receipt is invalid")
 		}
 		scanReceipts = append(scanReceipts, receipt)
 	}
 	var gateResult *resources.AirgapProvenanceGateResult
 	var gateTrustPolicy *resources.AirgapGateTrustPolicy
+	var gateTrustPolicyDiff *resources.AirgapGateTrustPolicyDiff
 	if options.airgapGateResultPath != "" {
 		result, err := resources.LoadAirgapProvenanceGateResult(options.airgapGateResultPath)
 		if err != nil || !result.Validate().Valid {
-			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-119", errors.New("airgap provenance gate result is invalid")
+			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-119", errors.New("airgap provenance gate result is invalid")
 		}
 		policy, err := resources.LoadAirgapGateTrustPolicy(options.airgapGateTrustPolicyPath)
 		if err != nil || !policy.Validate().Valid {
-			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-119", errors.New("airgap gate trust policy is invalid")
+			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-119", errors.New("airgap gate trust policy is invalid")
 		}
 		if policy.Metadata.PolicyID != options.confirmAirgapGateTrustPolicy {
-			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-119", errors.New("explicit trust-policy confirmation does not match the supplied policy")
+			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-119", errors.New("explicit trust-policy confirmation does not match the supplied policy")
 		}
 		if err := policy.VerifyGateResult(result, at); err != nil {
-			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-119", err
+			return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-119", err
+		}
+		if options.airgapGatePolicyDiffPath != "" {
+			diff, err := resources.LoadAirgapGateTrustPolicyDiff(options.airgapGatePolicyDiffPath)
+			if err != nil || !diff.Validate().Valid {
+				return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-119", errors.New("airgap gate trust policy diff is invalid")
+			}
+			if diff.Metadata.DiffID != options.confirmAirgapGatePolicyDiff {
+				return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-119", errors.New("explicit trust-policy diff confirmation does not match the supplied policy diff")
+			}
+			if diff.Spec.ToPolicyID != policy.Metadata.PolicyID || diff.Spec.TargetReferenceDigest != preflight.Spec.Target.ReferenceDigest {
+				return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-119", errors.New("trust-policy diff does not bind the confirmed trust policy and target")
+			}
+			gateTrustPolicyDiff = &diff
 		}
 		gateResult = &result
 		gateTrustPolicy = &policy
 	}
 	requiresTransferChain, err := bundleRequiresTransferChain(bundle)
 	if err != nil {
-		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-117", err
+		return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-117", err
 	}
 	if requiresTransferChain {
 		if gateResult != nil {
 			if err := validateAirgapGateResultBindings(bundle, preflight, importReceipt, transferReceipts, scanReceipts, *gateResult); err != nil {
-				return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-119", err
+				return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-119", err
 			}
 		} else {
 			if err := validateTransferReceiptChain(bundle, preflight, importReceipt, transferReceipts); err != nil {
-				return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-117", err
+				return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-117", err
 			}
 			if err := validateScanReceiptChain(bundle, preflight, transferReceipts, scanReceipts); err != nil {
-				return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, "YARA-EXE-118", err
+				return bundle, preflight, changeSet, approval, authorization, importReceipt, nil, nil, nil, nil, nil, "YARA-EXE-118", err
 			}
 		}
 	}
-	return bundle, preflight, changeSet, approval, authorization, importReceipt, transferReceipts, scanReceipts, gateResult, gateTrustPolicy, "", nil
+	return bundle, preflight, changeSet, approval, authorization, importReceipt, transferReceipts, scanReceipts, gateResult, gateTrustPolicy, gateTrustPolicyDiff, "", nil
 }
 
 func validateExecutionConstraints(preflight resources.TargetPreflightResult, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization) error {
@@ -336,7 +358,7 @@ func validateExecutionConstraints(preflight resources.TargetPreflightResult, cha
 	return nil
 }
 
-func buildDeploymentReceipt(name, correlationID, binaryDigest string, bundle resources.DeploymentBundle, preflight resources.TargetPreflightResult, changeSet resources.KubernetesChangeSet, approval resources.DeploymentApproval, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, transferReceipts []resources.ArtifactTransferReceipt, scanReceipts []resources.ArtifactScanReceipt, gateResult *resources.AirgapProvenanceGateResult, gateTrustPolicy *resources.AirgapGateTrustPolicy, result executor.ExecutionResult) (resources.DeploymentReceipt, error) {
+func buildDeploymentReceipt(name, correlationID, binaryDigest string, bundle resources.DeploymentBundle, preflight resources.TargetPreflightResult, changeSet resources.KubernetesChangeSet, approval resources.DeploymentApproval, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, transferReceipts []resources.ArtifactTransferReceipt, scanReceipts []resources.ArtifactScanReceipt, gateResult *resources.AirgapProvenanceGateResult, gateTrustPolicy *resources.AirgapGateTrustPolicy, gateTrustPolicyDiff *resources.AirgapGateTrustPolicyDiff, result executor.ExecutionResult) (resources.DeploymentReceipt, error) {
 	outcome := "succeeded"
 	for _, operation := range result.Operations {
 		if operation.Outcome == "failed" {
@@ -373,6 +395,9 @@ func buildDeploymentReceipt(name, correlationID, binaryDigest string, bundle res
 		if gateTrustPolicy != nil {
 			receipt.Spec.AirgapGateTrustPolicyID = gateTrustPolicy.Metadata.PolicyID
 		}
+		if gateTrustPolicyDiff != nil {
+			receipt.Spec.AirgapGateTrustPolicyDiffID = gateTrustPolicyDiff.Metadata.DiffID
+		}
 		if len(receipt.Spec.TransferReceiptIDs) == 0 {
 			receipt.Spec.TransferReceiptIDs = slices.Clone(gateResult.Spec.TransferReceiptIDs)
 		}
@@ -407,7 +432,7 @@ func currentBinaryDigest() (string, error) {
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func executionSubjects(bundle resources.DeploymentBundle, preflight resources.TargetPreflightResult, changeSet resources.KubernetesChangeSet, approval resources.DeploymentApproval, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, transferReceipts []resources.ArtifactTransferReceipt, scanReceipts []resources.ArtifactScanReceipt, gateResult *resources.AirgapProvenanceGateResult, gateTrustPolicy *resources.AirgapGateTrustPolicy) []audit.Subject {
+func executionSubjects(bundle resources.DeploymentBundle, preflight resources.TargetPreflightResult, changeSet resources.KubernetesChangeSet, approval resources.DeploymentApproval, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, transferReceipts []resources.ArtifactTransferReceipt, scanReceipts []resources.ArtifactScanReceipt, gateResult *resources.AirgapProvenanceGateResult, gateTrustPolicy *resources.AirgapGateTrustPolicy, gateTrustPolicyDiff *resources.AirgapGateTrustPolicyDiff) []audit.Subject {
 	subjects := []audit.Subject{
 		{Kind: "DeploymentBundle", Digest: bundle.Metadata.BundleID},
 		{Kind: "TargetPreflightResult", Digest: preflight.Metadata.ResultID},
@@ -427,6 +452,9 @@ func executionSubjects(bundle resources.DeploymentBundle, preflight resources.Ta
 	}
 	if gateTrustPolicy != nil {
 		subjects = append(subjects, audit.Subject{Kind: "AirgapGateTrustPolicy", Digest: gateTrustPolicy.Metadata.PolicyID})
+	}
+	if gateTrustPolicyDiff != nil {
+		subjects = append(subjects, audit.Subject{Kind: "AirgapGateTrustPolicyDiff", Digest: gateTrustPolicyDiff.Metadata.DiffID})
 	}
 	return subjects
 }

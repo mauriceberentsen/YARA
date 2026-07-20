@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `0c696a0` (`Add trust-policy based multi-key air-gap gate verification.`).
+- Branch baseline before this slice: `main` at `686920f` (`Add audited trust-policy recording and explicit policy confirmation.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
@@ -30,8 +30,9 @@
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
   - `airgap provenance-gate evaluate` now emits a signed `AirgapProvenanceGateResult` (Ed25519 signer identity, key digest, expiry, detached signature) over exact import/transfer/scan bindings;
   - `airgap gate-trust-policy record` now emits immutable `AirgapGateTrustPolicy` resources from explicit signer inputs and dedicated audit chains;
-  - `airgap provenance-gate verify` validates gate-result identity, signer status/bounds and signature validity against an immutable `AirgapGateTrustPolicy`, and now requires explicit `--confirm-policy` binding;
-  - `deployment apply kubernetes` can fail closed on `--airgap-gate-result` only when verification passes under `--airgap-gate-trust-policy` and explicit `--confirm-airgap-gate-trust-policy`; otherwise apply rejects the gate result.
+  - `airgap gate-trust-policy diff` now emits immutable `AirgapGateTrustPolicyDiff` transition evidence with signer change classification/impact and one-step active-signer replacement safety checks;
+  - `airgap provenance-gate verify` validates gate-result identity, signer status/bounds and signature validity against an immutable `AirgapGateTrustPolicy`, requires explicit `--confirm-policy`, and can optionally bind reviewed policy-diff evidence via `--policy-diff --confirm-policy-diff`;
+  - `deployment apply kubernetes` can fail closed on `--airgap-gate-result` only when verification passes under `--airgap-gate-trust-policy` and explicit `--confirm-airgap-gate-trust-policy`, with optional reviewed transition binding via `--airgap-gate-policy-diff --confirm-airgap-gate-policy-diff`; otherwise apply rejects the gate result.
 - Apply remains explicit and bounded to exact rendered objects; it still does not implicitly delete/prune/adopt.
 - Mutating commands still require durable started audit before mutation and fail closed when terminal audit/receipt persistence cannot complete.
 
@@ -44,8 +45,10 @@
   - air-gap gate results bind exact plan/bundle/catalog/target/import identities, transfer/scan receipt sets, deterministic gate status, signer identity, trust-key digest, signature, and expiry;
   - trust-policy inputs are content-addressed (`policyId`), include sorted signer allow-lists with status + optional validity windows, and verify key bytes against declared digests;
   - trust-policy recording now requires explicit signer declarations (`key-id`, `public-key`, status, optional validity bounds) and emits immutable audit evidence for policy creation;
+  - trust-policy diff evidence is content-addressed (`diffId`), sorted signer-delta projections, and deterministic highest-impact derivation (`review`/`destructive`);
+  - trust-policy diff command fails closed when a single transition would replace every active signer identity in one step;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
-  - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, and `airgapGateTrustPolicyId` provenance bindings;
+  - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, and `airgapGateTrustPolicyDiffId` provenance bindings;
   - separate command paths:
     - `deployment apply kubernetes`,
     - `deployment retire kubernetes`,
@@ -57,8 +60,10 @@
     - `artifact scan record`,
     - `airgap provenance-gate evaluate`,
     - `airgap gate-trust-policy record`,
+    - `airgap gate-trust-policy diff`,
     - `airgap provenance-gate verify`,
-    - `airgap-gate-trust-policy validate`.
+    - `airgap-gate-trust-policy validate`,
+    - `airgap-gate-trust-policy-diff validate`.
 - **Validated on live environment (historical evidence already present):**
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
@@ -70,33 +75,33 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by three committed slices before this uncommitted work).
-- Recent commits before this slice (newest first): `0c696a0`, `3539f29`, `8a4a7a9`, `00671cb`, `a266358`.
-- This slice adds audited trust-policy recording and explicit policy confirmation enforcement for verify/apply with aligned tests/docs.
+- Branch: `main` tracking `origin/main` (local ahead by four committed slices before this uncommitted work).
+- Recent commits before this slice (newest first): `686920f`, `0c696a0`, `3539f29`, `8a4a7a9`, `00671cb`.
+- This slice adds trust-policy signer transition safety constraints and optional reviewed policy-diff bindings in verify/apply with aligned tests/docs.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## Open limitations and unproven claims
 
-- No live validation was executed for rollback, integration execution, promotion-review recording, transfer/scan receipt enforcement, trust-policy recording, or trust-policy gate verification/enforcement in this run.
+- No live validation was executed for rollback, integration execution, promotion-review recording, transfer/scan receipt enforcement, trust-policy recording/diffing, or trust-policy gate verification/enforcement in this run.
 - Air-gap completeness remains unproven end-to-end: acquisition execution, transfer medium attestation trust chain, and scanning attestations remain external.
 - Clean-cluster bootstrap (namespace/PVC/storage provisioning) remains out of scope.
 - Integration execution remains bounded to catalog/target contract checks and does not prove latency, throughput, availability, or production readiness.
 
 ## Next implementation slice
 
-Implement **trust-policy signer change safety constraints**:
+Implement **review-gated destructive policy transitions**:
 
-- enforce policy-level signer transition rules (e.g., forbid replacing all active signers in one update path) via deterministic policy-diff validation command;
-- add an explicit `airgap gate-trust-policy diff` command that compares two content-addressed policy resources and emits audit evidence for signer additions/revocations/validity-bound changes;
-- require gate verification/apply paths to optionally consume a reviewed policy-diff artifact ID when switching policies in automation workflows;
+- add explicit transition gate semantics where destructive trust-policy diffs (signer removals/revocations) require a separate reviewed approval artifact before verify/apply can consume them in automation;
+- bind verify/apply optional policy-diff consumption to that reviewed transition artifact ID and fail closed when destructive transitions are unreviewed;
 - keep gate-evaluation signing authority independent from deployment authorization keys while preserving deterministic, content-addressed evidence;
 - preserve non-secret durable evidence boundaries (no raw scanner logs, payloads, secrets, kubeconfig, or host addresses).
 
 Acceptance criteria:
 
-- policy transition evidence is deterministic, content-addressed and auditable, and highlights signer-state deltas without exposing secret material;
-- durable receipts/audit prove deterministic gate evaluation plus trust-policy-based signature verification evidence and explicit policy confirmation (and diff binding when provided);
+- policy transition evidence remains deterministic, content-addressed and auditable, and highlights signer-state deltas without exposing secret material;
+- destructive transition consumption is blocked unless an explicit reviewed transition artifact is provided and bound;
+- durable receipts/audit prove deterministic gate evaluation plus trust-policy-based signature verification evidence, explicit policy confirmation, and reviewed transition binding where required;
 - apply-side provenance accepts only valid, trusted, non-expired signed gate results under confirmed policy context and otherwise fails closed;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 

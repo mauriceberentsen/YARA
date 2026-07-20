@@ -115,6 +115,10 @@ func LoadAirgapGateTrustPolicy(path string) (AirgapGateTrustPolicy, error) {
 	return loadResource[AirgapGateTrustPolicy](path)
 }
 
+func LoadAirgapGateTrustPolicyDiff(path string) (AirgapGateTrustPolicyDiff, error) {
+	return loadResource[AirgapGateTrustPolicyDiff](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

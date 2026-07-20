@@ -264,9 +264,51 @@ func TestDeploymentApplyAcceptsPassedAirgapGateResultWithoutReceiptFlags(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	fromPolicy := gateTrustPolicy
+	fromPolicy.Metadata.Name = "airgap-gate-trust-policy-from"
+	fromPolicy.Spec.TrustedSignerIdentities = append(fromPolicy.Spec.TrustedSignerIdentities, resources.AirgapTrustedSignerIdentity{
+		KeyID:           "operations-key-2",
+		Algorithm:       "Ed25519",
+		PublicKey:       base64.StdEncoding.EncodeToString(ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x66}, ed25519.SeedSize)).Public().(ed25519.PublicKey)),
+		PublicKeyDigest: resources.PublicKeyDigest(ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x66}, ed25519.SeedSize)).Public().(ed25519.PublicKey)),
+		Status:          "active",
+	})
+	fromPolicy, err = fromPolicy.AssignPolicyID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff := resources.AirgapGateTrustPolicyDiff{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicyDiff",
+		Metadata: resources.AirgapGateTrustPolicyDiffMetadata{
+			Name: "airgap-policy-diff",
+		},
+		Spec: resources.AirgapGateTrustPolicyDiffSpec{
+			RecordedAt:            now.Add(2 * time.Minute).Format(time.RFC3339Nano),
+			FromPolicyID:          fromPolicy.Metadata.PolicyID,
+			ToPolicyID:            gateTrustPolicy.Metadata.PolicyID,
+			TargetReferenceDigest: gateTrustPolicy.Spec.TargetReferenceDigest,
+			HighestImpact:         "destructive",
+			Changes: []resources.AirgapGateTrustPolicyChange{{
+				ID:       "change-001",
+				KeyID:    "operations-key-2",
+				Digest:   fromPolicy.Spec.TrustedSignerIdentities[1].PublicKeyDigest,
+				Category: "removed",
+				Impact:   "destructive",
+				Summary:  "Signer removed.",
+			}},
+			Limitations: []string{"Policy diff fixture."},
+		},
+	}
+	diff, err = diff.AssignDiffID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	diffPath := filepath.Join(directory, "airgap-gate-policy-diff.yaml")
+	writeYAMLFixture(t, diffPath, diff)
 	paths = removeFlag(paths, "--transfer-receipt")
 	paths = removeFlag(paths, "--scan-receipt")
-	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-trust-policy", gateTrustPolicyPath, "--confirm-airgap-gate-trust-policy", gateTrustPolicy.Metadata.PolicyID)
+	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-trust-policy", gateTrustPolicyPath, "--confirm-airgap-gate-trust-policy", gateTrustPolicy.Metadata.PolicyID, "--airgap-gate-policy-diff", diffPath, "--confirm-airgap-gate-policy-diff", diff.Metadata.DiffID)
 	originalFactory := newKubernetesExecutor
 	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
 	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
@@ -294,6 +336,9 @@ func TestDeploymentApplyAcceptsPassedAirgapGateResultWithoutReceiptFlags(t *test
 	if receipt.Spec.AirgapGateTrustPolicyID != gateTrustPolicy.Metadata.PolicyID {
 		t.Fatalf("receipt missing trust-policy binding: %#v", receipt.Spec)
 	}
+	if receipt.Spec.AirgapGateTrustPolicyDiffID != diff.Metadata.DiffID {
+		t.Fatalf("receipt missing trust-policy diff binding: %#v", receipt.Spec)
+	}
 }
 
 func TestDeploymentApplyRejectsAirgapTrustPolicyConfirmationMismatch(t *testing.T) {
@@ -315,6 +360,59 @@ func TestDeploymentApplyRejectsAirgapTrustPolicyConfirmationMismatch(t *testing.
 	var stdout, stderr bytes.Buffer
 	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitInfeasible {
 		t.Fatalf("trust policy confirmation mismatch should fail: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestDeploymentApplyRejectsAirgapTrustPolicyDiffConfirmationMismatch(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, directory, now)
+	gatePath := filepath.Join(directory, "airgap-gate.yaml")
+	gateTrustPolicyPath := writeAirgapGateFixture(t, gatePath, paths)
+	gateTrustPolicy, err := resources.LoadAirgapGateTrustPolicy(gateTrustPolicyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff := resources.AirgapGateTrustPolicyDiff{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicyDiff",
+		Metadata:   resources.AirgapGateTrustPolicyDiffMetadata{Name: "airgap-policy-diff"},
+		Spec: resources.AirgapGateTrustPolicyDiffSpec{
+			RecordedAt:            now.Add(2 * time.Minute).Format(time.RFC3339Nano),
+			FromPolicyID:          testCLIDigest('e'),
+			ToPolicyID:            gateTrustPolicy.Metadata.PolicyID,
+			TargetReferenceDigest: gateTrustPolicy.Spec.TargetReferenceDigest,
+			HighestImpact:         "review",
+			Changes: []resources.AirgapGateTrustPolicyChange{{
+				ID:       "change-001",
+				KeyID:    "operations-key-1",
+				Digest:   gateTrustPolicy.Spec.TrustedSignerIdentities[0].PublicKeyDigest,
+				Category: "validity-window-updated",
+				Impact:   "review",
+				Summary:  "Validity updated.",
+			}},
+			Limitations: []string{"Policy diff fixture."},
+		},
+	}
+	diff, err = diff.AssignDiffID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	diffPath := filepath.Join(directory, "airgap-gate-policy-diff.yaml")
+	writeYAMLFixture(t, diffPath, diff)
+	paths = removeFlag(paths, "--transfer-receipt")
+	paths = removeFlag(paths, "--scan-receipt")
+	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-trust-policy", gateTrustPolicyPath, "--confirm-airgap-gate-trust-policy", gateTrustPolicy.Metadata.PolicyID, "--airgap-gate-policy-diff", diffPath, "--confirm-airgap-gate-policy-diff", testCLIDigest('f'))
+	originalFactory := newKubernetesExecutor
+	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
+	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
+		t.Fatal("executor reached with trust policy diff confirmation mismatch")
+		return nil, nil
+	}
+	args := append(paths, "--confirm-authorization", authorization.Metadata.AuthorizationID, "--name", "receipt", "--receipt-output", filepath.Join(directory, "receipt.yaml"), "--audit-output", filepath.Join(directory, "apply.audit.jsonl"))
+	var stdout, stderr bytes.Buffer
+	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitInfeasible {
+		t.Fatalf("trust policy diff confirmation mismatch should fail: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }
 

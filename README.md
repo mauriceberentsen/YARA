@@ -362,6 +362,12 @@ go run ./cmd/yara airgap gate-trust-policy record \
   --name reference-stack-airgap-gate-trust-policy \
   --output reference-stack.airgap-gate-trust-policy.yaml \
   --audit-output reference-stack.airgap-gate-trust-policy.audit.jsonl
+go run ./cmd/yara airgap gate-trust-policy diff \
+  --from-policy previous.airgap-gate-trust-policy.yaml \
+  --to-policy reference-stack.airgap-gate-trust-policy.yaml \
+  --name reference-stack-airgap-gate-trust-policy-diff \
+  --output reference-stack.airgap-gate-trust-policy-diff.yaml \
+  --audit-output reference-stack.airgap-gate-trust-policy-diff.audit.jsonl
 ```
 
 Currently implemented:

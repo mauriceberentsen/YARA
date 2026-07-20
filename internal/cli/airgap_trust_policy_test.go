@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"path/filepath"
 	"testing"
 
@@ -64,5 +65,96 @@ func TestAirgapGateTrustPolicyRecordRejectsMalformedSigner(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if exit := Run(args, &stdout, &stderr); exit != ExitInvalidInput {
 		t.Fatalf("malformed signer input should fail invalid input: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestAirgapGateTrustPolicyDiffWritesArtifactAndAudit(t *testing.T) {
+	directory := t.TempDir()
+	keyA, privA, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyB, privB, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = privA, privB
+	fromPolicy := resources.AirgapGateTrustPolicy{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicy",
+		Metadata:   resources.AirgapGateTrustPolicyMetadata{Name: "from-policy"},
+		Spec: resources.AirgapGateTrustPolicySpec{
+			RecordedAt:            "2026-07-20T10:00:00Z",
+			TargetReferenceDigest: testCLIDigest('c'),
+			TrustedSignerIdentities: []resources.AirgapTrustedSignerIdentity{{
+				KeyID:           "operations-key-1",
+				Algorithm:       "Ed25519",
+				PublicKey:       base64.StdEncoding.EncodeToString(keyA),
+				PublicKeyDigest: resources.PublicKeyDigest(keyA),
+				Status:          "active",
+			}},
+			Limitations: []string{"from policy"},
+		},
+	}
+	fromPolicy, err = fromPolicy.AssignPolicyID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	toPolicy := resources.AirgapGateTrustPolicy{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicy",
+		Metadata:   resources.AirgapGateTrustPolicyMetadata{Name: "to-policy"},
+		Spec: resources.AirgapGateTrustPolicySpec{
+			RecordedAt:            "2026-07-20T10:05:00Z",
+			TargetReferenceDigest: testCLIDigest('c'),
+			TrustedSignerIdentities: []resources.AirgapTrustedSignerIdentity{
+				{
+					KeyID:           "operations-key-1",
+					Algorithm:       "Ed25519",
+					PublicKey:       base64.StdEncoding.EncodeToString(keyA),
+					PublicKeyDigest: resources.PublicKeyDigest(keyA),
+					Status:          "active",
+				},
+				{
+					KeyID:           "operations-key-2",
+					Algorithm:       "Ed25519",
+					PublicKey:       base64.StdEncoding.EncodeToString(keyB),
+					PublicKeyDigest: resources.PublicKeyDigest(keyB),
+					Status:          "active",
+				},
+			},
+			Limitations: []string{"to policy"},
+		},
+	}
+	toPolicy, err = toPolicy.AssignPolicyID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromPath := filepath.Join(directory, "from-policy.yaml")
+	toPath := filepath.Join(directory, "to-policy.yaml")
+	writeYAMLFixture(t, fromPath, fromPolicy)
+	writeYAMLFixture(t, toPath, toPolicy)
+	outPath := filepath.Join(directory, "policy-diff.yaml")
+	auditPath := filepath.Join(directory, "policy-diff.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exit := Run([]string{"airgap", "gate-trust-policy", "diff", "--from-policy", fromPath, "--to-policy", toPath, "--name", "policy-diff", "--output", outPath, "--audit-output", auditPath}, &stdout, &stderr); exit != ExitSuccess {
+		t.Fatalf("trust policy diff failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	diff, err := resources.LoadAirgapGateTrustPolicyDiff(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.Metadata.DiffID == "" || diff.Spec.ToPolicyID != toPolicy.Metadata.PolicyID {
+		t.Fatalf("unexpected trust-policy diff output: %#v", diff)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := audit.Verify(events); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[1].Spec.Action != "airgap.gate-trust-policy.diff.completed" {
+		t.Fatalf("terminal trust-policy diff audit missing: %#v", events)
 	}
 }

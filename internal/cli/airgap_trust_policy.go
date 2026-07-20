@@ -25,6 +25,14 @@ type airgapTrustPolicyRecordOptions struct {
 	signerInputs          csvFlag
 }
 
+type airgapTrustPolicyDiffOptions struct {
+	fromPolicyPath string
+	toPolicyPath   string
+	name           string
+	outputPath     string
+	auditPath      string
+}
+
 func recordAirgapGateTrustPolicy(args []string, stdout, stderr io.Writer) int {
 	options, ok := parseAirgapTrustPolicyRecordOptions(args, stderr)
 	if !ok {
@@ -170,4 +178,226 @@ func parseAirgapTrustedSignerInput(value string) (resources.AirgapTrustedSignerI
 		signer.ValidUntil = validUntil
 	}
 	return signer, nil
+}
+
+func diffAirgapGateTrustPolicy(args []string, stdout, stderr io.Writer) int {
+	options, ok := parseAirgapTrustPolicyDiffOptions(args, stderr)
+	if !ok {
+		return ExitInvalidInput
+	}
+	fromPolicy, err := resources.LoadAirgapGateTrustPolicy(options.fromPolicyPath)
+	if err != nil || !fromPolicy.Validate().Valid {
+		return writeLoadErrorWithExit(stdout, "YARA-AGD-101", errors.New("from trust policy is invalid"), ExitInvalidInput)
+	}
+	toPolicy, err := resources.LoadAirgapGateTrustPolicy(options.toPolicyPath)
+	if err != nil || !toPolicy.Validate().Valid {
+		return writeLoadErrorWithExit(stdout, "YARA-AGD-102", errors.New("to trust policy is invalid"), ExitInvalidInput)
+	}
+	if fromPolicy.Spec.TargetReferenceDigest != toPolicy.Spec.TargetReferenceDigest {
+		return writeLoadErrorWithExit(stdout, "YARA-AGD-103", errors.New("trust-policy diff requires matching targetReferenceDigest"), ExitInvalidInput)
+	}
+	changes, highestImpact := computeTrustPolicyDiffChanges(fromPolicy, toPolicy)
+	if len(changes) == 0 {
+		return writeLoadErrorWithExit(stdout, "YARA-AGD-104", errors.New("trust-policy diff requires at least one signer change"), ExitInvalidInput)
+	}
+	if err := enforceTrustPolicyTransitionSafety(fromPolicy, toPolicy); err != nil {
+		return writeLoadErrorWithExit(stdout, "YARA-AGD-105", err, ExitInfeasible)
+	}
+	diff := resources.AirgapGateTrustPolicyDiff{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicyDiff",
+		Metadata: resources.AirgapGateTrustPolicyDiffMetadata{
+			Name: options.name,
+		},
+		Spec: resources.AirgapGateTrustPolicyDiffSpec{
+			RecordedAt:            time.Now().UTC().Format(time.RFC3339Nano),
+			FromPolicyID:          fromPolicy.Metadata.PolicyID,
+			ToPolicyID:            toPolicy.Metadata.PolicyID,
+			TargetReferenceDigest: toPolicy.Spec.TargetReferenceDigest,
+			HighestImpact:         highestImpact,
+			Changes:               changes,
+			Limitations: []string{
+				"Trust-policy diff includes signer identity and digest metadata only.",
+				"Trust-policy diff excludes private keys and secret-bearing payloads.",
+			},
+		},
+	}
+	slices.Sort(diff.Spec.Limitations)
+	diff, err = diff.AssignDiffID()
+	if err != nil {
+		return writeLoadErrorWithExit(stdout, "YARA-AGD-500", err, ExitInternal)
+	}
+	if report := diff.Validate(); !report.Valid {
+		return writeLoadErrorWithExit(stdout, "YARA-AGD-500", errors.New("constructed trust-policy diff is invalid"), ExitInternal)
+	}
+	data, err := yaml.Marshal(diff)
+	if err != nil {
+		return writeLoadErrorWithExit(stdout, "YARA-AGD-500", err, ExitInternal)
+	}
+	if err := writeExclusive(options.outputPath, data); err != nil {
+		return writeLoadErrorWithExit(stdout, "YARA-AGD-106", err, ExitInvalidInput)
+	}
+	subjects := []audit.Subject{
+		{Kind: "AirgapGateTrustPolicy", Digest: fromPolicy.Metadata.PolicyID},
+		{Kind: "AirgapGateTrustPolicy", Digest: toPolicy.Metadata.PolicyID},
+		{Kind: "AirgapGateTrustPolicyDiff", Digest: diff.Metadata.DiffID},
+	}
+	target := "kubernetes:" + toPolicy.Spec.TargetReferenceDigest
+	if err := persistOperationAuditForTarget(options.auditPath, "airgap.gate-trust-policy.diff", "completed", "success", target, subjects, nil); err != nil {
+		_ = os.Remove(options.outputPath)
+		return writeLoadError(stdout, "YARA-AUD-005", err)
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(map[string]any{
+		"valid":         true,
+		"diffId":        diff.Metadata.DiffID,
+		"fromPolicyId":  diff.Spec.FromPolicyID,
+		"toPolicyId":    diff.Spec.ToPolicyID,
+		"highestImpact": diff.Spec.HighestImpact,
+		"output":        options.outputPath,
+		"auditOutput":   options.auditPath,
+	}); err != nil {
+		return ExitInternal
+	}
+	return ExitSuccess
+}
+
+func parseAirgapTrustPolicyDiffOptions(args []string, stderr io.Writer) (airgapTrustPolicyDiffOptions, bool) {
+	var options airgapTrustPolicyDiffOptions
+	flags := flag.NewFlagSet("airgap gate-trust-policy diff", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&options.fromPolicyPath, "from-policy", "", "From AirgapGateTrustPolicy YAML")
+	flags.StringVar(&options.toPolicyPath, "to-policy", "", "To AirgapGateTrustPolicy YAML")
+	flags.StringVar(&options.name, "name", "", "AirgapGateTrustPolicyDiff name")
+	flags.StringVar(&options.outputPath, "output", "", "Generated AirgapGateTrustPolicyDiff YAML output")
+	flags.StringVar(&options.auditPath, "audit-output", "", "Generated trust-policy diff audit JSONL output")
+	if err := flags.Parse(args); err != nil {
+		return options, false
+	}
+	if flags.NArg() != 0 || options.fromPolicyPath == "" || options.toPolicyPath == "" || options.name == "" || options.outputPath == "" || options.auditPath == "" {
+		fmt.Fprintln(stderr, "airgap gate-trust-policy diff requires --from-policy --to-policy --name --output --audit-output")
+		return options, false
+	}
+	if options.outputPath == options.auditPath {
+		fmt.Fprintln(stderr, "--output and --audit-output must be different files")
+		return options, false
+	}
+	return options, true
+}
+
+func computeTrustPolicyDiffChanges(fromPolicy, toPolicy resources.AirgapGateTrustPolicy) ([]resources.AirgapGateTrustPolicyChange, string) {
+	type signerKey struct {
+		keyID  string
+		digest string
+	}
+	fromSigners := map[signerKey]resources.AirgapTrustedSignerIdentity{}
+	toSigners := map[signerKey]resources.AirgapTrustedSignerIdentity{}
+	for _, signer := range fromPolicy.Spec.TrustedSignerIdentities {
+		fromSigners[signerKey{keyID: signer.KeyID, digest: signer.PublicKeyDigest}] = signer
+	}
+	for _, signer := range toPolicy.Spec.TrustedSignerIdentities {
+		toSigners[signerKey{keyID: signer.KeyID, digest: signer.PublicKeyDigest}] = signer
+	}
+	changes := []resources.AirgapGateTrustPolicyChange{}
+	highestImpact := "review"
+	changeID := 1
+	for key, signer := range toSigners {
+		before, exists := fromSigners[key]
+		if !exists {
+			changes = append(changes, resources.AirgapGateTrustPolicyChange{
+				ID:       fmt.Sprintf("change-%03d", changeID),
+				KeyID:    key.keyID,
+				Digest:   key.digest,
+				Category: "added",
+				Impact:   "review",
+				Summary:  "Signer identity added to trust policy.",
+			})
+			changeID++
+			continue
+		}
+		if before.Status != signer.Status {
+			impact := "review"
+			category := "revoked"
+			summary := "Signer status changed."
+			if signer.Status == "active" {
+				category = "added"
+				summary = "Signer status changed from revoked to active."
+			}
+			if before.Status == "active" && signer.Status == "revoked" {
+				impact = "destructive"
+				highestImpact = "destructive"
+				summary = "Signer status changed from active to revoked."
+			}
+			changes = append(changes, resources.AirgapGateTrustPolicyChange{
+				ID:       fmt.Sprintf("change-%03d", changeID),
+				KeyID:    key.keyID,
+				Digest:   key.digest,
+				Category: category,
+				Impact:   impact,
+				Summary:  summary,
+			})
+			changeID++
+		}
+		if before.ValidFrom != signer.ValidFrom || before.ValidUntil != signer.ValidUntil {
+			changes = append(changes, resources.AirgapGateTrustPolicyChange{
+				ID:       fmt.Sprintf("change-%03d", changeID),
+				KeyID:    key.keyID,
+				Digest:   key.digest,
+				Category: "validity-window-updated",
+				Impact:   "review",
+				Summary:  "Signer validity window updated.",
+			})
+			changeID++
+		}
+	}
+	for key := range fromSigners {
+		if _, exists := toSigners[key]; exists {
+			continue
+		}
+		changes = append(changes, resources.AirgapGateTrustPolicyChange{
+			ID:       fmt.Sprintf("change-%03d", changeID),
+			KeyID:    key.keyID,
+			Digest:   key.digest,
+			Category: "removed",
+			Impact:   "destructive",
+			Summary:  "Signer identity removed from trust policy.",
+		})
+		highestImpact = "destructive"
+		changeID++
+	}
+	slices.SortFunc(changes, func(left, right resources.AirgapGateTrustPolicyChange) int {
+		leftKey := left.KeyID + "|" + left.Digest + "|" + left.Category
+		rightKey := right.KeyID + "|" + right.Digest + "|" + right.Category
+		return compareStrings(leftKey, rightKey)
+	})
+	for index := range changes {
+		changes[index].ID = fmt.Sprintf("change-%03d", index+1)
+	}
+	return changes, highestImpact
+}
+
+func enforceTrustPolicyTransitionSafety(fromPolicy, toPolicy resources.AirgapGateTrustPolicy) error {
+	activeBefore := map[string]struct{}{}
+	activeAfter := map[string]struct{}{}
+	for _, signer := range fromPolicy.Spec.TrustedSignerIdentities {
+		if signer.Status == "active" {
+			activeBefore[signer.KeyID+"|"+signer.PublicKeyDigest] = struct{}{}
+		}
+	}
+	for _, signer := range toPolicy.Spec.TrustedSignerIdentities {
+		if signer.Status == "active" {
+			activeAfter[signer.KeyID+"|"+signer.PublicKeyDigest] = struct{}{}
+		}
+	}
+	preserved := 0
+	for key := range activeBefore {
+		if _, ok := activeAfter[key]; ok {
+			preserved++
+		}
+	}
+	if len(activeBefore) > 0 && len(activeAfter) > 0 && preserved == 0 {
+		return errors.New("trust-policy transition cannot replace all active signers in one change")
+	}
+	return nil
 }

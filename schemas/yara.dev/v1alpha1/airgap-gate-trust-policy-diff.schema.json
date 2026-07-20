@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/airgap-gate-trust-policy-diff.schema.json",
+  "title": "YARA AirgapGateTrustPolicyDiff v1alpha1",
+  "description": "Deterministic signer transition evidence for two trust-policy resources.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "AirgapGateTrustPolicyDiff" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "diffId"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "diffId": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordedAt", "fromPolicyId", "toPolicyId", "targetReferenceDigest", "highestImpact", "changes", "limitations"],
+      "properties": {
+        "recordedAt": { "type": "string", "format": "date-time" },
+        "fromPolicyId": { "$ref": "#/$defs/digest" },
+        "toPolicyId": { "$ref": "#/$defs/digest" },
+        "targetReferenceDigest": { "$ref": "#/$defs/digest" },
+        "highestImpact": { "enum": ["review", "destructive"] },
+        "changes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/change" } },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "name": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$" },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "keyId", "digest", "category", "impact", "summary"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "keyId": { "type": "string", "minLength": 1 },
+        "digest": { "$ref": "#/$defs/digest" },
+        "category": { "enum": ["added", "revoked", "validity-window-updated", "removed"] },
+        "impact": { "enum": ["review", "destructive"] },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

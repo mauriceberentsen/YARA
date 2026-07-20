@@ -83,9 +83,34 @@ func TestAirgapProvenanceGateEvaluateWritesResultAndAudit(t *testing.T) {
 	}
 	policyPath := filepath.Join(directory, "airgap-gate-policy.yaml")
 	writeYAMLFixture(t, policyPath, trustPolicy)
+	fromPolicy := trustPolicy
+	fromPolicy.Metadata.Name = "airgap-gate-trust-policy-from"
+	fromPolicy.Spec.TrustedSignerIdentities = append(fromPolicy.Spec.TrustedSignerIdentities, resources.AirgapTrustedSignerIdentity{
+		KeyID:           "operations-key-2",
+		Algorithm:       "Ed25519",
+		PublicKey:       base64.StdEncoding.EncodeToString(ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x55}, ed25519.SeedSize)).Public().(ed25519.PublicKey)),
+		PublicKeyDigest: resources.PublicKeyDigest(ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x55}, ed25519.SeedSize)).Public().(ed25519.PublicKey)),
+		Status:          "active",
+	})
+	fromPolicy, err = fromPolicy.AssignPolicyID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromPolicyPath := filepath.Join(directory, "airgap-gate-policy-from.yaml")
+	writeYAMLFixture(t, fromPolicyPath, fromPolicy)
+	policyDiffPath := filepath.Join(directory, "airgap-gate-policy-diff.yaml")
 	stdout.Reset()
 	stderr.Reset()
-	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", filepath.Join(directory, "airgap-gate.yaml"), "--trust-policy", policyPath, "--confirm-policy", trustPolicy.Metadata.PolicyID}, &stdout, &stderr); exit != ExitSuccess {
+	if exit := Run([]string{"airgap", "gate-trust-policy", "diff", "--from-policy", fromPolicyPath, "--to-policy", policyPath, "--name", "airgap-policy-diff", "--output", policyDiffPath, "--audit-output", filepath.Join(directory, "airgap-gate-policy-diff.audit.jsonl")}, &stdout, &stderr); exit != ExitSuccess {
+		t.Fatalf("airgap trust-policy diff failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	diff, err := resources.LoadAirgapGateTrustPolicyDiff(policyDiffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", filepath.Join(directory, "airgap-gate.yaml"), "--trust-policy", policyPath, "--confirm-policy", trustPolicy.Metadata.PolicyID, "--policy-diff", policyDiffPath, "--confirm-policy-diff", diff.Metadata.DiffID}, &stdout, &stderr); exit != ExitSuccess {
 		t.Fatalf("airgap gate verify failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }
