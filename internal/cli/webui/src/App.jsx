@@ -1433,6 +1433,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-certificate.export.audit.jsonl` : "",
   }));
   const [closureCertificateSubmitState, setClosureCertificateSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureLedgerForm, setClosureLedgerForm] = useState(() => ({
+    ledgerReference: "",
+    recordedByReference: "",
+    recordedTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-ledger.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-ledger.export.audit.jsonl` : "",
+  }));
+  const [closureLedgerSubmitState, setClosureLedgerSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1520,6 +1528,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-certificate.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-certificate.export.audit.jsonl`,
+    }));
+    setClosureLedgerForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-ledger.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-ledger.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2004,6 +2017,36 @@ function CapsuleView({ payload }) {
       setClosureCertificateSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setClosureCertificateSubmitState({ loading: false, error: error.message || "Rollout closure certificate export failed", result: null });
+    }
+  };
+  const updateClosureLedger = (key) => (event) => {
+    setClosureLedgerForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureLedger = closureLedgerForm.ledgerReference.trim() !== "" &&
+    closureLedgerForm.recordedByReference.trim() !== "" &&
+    closureLedgerForm.recordedTimestamp.trim() !== "" &&
+    closureLedgerForm.manifestPath !== "" &&
+    closureLedgerForm.auditPath !== "" &&
+    closureLedgerForm.manifestPath !== closureLedgerForm.auditPath;
+  const submitClosureLedger = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureLedger) {
+      return;
+    }
+    setClosureLedgerSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure-ledger/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureLedgerForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure ledger export failed");
+      }
+      setClosureLedgerSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureLedgerSubmitState({ loading: false, error: error.message || "Rollout closure ledger export failed", result: null });
     }
   };
   return (
@@ -2629,6 +2672,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureCertificateSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Certificate readiness</dt><dd>{closureCertificateSubmitState.result.certificateState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureCertificateSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export rollout closure archival ledger</h3>
+      <form onSubmit={submitClosureLedger}>
+        <div className="formRow">
+          <label htmlFor="closure-ledger-reference">Ledger reference</label>
+          <input id="closure-ledger-reference" value={closureLedgerForm.ledgerReference} onChange={updateClosureLedger("ledgerReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-ledger-recorded-by-reference">Recorded by reference</label>
+          <input id="closure-ledger-recorded-by-reference" value={closureLedgerForm.recordedByReference} onChange={updateClosureLedger("recordedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-ledger-recorded-timestamp">Recorded timestamp (RFC3339)</label>
+          <input id="closure-ledger-recorded-timestamp" value={closureLedgerForm.recordedTimestamp} onChange={updateClosureLedger("recordedTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-ledger-manifest-path">Ledger manifest output path</label>
+          <input id="closure-ledger-manifest-path" value={closureLedgerForm.manifestPath} onChange={updateClosureLedger("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-ledger-audit-path">Ledger audit output path</label>
+          <input id="closure-ledger-audit-path" value={closureLedgerForm.auditPath} onChange={updateClosureLedger("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureLedgerSubmitState.loading || !canExportClosureLedger}>
+          {closureLedgerSubmitState.loading ? "Exporting closure ledger..." : "Export closure ledger"}
+        </button>
+      </form>
+      {!canExportClosureLedger && <p className="error">Ledger export requires ledger reference, recorded-by reference, recorded timestamp, and distinct manifest/audit paths.</p>}
+      {closureLedgerSubmitState.error && <p className="error">Ledger readiness: blocked ({closureLedgerSubmitState.error})</p>}
+      {closureLedgerSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureLedgerSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureLedgerSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Ledger readiness</dt><dd>{closureLedgerSubmitState.result.ledgerState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureLedgerSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>

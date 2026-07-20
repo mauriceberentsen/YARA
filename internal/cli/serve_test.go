@@ -3059,6 +3059,151 @@ func TestServeWorkflowRolloutClosureCertificateExportRejectsDigestMismatch(t *te
 	}
 }
 
+func TestServeWorkflowRolloutClosureLedgerExportWritesManifestAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	writeReleasePublicationAcknowledgmentFixture(t, workspacePath)
+	writeRolloutClosureSummaryFixture(t, workspacePath)
+	writeRolloutClosureDeliveryFixture(t, workspacePath)
+	writeRolloutClosureAcceptanceFixture(t, workspacePath)
+	writeRolloutClosureCertificateFixture(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	manifestPath := filepath.Join(workspacePath, "workflow.rollout-closure-ledger.json")
+	auditPath := filepath.Join(workspacePath, "workflow.rollout-closure-ledger.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"ledgerReference":"closure-ledger-2026-07-21","recordedByReference":"archive-operator-1","recordedTimestamp":"2026-07-21T01:05:00Z","manifestPath":%q,"auditPath":%q}`, manifestPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/rollout-closure-ledger/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for rollout closure ledger export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read rollout closure ledger manifest: %v", err)
+	}
+	manifest := workflowRolloutClosureLedgerManifest{}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode rollout closure ledger manifest: %v", err)
+	}
+	if manifest.Ledger.LedgerState != "ledger-ready" {
+		t.Fatalf("expected ledger-ready state, got %#v", manifest.Ledger)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load rollout closure ledger audit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected audit events for rollout closure ledger export")
+	}
+}
+
+func TestServeWorkflowRolloutClosureLedgerExportRejectsBlockedCertificate(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	writeReleasePublicationAcknowledgmentFixture(t, workspacePath)
+	writeRolloutClosureSummaryFixture(t, workspacePath)
+	writeRolloutClosureDeliveryFixture(t, workspacePath)
+	writeRolloutClosureAcceptanceFixture(t, workspacePath)
+	certificatePath := writeRolloutClosureCertificateFixture(t, workspacePath)
+	certificate := workflowRolloutClosureCertificateManifest{}
+	certificateBytes, err := os.ReadFile(certificatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(certificateBytes, &certificate); err != nil {
+		t.Fatal(err)
+	}
+	certificate.Certificate.CertificateState = "blocked"
+	certificate.Certificate.BlockerCode = "YARA-RCC-003"
+	corrupted, err := json.MarshalIndent(certificate, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted = append(corrupted, '\n')
+	if err := os.WriteFile(certificatePath, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"ledgerReference":"closure-ledger-2026-07-21","recordedByReference":"archive-operator-1","recordedTimestamp":"2026-07-21T01:05:00Z","manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.rollout-closure-ledger.json"),
+		filepath.Join(workspacePath, "workflow.rollout-closure-ledger.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/rollout-closure-ledger/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for blocked rollout closure certificate, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RLG-003") {
+		t.Fatalf("expected rollout closure ledger blocker code, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowRolloutClosureLedgerExportRejectsDigestMismatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	writeReleasePublicationAcknowledgmentFixture(t, workspacePath)
+	writeRolloutClosureSummaryFixture(t, workspacePath)
+	writeRolloutClosureDeliveryFixture(t, workspacePath)
+	writeRolloutClosureAcceptanceFixture(t, workspacePath)
+	certificatePath := writeRolloutClosureCertificateFixture(t, workspacePath)
+	certificate := workflowRolloutClosureCertificateManifest{}
+	certificateBytes, err := os.ReadFile(certificatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(certificateBytes, &certificate); err != nil {
+		t.Fatal(err)
+	}
+	certificate.Certificate.AcceptanceReceipt.Digest = testCLIDigest('5')
+	corrupted, err := json.MarshalIndent(certificate, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted = append(corrupted, '\n')
+	if err := os.WriteFile(certificatePath, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"ledgerReference":"closure-ledger-2026-07-21","recordedByReference":"archive-operator-1","recordedTimestamp":"2026-07-21T01:05:00Z","manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.rollout-closure-ledger.mismatch.json"),
+		filepath.Join(workspacePath, "workflow.rollout-closure-ledger.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/rollout-closure-ledger/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for rollout closure ledger digest mismatch, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RLG-006") {
+		t.Fatalf("expected rollout closure ledger digest blocker code, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
@@ -3627,6 +3772,30 @@ func writeRolloutClosureAcceptanceFixture(t *testing.T, workspacePath string) st
 	manifestBytes = append(manifestBytes, '\n')
 	if err := os.WriteFile(manifestPath, manifestBytes, 0o600); err != nil {
 		t.Fatalf("write rollout closure acceptance fixture: %v", err)
+	}
+	return manifestPath
+}
+
+func writeRolloutClosureCertificateFixture(t *testing.T, workspacePath string) string {
+	t.Helper()
+	manifest, _, err := buildWorkflowRolloutClosureCertificateManifest(workspacePath, workflowRolloutClosureCertificateExportRequest{
+		CertificateReference: "closure-certificate-2026-07-21",
+		IssuedByReference:    "release-authority-1",
+		IssuedTimestamp:      "2026-07-21T01:00:00Z",
+		ManifestPath:         filepath.Join(workspacePath, "workflow.rollout-closure-certificate.json"),
+		AuditPath:            filepath.Join(workspacePath, "workflow.rollout-closure-certificate.export.audit.jsonl"),
+	})
+	if err != nil {
+		t.Fatalf("build rollout closure certificate fixture: %v", err)
+	}
+	manifestPath := filepath.Join(workspacePath, "workflow.rollout-closure-certificate.json")
+	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal rollout closure certificate fixture: %v", err)
+	}
+	manifestBytes = append(manifestBytes, '\n')
+	if err := os.WriteFile(manifestPath, manifestBytes, 0o600); err != nil {
+		t.Fatalf("write rollout closure certificate fixture: %v", err)
 	}
 	return manifestPath
 }
