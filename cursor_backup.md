@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `HEAD~1` runtime drift signal contract, `HEAD~2` release verification, `HEAD~3` release-note digest finalization, `HEAD~4` architecture index clarity, `HEAD~5` CLI command reference alignment.
+- Recent commits (newest first): `b1c3ef0`, `204b6ba`, `0359114`, `c96f21b`, `3695a18`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
@@ -26,6 +26,10 @@
   - `catalog coverage runtime-drift-policy` evaluates `runtimeDriftPosture` for all assertions or one selected assertion;
   - assertion-scoped checks fail with infeasible exit when posture is `missing` or `drifted`;
   - malformed/incomplete posture records fail closed before policy output.
+- Web UI backend foundation (W1) is now implemented as a bounded local read-only HTTP API:
+  - `yara serve --catalog <file> --coverage-report <file> [--port <port>]` starts a local `net/http` server;
+  - read-only endpoints exposed: `/api/v1/catalog`, `/api/v1/assertions`, `/api/v1/coverage`, `/api/v1/drift-posture`, `/api/v1/lifecycle-policy`;
+  - unknown routes and unsupported methods fail closed with structured `404` diagnostics and no mutation surface.
 - Bootstrap + first-use path is implemented:
   - `deployment bootstrap kubernetes` (bounded namespace/PVC provisioning with `BootstrapReceipt`);
   - `deployment import kubernetes` (bounded single-model local staging into bootstrap PVC with `ArtifactImportReceipt`).
@@ -41,70 +45,91 @@
 - **Pre-alpha docs clarity:** `README.md`, `docs/quickstart.md`, `docs/reference/commands.md`, and `docs/architecture/README.md` separate implemented behavior from deferred roadmap scope.
 - **Runtime drift contract verification:** new schema/resource/CLI/catalog-coverage wiring validates deterministic IDs, stale/foreign preflight rejection, audited target binding, and fail-closed malformed diagnostics parsing.
 - **Runtime drift policy gate verification:** dedicated policy command emits deterministic blocker/remediation output, produces auditable pass/fail responses, and enforces assertion-scoped infeasible exits for non-`in-sync` posture.
+- **Web UI API verification (simulated/local):** endpoint tests validate deterministic read responses from real catalog/coverage fixtures and fail-closed handling for unknown routes and non-read methods.
 
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
 - Tag: `v0.1.0-alpha.1` exists on origin and release workflow succeeded.
 - This slice completed:
-  - new `RuntimeDriftSignal` resource + schema + validators/tests;
-  - new `runtime drift-signal record` command and `runtime-drift-signal validate` path;
-  - catalog coverage runtime drift posture diagnostics wiring and tests;
-  - new `catalog coverage runtime-drift-policy` command with fail-closed posture validation, deterministic remediation, and CLI tests;
+  - new `yara serve` command with bounded local read-only API surface and configurable `--catalog` / `--coverage-report` / `--port`;
+  - strict read-only API routes for catalog snapshot, assertion list, coverage report, runtime drift posture, and lifecycle publication policy blockers;
+  - fail-closed `404` responses for unknown routes and unsupported methods;
+  - endpoint tests over real catalog/coverage fixtures;
   - command reference updates.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## MVP milestone path
 
-### M1 — Publication gating closure
-
-- Completed.
-- Exit satisfied: lifecycle publication readiness enforces the full four-pillar chain for integration-required assertions.
-
-### M2 — Artifact import receipt chain
-
-- Completed.
-- Exit satisfied: acquisition-to-deployment artifact chain has immutable receipt coverage at each handoff.
-
-### M3 — Bootstrap and first-use path
-
-- Completed.
-- Exit satisfied: fresh-operator documented path exists from planning through apply receipt validation.
-
-### M4 — CI and binary release
-
-- Completed.
-- Exit satisfied:
-  - CI blocks breaking merges;
-  - `gh release download v0.1.0-alpha.1` yields working release artifacts with verified checksums.
-
-### M5 — Public documentation and honest scope statement
-
-- Completed.
-- Exit satisfied: implemented versus deferred scope is explicit across top-level docs.
+- M1 Publication gating closure — completed.
+- M2 Artifact import receipt chain — completed.
+- M3 Bootstrap and first-use path — completed.
+- M4 CI and binary release — completed.
+- M5 Public documentation and honest scope statement — completed.
 
 ## Open limitations and unproven claims
 
 - No live cluster validation was executed in this run for rollback/integration/promotion/lifecycle publication paths; this run validated release publication and artifacts only.
 - Air-gap external trust chain (acquisition execution, transfer-medium attestation chain, external scanner attestations) remains outside YARA proof boundary.
 - Bootstrap remains intentionally narrow (single YARA-owned namespace + model PVC); full cluster install/orchestration is deferred.
-- Team API, web UI, runtime manager/drift detection, backup/restore, upgrades, multi-node topology, and broader vendor support remain post-MVP.
+- Web UI remains local-only and read-only in this stage (no auth, no multi-user/session model, no mutation endpoints).
+- Backup/restore, upgrades, multi-node topology, and broader vendor support remain post-alpha.
+
+## MVP-2 milestone path — Web UI
+
+Goal: a minimal browser-based operator interface that surfaces existing CLI capabilities without weakening any existing gates or mutation controls.
+
+### W1 — Backend HTTP API layer
+
+- Expose a bounded, read-mostly local HTTP server (`yara serve`) backed by the existing resource/catalog/coverage packages.
+- Endpoints: catalog snapshot, assertion list, coverage report (read), runtime drift posture, lifecycle publication policy status.
+- No write/mutation endpoints in this milestone; fail closed on any unrecognised route.
+- Exit criteria: `yara serve` starts on a configurable local port, responds to documented read endpoints with valid JSON, and exits cleanly on signal; unit + integration tests pass.
+
+### W2 — Minimal dashboard shell
+
+- Implement a single-page app shell (React + Vite) served by `yara serve` from an embedded filesystem.
+- Top-level nav: Catalog, Coverage, Drift, Lifecycle.
+- Each view fetches from W1 API endpoints and renders assertion-scoped status rows.
+- No mutation controls in the UI in this milestone.
+- Exit criteria: `yara serve --ui` opens the shell in a browser; each nav view loads and renders real catalog/coverage data without errors.
+
+### W3 — Runtime drift posture view
+
+- Implement the Drift view with per-assertion posture cards (in-sync / missing / drifted), blocker/remediation display, and audit trail link.
+- Assertion-scoped filter maps directly to `catalog coverage runtime-drift-policy --assertion`.
+- Exit criteria: Drift view correctly reflects `missing` posture for all assertions in a fresh catalog, and switches to `in-sync` after a valid `RuntimeDriftSignal` is imported via CLI and coverage report is refreshed.
+
+### W4 — Lifecycle publication readiness view
+
+- Implement the Lifecycle view with per-assertion four-pillar status indicators.
+- Display blocker codes and remediation hints from `lifecycle-publication-policy` output.
+- Exit criteria: Lifecycle view correctly displays blocked/unblocked state per assertion; state updates on coverage report reload.
+
+### W5 — Web UI release and public documentation
+
+- Bundle and embed the built UI into the binary via Go embed; no separate build artefact required at runtime.
+- Update `README.md`, `docs/quickstart.md`, and `docs/reference/commands.md` to document `yara serve` and the web UI.
+- Publish `v0.2.0-alpha.1` with all W1–W4 capabilities and honest scope statement (read-only, local-only, no auth in pre-alpha).
+- Exit criteria: `gh release download v0.2.0-alpha.1` yields a binary where `yara serve` boots the UI with catalog and coverage data.
 
 ## Next implementation slice
 
-Implement **Post-MVP slice: runtime drift evidence bundle command (read-only deterministic)**:
+Implement **W2 — Minimal dashboard shell**:
 
-- add a command that turns one `RuntimeDriftSignal` into a compact assertion-scoped evidence bundle payload for downstream reporting;
-- include deterministic, schema-validated signal facts only (assertion, runtimeRef, status, selected checks, signalId, report bindings);
-- fail closed when signal references are stale, mismatched with selected assertion, or include non-deterministic/unbounded fields.
+- add a minimal React + Vite single-page shell under an embedded static directory served by `yara serve`;
+- include four top-level views: Catalog, Coverage, Drift, Lifecycle;
+- wire each view to existing W1 endpoints only (read-only) with deterministic empty/error states;
+- keep CLI and API behavior unchanged: UI must not introduce mutation authority;
+- add deterministic frontend build/test checks wired into repository validation flow.
 
 Acceptance criteria:
 
-- command emits deterministic YAML/JSON evidence bundle output from an existing runtime drift signal without mutating cluster/publication state;
-- assertion-scoped mode rejects mismatched assertion/runtime bindings with invalid-input or infeasible exits (fail closed);
-- malformed or incomplete signal-check payloads fail closed as internal errors;
-- no deployment/publication mutation authority is added and no existing lifecycle/publication gates are weakened.
+- `yara serve --ui` serves the embedded shell and all four views render from live API responses without JavaScript runtime errors;
+- each view handles empty or blocked policy states without changing backend responses;
+- no mutation authority is added and no existing CLI gates are weakened;
+- backend and frontend checks both pass in `make check` and `go test -race ./...` (frontend checks classified simulated/local).
 
 ## Validation requirements
 

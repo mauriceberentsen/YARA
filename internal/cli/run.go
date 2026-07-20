@@ -49,6 +49,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, version.Version)
 		return ExitSuccess
 	}
+	if len(args) >= 1 && args[0] == "serve" {
+		return serveAPI(args[1:], stdout, stderr)
+	}
 	if len(args) == 3 && args[0] == "audit" && args[1] == "verify" {
 		return verifyAudit(args[2], stdout)
 	}
@@ -654,6 +657,7 @@ func writeLoadError(output io.Writer, code string, err error) int {
 func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "usage:")
 	fmt.Fprintln(output, "  yara version")
+	fmt.Fprintln(output, "  yara serve --catalog <file> --coverage-report <file> [--port <port>]")
 	fmt.Fprintln(output, "  yara request validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara inventory validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara catalog validate <snapshot-file> [--audit-output <file>]")

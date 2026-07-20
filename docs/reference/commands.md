@@ -10,6 +10,7 @@ Source of truth:
 ## Core validation and identity
 
 - `yara version` - print CLI version.
+- `yara serve` - start bounded local read-only HTTP API for catalog/coverage/web UI; key flags: `--catalog`, `--coverage-report`, `--port`.
 - `yara request validate <file>` - validate `PlatformRequest`; key flag: `--audit-output`.
 - `yara inventory validate <file>` - validate inventory input; key flag: `--audit-output`.
 - `yara catalog validate <snapshot-file>` - validate catalog snapshot; key flag: `--audit-output`.
