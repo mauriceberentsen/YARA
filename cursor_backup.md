@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `07b8dba` (`Converge integration evidence identities in catalog coverage.`).
+- Branch baseline before this slice: `main` at `fbd1111` (`Add first-use implementation quickstart walkthrough.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `BootstrapReceipt` (`schemas/yara.dev/v1alpha1/bootstrap-receipt.schema.json`);
@@ -100,6 +100,7 @@
 - bootstrap fails closed on target-confirmation drift, foreign ownership, storage-configuration drift, or durable audit/receipt persistence failure and never performs import/apply/retire/rollback side effects.
 - `docs/implementation/quickstart.md` now provides the first-use command chain from planning through apply receipt verification, including explicit confirmation points, expected evidence artifacts, and fail-closed checkpoints.
 - Mutating commands still require durable started audit before mutation and fail closed when terminal audit/receipt persistence cannot complete.
+- CI quality gates are now enforced through GitHub Actions on every pull request and push to `main`, running repository-native checks (`make check`, `go test -race ./...`, `git diff --check`) plus explicit draft-2020-12 validation across all public schemas.
 
 ## Verified capabilities
 
@@ -108,6 +109,7 @@
   - content-addressed `BootstrapReceipt` schema/Go validation + loader + validate command for bounded namespace/PVC provisioning evidence;
   - bounded Kubernetes deployment import path now fail-closes on bundle/target confirmation drift, unsafe import paths, and local digest/size mismatch before mutation, and preserves deterministic `ArtifactImportReceipt` identity bindings for selected model artifacts;
   - first-use quickstart documentation now enumerates implemented command/artifact handoff dependencies and clearly marks deferred roadmap scope outside pre-alpha.
+  - GitHub Actions CI (`.github/workflows/ci.yml`) now fail-closes mergeability on PR/push when repository checks, race tests, schema validation (draft 2020-12), or `git diff --check` fail.
   - catalog coverage now loads and audit-verifies `ArtifactImportReceipt`, `ArtifactTransferReceipt`, and `ArtifactScanReceipt` evidence and binds assertion-scoped import-chain diagnostics deterministically;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
@@ -182,20 +184,18 @@
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
 - **Validated in this run (simulated/local only):**
-  - `gofmt -w <changed-go-files>` not required (docs-only slice; no Go files changed);
+  - `gofmt -w <changed-go-files>` not required (workflow/docs-only slice; no Go files changed);
   - `git diff --check` passed;
   - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check` passed;
-  - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...` passed.
+  - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...` passed;
+  - `python -m pip install --quiet jsonschema && python <draft-2020-12 schema validation snippet>` passed for all `schemas/yara.dev/v1alpha1/*.schema.json` files (43/43).
 
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `8ef2ce7`, `3036cd0`, `f2e7aaa`, `f3b9f6e`, `846cf28`.
+- Recent commits before this slice (newest first): `fbd1111`, `8ef2ce7`, `3036cd0`, `f2e7aaa`, `f3b9f6e`.
 - M1 (Publication gating closure) is complete.
-- This slice completes M2 slice 3 by adding assertion-scoped artifact import-chain diagnostics and fail-closed limitation parity checks in catalog coverage create/policy outputs.
-- This slice completes M3 slice 1 by adding bounded Kubernetes bootstrap execution (`deployment bootstrap kubernetes`) with immutable `BootstrapReceipt` evidence and fail-closed started/terminal audit chaining.
-- This slice completes M3 slice 2 by adding bounded Kubernetes artifact staging (`deployment import kubernetes`) with immutable `ArtifactImportReceipt` evidence and fail-closed started/terminal audit chaining.
-- This slice completes M3 slice 3 by adding `docs/implementation/quickstart.md`, a reproducible command-by-command first-use walkthrough with explicit confirmations and fail-closed checkpoints.
+- This slice completes M4 slice 1 by adding deterministic GitHub Actions quality gates on PR/push (`make check`, `go test -race ./...`, draft-2020-12 schema validation, and `git diff --check`).
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -249,7 +249,7 @@ Exit: a new user can reproduce the reference walkthrough on a fresh cluster usin
 **Goal:** the project can be cloned, built, and released reproducibly without local Go environment setup.
 
 Slices:
-1. GitHub Actions CI: `make check`, `go test -race ./...`, schema validation (JSON Schema draft 2020-12), and `git diff --check` on every PR and push to main.
+1. Completed: GitHub Actions CI now runs `make check`, `go test -race ./...`, draft-2020-12 schema validation, and `git diff --check` on every PR and push to `main`, failing closed on any mismatch.
 2. goreleaser config: linux/amd64, linux/arm64, darwin/arm64 binaries; SHA-256 checksums; schema archive; attached to GitHub releases.
 3. Release notes template including: schema digest set, catalog version, known limitations, and support boundary statement; first release tagged `v0.1.0-alpha.1`.
 
@@ -295,18 +295,18 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **M4 slice 1: CI enforcement for deterministic quality gates**:
+Implement **M4 slice 2: reproducible multi-platform binary release with goreleaser**:
 
-- add GitHub Actions workflow(s) that run `make check`, `go test -race ./...`, JSON schema validation (draft 2020-12), and `git diff --check` on every PR and push to `main`;
-- fail closed on any mismatch so mergeability is blocked when deterministic formatting, schema validity, tests, or race checks fail;
-- keep workflow scope narrow and reproducible (no secret-dependent jobs, no release/publish side effects).
+- add goreleaser configuration that builds `linux/amd64`, `linux/arm64`, and `darwin/arm64` binaries for `yara`;
+- emit deterministic SHA-256 checksums and include a release artifact archive for `schemas/yara.dev/v1alpha1`;
+- wire release publishing to GitHub releases without adding mutation scope beyond release assets and metadata.
 
 Acceptance criteria:
 
-- CI runs all required quality gates on both push and PR and fails when any gate fails;
-- workflow definitions use repository commands as source of truth (no parallel bespoke logic drifting from `make check`/project validation);
-- schema validation explicitly covers public schemas under `schemas/yara.dev/v1alpha1`;
-- local dry-run validation of workflow-related scripts/config changes passes existing repository checks.
+- goreleaser dry-run succeeds locally for the configured targets without custom/manual post-processing;
+- produced release artifacts include platform binaries plus a schema archive and SHA-256 checksum manifest;
+- release metadata wiring is ready for `v0.1.0-alpha.1` publication without changing product runtime behavior;
+- local validation of goreleaser-related config changes passes existing repository checks.
 
 ## Validation requirements
 
