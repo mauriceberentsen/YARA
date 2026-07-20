@@ -1,4 +1,6 @@
 /bin/
+/dist/
+/release-artifacts/
 /.yara/
 /coverage.out
 *.test

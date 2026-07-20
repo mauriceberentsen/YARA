@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `fbd1111` (`Add first-use implementation quickstart walkthrough.`).
+- Branch baseline before this slice: `main` at `7d99690` (`Enforce deterministic CI quality gates on main and PRs.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `BootstrapReceipt` (`schemas/yara.dev/v1alpha1/bootstrap-receipt.schema.json`);
@@ -101,6 +101,7 @@
 - `docs/implementation/quickstart.md` now provides the first-use command chain from planning through apply receipt verification, including explicit confirmation points, expected evidence artifacts, and fail-closed checkpoints.
 - Mutating commands still require durable started audit before mutation and fail closed when terminal audit/receipt persistence cannot complete.
 - CI quality gates are now enforced through GitHub Actions on every pull request and push to `main`, running repository-native checks (`make check`, `go test -race ./...`, `git diff --check`) plus explicit draft-2020-12 validation across all public schemas.
+- release automation now uses `.goreleaser.yaml` and `.github/workflows/release.yml` to build reproducible `yara` binaries for `linux/amd64`, `linux/arm64`, and `darwin/arm64`, publish SHA-256 checksums, and attach a deterministic schema archive (`yara-schemas-v1alpha1.tar.gz`) as a release artifact.
 
 ## Verified capabilities
 
@@ -110,6 +111,7 @@
   - bounded Kubernetes deployment import path now fail-closes on bundle/target confirmation drift, unsafe import paths, and local digest/size mismatch before mutation, and preserves deterministic `ArtifactImportReceipt` identity bindings for selected model artifacts;
   - first-use quickstart documentation now enumerates implemented command/artifact handoff dependencies and clearly marks deferred roadmap scope outside pre-alpha.
   - GitHub Actions CI (`.github/workflows/ci.yml`) now fail-closes mergeability on PR/push when repository checks, race tests, schema validation (draft 2020-12), or `git diff --check` fail.
+  - GoReleaser release wiring now produces deterministic multi-platform binary archives and a deterministic schema archive with SHA-256 checksums via one repository-owned configuration (`.goreleaser.yaml`) and one bounded tag-triggered release workflow (`.github/workflows/release.yml`).
   - catalog coverage now loads and audit-verifies `ArtifactImportReceipt`, `ArtifactTransferReceipt`, and `ArtifactScanReceipt` evidence and binds assertion-scoped import-chain diagnostics deterministically;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
@@ -184,18 +186,19 @@
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
 - **Validated in this run (simulated/local only):**
-  - `gofmt -w <changed-go-files>` not required (workflow/docs-only slice; no Go files changed);
+  - `gofmt -w <changed-go-files>` not required (workflow/config/script slice; no Go files changed);
   - `git diff --check` passed;
   - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check` passed;
   - `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...` passed;
-  - `python -m pip install --quiet jsonschema && python <draft-2020-12 schema validation snippet>` passed for all `schemas/yara.dev/v1alpha1/*.schema.json` files (43/43).
+  - `go run github.com/goreleaser/goreleaser/v2@latest release --clean --snapshot --skip=publish` passed, producing `dist/checksums.txt` and archives for `linux/amd64`, `linux/arm64`, and `darwin/arm64`;
+  - goreleaser checksum manifest now includes `yara-schemas-v1alpha1.tar.gz` from deterministic archive generation (`scripts/create_schema_archive.py`).
 
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `fbd1111`, `8ef2ce7`, `3036cd0`, `f2e7aaa`, `f3b9f6e`.
+- Recent commits before this slice (newest first): `7d99690`, `fbd1111`, `8ef2ce7`, `3036cd0`, `f2e7aaa`.
 - M1 (Publication gating closure) is complete.
-- This slice completes M4 slice 1 by adding deterministic GitHub Actions quality gates on PR/push (`make check`, `go test -race ./...`, draft-2020-12 schema validation, and `git diff --check`).
+- This slice completes M4 slice 2 by adding deterministic GoReleaser-driven multi-platform binary + schema archive release wiring and checksum publication for tag releases.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -250,7 +253,7 @@ Exit: a new user can reproduce the reference walkthrough on a fresh cluster usin
 
 Slices:
 1. Completed: GitHub Actions CI now runs `make check`, `go test -race ./...`, draft-2020-12 schema validation, and `git diff --check` on every PR and push to `main`, failing closed on any mismatch.
-2. goreleaser config: linux/amd64, linux/arm64, darwin/arm64 binaries; SHA-256 checksums; schema archive; attached to GitHub releases.
+2. Completed: GoReleaser config and release workflow now build `linux/amd64`, `linux/arm64`, and `darwin/arm64` binaries, emit SHA-256 checksums, and attach a deterministic `yara-schemas-v1alpha1.tar.gz` schema archive to GitHub releases.
 3. Release notes template including: schema digest set, catalog version, known limitations, and support boundary statement; first release tagged `v0.1.0-alpha.1`.
 
 Exit: `gh release download` produces a working binary; CI blocks merges that break tests or schema validation.
@@ -295,18 +298,18 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **M4 slice 2: reproducible multi-platform binary release with goreleaser**:
+Implement **M4 slice 3: release notes template and first pre-alpha tag policy**:
 
-- add goreleaser configuration that builds `linux/amd64`, `linux/arm64`, and `darwin/arm64` binaries for `yara`;
-- emit deterministic SHA-256 checksums and include a release artifact archive for `schemas/yara.dev/v1alpha1`;
-- wire release publishing to GitHub releases without adding mutation scope beyond release assets and metadata.
+- add a release notes template for `v0.1.0-alpha.1` covering schema digest set, catalog version, known limitations, and explicit support boundary statements;
+- bind the template to repository release workflow/authoring conventions so published release notes are reproducible and auditable;
+- keep scope documentation-only (no new runtime mutation authority) while aligning with existing milestone and roadmap constraints.
 
 Acceptance criteria:
 
-- goreleaser dry-run succeeds locally for the configured targets without custom/manual post-processing;
-- produced release artifacts include platform binaries plus a schema archive and SHA-256 checksum manifest;
-- release metadata wiring is ready for `v0.1.0-alpha.1` publication without changing product runtime behavior;
-- local validation of goreleaser-related config changes passes existing repository checks.
+- one canonical release notes template exists in-repo and is suitable for `v0.1.0-alpha.1` without ad-hoc edits;
+- template explicitly lists schema digest set, catalog version, known limitations, and support boundary text;
+- release workflow/docs reference the template path and usage expectations;
+- local validation of release-doc related changes passes existing repository checks.
 
 ## Validation requirements
 
