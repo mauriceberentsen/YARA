@@ -111,6 +111,10 @@ func LoadAirgapProvenanceGateResult(path string) (AirgapProvenanceGateResult, er
 	return loadResource[AirgapProvenanceGateResult](path)
 }
 
+func LoadAirgapGateTrustPolicy(path string) (AirgapGateTrustPolicy, error) {
+	return loadResource[AirgapGateTrustPolicy](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

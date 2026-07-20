@@ -412,6 +412,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "AirgapProvenanceGateResult", Digest: result.Metadata.GateResultID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "airgap.provenance-gate-result.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "airgap-gate-trust-policy":
+		result, err := resources.LoadAirgapGateTrustPolicy(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "airgap.gate-trust-policy.validate", "AirgapGateTrustPolicy", options.inputPath, "YARA-AGT-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("AirgapGateTrustPolicy", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "AirgapGateTrustPolicy", Digest: result.Metadata.PolicyID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "airgap.gate-trust-policy.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -487,7 +501,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara authorization issue-retirement --bundle <file> --preflight <file> --change-set <file> --approval <file> --private-key <file> --key-id <id> --name <name> --output <file> --audit-output <file> [--valid-for <duration>]")
 	fmt.Fprintln(output, "  yara authorization issue-rollback --bundle <file> --preflight <file> --change-set <file> --approval <file> --private-key <file> --key-id <id> --name <name> --output <file> --audit-output <file> [--valid-for <duration>]")
 	fmt.Fprintln(output, "  yara authorization verify --authorization <file> --public-key <file> [--audit-output <file>]")
-	fmt.Fprintln(output, "  yara deployment apply kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --import-receipt <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
+	fmt.Fprintln(output, "  yara deployment apply kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --import-receipt <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--airgap-gate-result <file> --airgap-gate-trust-policy <file>] [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
 	fmt.Fprintln(output, "  yara deployment retire kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
 	fmt.Fprintln(output, "  yara deployment rollback kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
 	fmt.Fprintln(output, "  yara receipt validate <file> [--audit-output <file>]")
@@ -510,8 +524,9 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara artifact scan record --bundle <file> --transfer-receipt <file> --scanner-name <name> --scanner-version <version> --scanner-profile <profile> --policy-digest <sha256:id> --verdict <passed|failed|blocked> --reason-reference <ref> [--prior-receipt <sha256:id> ...] --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara artifact-scan-receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap provenance-gate evaluate --bundle <file> --import-receipt <file> --transfer-receipt <file> --scan-receipt <file> --private-key <file> --key-id <id> --reason-reference <ref> --name <name> --output <file> --audit-output <file>")
-	fmt.Fprintln(output, "  yara airgap provenance-gate verify --gate-result <file> --public-key <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara airgap provenance-gate verify --gate-result <file> --trust-policy <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-provenance-gate-result validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara airgap-gate-trust-policy validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara integration component-smoke --catalog <file> --target <local|user@host> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration topology-end-to-end --catalog <file> --target <local|user@host> --topology <id@version> --component <id@version> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration validate <file> [--audit-output <file>]")

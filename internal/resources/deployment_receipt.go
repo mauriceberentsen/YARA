@@ -24,25 +24,26 @@ type DeploymentReceiptMetadata struct {
 }
 
 type DeploymentReceiptSpec struct {
-	Outcome                string                       `json:"outcome" yaml:"outcome"`
-	StartedAt              string                       `json:"startedAt" yaml:"startedAt"`
-	CompletedAt            string                       `json:"completedAt" yaml:"completedAt"`
-	ExecutionCorrelationID string                       `json:"executionCorrelationId" yaml:"executionCorrelationId"`
-	PlanID                 string                       `json:"planId" yaml:"planId"`
-	BundleID               string                       `json:"bundleId" yaml:"bundleId"`
-	PreflightResultID      string                       `json:"preflightResultId" yaml:"preflightResultId"`
-	ChangeSetID            string                       `json:"changeSetId" yaml:"changeSetId"`
-	ApprovalID             string                       `json:"approvalId" yaml:"approvalId"`
-	AuthorizationID        string                       `json:"authorizationId" yaml:"authorizationId"`
-	ImportReceiptID        string                       `json:"importReceiptId" yaml:"importReceiptId"`
-	TransferReceiptIDs     []string                     `json:"transferReceiptIds,omitempty" yaml:"transferReceiptIds,omitempty"`
-	ScanReceiptIDs         []string                     `json:"scanReceiptIds,omitempty" yaml:"scanReceiptIds,omitempty"`
-	AirgapGateResultID     string                       `json:"airgapGateResultId,omitempty" yaml:"airgapGateResultId,omitempty"`
-	Target                 TargetIdentity               `json:"target" yaml:"target"`
-	Executor               DeploymentExecutorIdentity   `json:"executor" yaml:"executor"`
-	Operations             []DeploymentOperationReceipt `json:"operations" yaml:"operations"`
-	Postflight             []DeploymentPostflightCheck  `json:"postflight" yaml:"postflight"`
-	Limitations            []string                     `json:"limitations" yaml:"limitations"`
+	Outcome                 string                       `json:"outcome" yaml:"outcome"`
+	StartedAt               string                       `json:"startedAt" yaml:"startedAt"`
+	CompletedAt             string                       `json:"completedAt" yaml:"completedAt"`
+	ExecutionCorrelationID  string                       `json:"executionCorrelationId" yaml:"executionCorrelationId"`
+	PlanID                  string                       `json:"planId" yaml:"planId"`
+	BundleID                string                       `json:"bundleId" yaml:"bundleId"`
+	PreflightResultID       string                       `json:"preflightResultId" yaml:"preflightResultId"`
+	ChangeSetID             string                       `json:"changeSetId" yaml:"changeSetId"`
+	ApprovalID              string                       `json:"approvalId" yaml:"approvalId"`
+	AuthorizationID         string                       `json:"authorizationId" yaml:"authorizationId"`
+	ImportReceiptID         string                       `json:"importReceiptId" yaml:"importReceiptId"`
+	TransferReceiptIDs      []string                     `json:"transferReceiptIds,omitempty" yaml:"transferReceiptIds,omitempty"`
+	ScanReceiptIDs          []string                     `json:"scanReceiptIds,omitempty" yaml:"scanReceiptIds,omitempty"`
+	AirgapGateResultID      string                       `json:"airgapGateResultId,omitempty" yaml:"airgapGateResultId,omitempty"`
+	AirgapGateTrustPolicyID string                       `json:"airgapGateTrustPolicyId,omitempty" yaml:"airgapGateTrustPolicyId,omitempty"`
+	Target                  TargetIdentity               `json:"target" yaml:"target"`
+	Executor                DeploymentExecutorIdentity   `json:"executor" yaml:"executor"`
+	Operations              []DeploymentOperationReceipt `json:"operations" yaml:"operations"`
+	Postflight              []DeploymentPostflightCheck  `json:"postflight" yaml:"postflight"`
+	Limitations             []string                     `json:"limitations" yaml:"limitations"`
 }
 
 type DeploymentExecutorIdentity struct {
@@ -126,6 +127,9 @@ func (r DeploymentReceipt) Validate() diagnostics.Report {
 	}
 	if r.Spec.AirgapGateResultID != "" && !sha256DigestPattern.MatchString(r.Spec.AirgapGateResultID) {
 		items = append(items, diagnostics.Error("YARA-RCP-027", "Air-gap gate result ID must be a SHA-256 digest when present.", "spec.airgapGateResultId"))
+	}
+	if r.Spec.AirgapGateTrustPolicyID != "" && !sha256DigestPattern.MatchString(r.Spec.AirgapGateTrustPolicyID) {
+		items = append(items, diagnostics.Error("YARA-RCP-028", "Air-gap gate trust-policy ID must be a SHA-256 digest when present.", "spec.airgapGateTrustPolicyId"))
 	}
 	previous, derived := "", "succeeded"
 	for index, operation := range r.Spec.Operations {

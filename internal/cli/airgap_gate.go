@@ -25,7 +25,7 @@ type airgapGateOptions struct {
 }
 
 type airgapGateVerifyOptions struct {
-	gateResultPath, publicKeyPath, auditPath string
+	gateResultPath, trustPolicyPath, auditPath string
 }
 
 func evaluateAirgapProvenanceGate(args []string, stdout, stderr io.Writer) int {
@@ -217,31 +217,34 @@ func verifyAirgapProvenanceGateResultAt(args []string, stdout, stderr io.Writer,
 	flags := flag.NewFlagSet("airgap provenance-gate verify", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&options.gateResultPath, "gate-result", "", "AirgapProvenanceGateResult YAML")
-	flags.StringVar(&options.publicKeyPath, "public-key", "", "Trusted PEM PKIX Ed25519 public key")
+	flags.StringVar(&options.trustPolicyPath, "trust-policy", "", "AirgapGateTrustPolicy YAML")
 	flags.StringVar(&options.auditPath, "audit-output", "", "Optional verification audit JSONL")
-	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || options.gateResultPath == "" || options.publicKeyPath == "" {
-		fmt.Fprintln(stderr, "airgap provenance-gate verify requires --gate-result and --public-key")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || options.gateResultPath == "" || options.trustPolicyPath == "" {
+		fmt.Fprintln(stderr, "airgap provenance-gate verify requires --gate-result and --trust-policy")
 		return ExitInvalidInput
 	}
 	result, err := resources.LoadAirgapProvenanceGateResult(options.gateResultPath)
 	if err != nil {
 		return writeAuditedLoadError(stdout, options.auditPath, "airgap.provenance-gate.verify", "AirgapProvenanceGateResult", options.gateResultPath, "YARA-AGP-004", err, nil)
 	}
-	subject := audit.Subject{Kind: "AirgapProvenanceGateResult", Digest: result.Metadata.GateResultID}
-	publicKey, err := authkeys.LoadPublicKey(options.publicKeyPath)
-	if err != nil {
-		if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, []audit.Subject{subject}, []string{"YARA-AGP-108"}); auditErr != nil {
+	policy, err := resources.LoadAirgapGateTrustPolicy(options.trustPolicyPath)
+	if err != nil || !policy.Validate().Valid {
+		if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, []audit.Subject{{Kind: "AirgapProvenanceGateResult", Digest: result.Metadata.GateResultID}}, []string{"YARA-AGP-108"}); auditErr != nil {
 			return writeLoadError(stdout, "YARA-AUD-005", auditErr)
 		}
-		return writeLoadErrorWithExit(stdout, "YARA-AGP-108", err, ExitInvalidInput)
+		return writeLoadErrorWithExit(stdout, "YARA-AGP-108", errors.New("air-gap gate trust policy is invalid"), ExitInvalidInput)
 	}
-	if err := result.Verify(publicKey, now()); err != nil {
-		if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, []audit.Subject{subject}, []string{"YARA-AGP-109"}); auditErr != nil {
+	subjects := []audit.Subject{
+		{Kind: "AirgapProvenanceGateResult", Digest: result.Metadata.GateResultID},
+		{Kind: "AirgapGateTrustPolicy", Digest: policy.Metadata.PolicyID},
+	}
+	if err := policy.VerifyGateResult(result, now()); err != nil {
+		if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, subjects, []string{"YARA-AGP-109"}); auditErr != nil {
 			return writeLoadError(stdout, "YARA-AUD-005", auditErr)
 		}
 		return writeLoadErrorWithExit(stdout, "YARA-AGP-109", err, ExitInfeasible)
 	}
-	if err := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "completed", "success", "kubernetes:"+result.Spec.Target.ReferenceDigest, []audit.Subject{subject}, nil); err != nil {
+	if err := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "completed", "success", "kubernetes:"+result.Spec.Target.ReferenceDigest, subjects, nil); err != nil {
 		return writeLoadError(stdout, "YARA-AUD-005", err)
 	}
 	encoder := json.NewEncoder(stdout)
@@ -249,6 +252,7 @@ func verifyAirgapProvenanceGateResultAt(args []string, stdout, stderr io.Writer,
 	if err := encoder.Encode(map[string]any{
 		"valid":           true,
 		"gateResultId":    result.Metadata.GateResultID,
+		"policyId":        policy.Metadata.PolicyID,
 		"keyId":           result.Spec.Signer.KeyID,
 		"publicKeyDigest": result.Spec.Signer.PublicKeyDigest,
 		"expiresAt":       result.Spec.ExpiresAt,

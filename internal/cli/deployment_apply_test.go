@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -258,10 +259,10 @@ func TestDeploymentApplyAcceptsPassedAirgapGateResultWithoutReceiptFlags(t *test
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	paths, authorization := writeExecutionInputs(t, directory, now)
 	gatePath := filepath.Join(directory, "airgap-gate.yaml")
-	gatePublicKeyPath := writeAirgapGateFixture(t, gatePath, paths)
+	gateTrustPolicyPath := writeAirgapGateFixture(t, gatePath, paths)
 	paths = removeFlag(paths, "--transfer-receipt")
 	paths = removeFlag(paths, "--scan-receipt")
-	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-public-key", gatePublicKeyPath)
+	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-trust-policy", gateTrustPolicyPath)
 	originalFactory := newKubernetesExecutor
 	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
 	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
@@ -495,5 +496,32 @@ func writeAirgapGateFixture(t *testing.T, path string, args []string) string {
 		t.Fatal(err)
 	}
 	writeYAMLFixture(t, path, result)
-	return gatePublicPath
+	trustPolicy := resources.AirgapGateTrustPolicy{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicy",
+		Metadata: resources.AirgapGateTrustPolicyMetadata{
+			Name: "airgap-gate-trust-policy",
+		},
+		Spec: resources.AirgapGateTrustPolicySpec{
+			RecordedAt:            time.Date(2026, 7, 19, 12, 1, 0, 0, time.UTC).Format(time.RFC3339Nano),
+			TargetReferenceDigest: importReceipt.Spec.Target.ReferenceDigest,
+			TrustedSignerIdentities: []resources.AirgapTrustedSignerIdentity{{
+				KeyID:           "operations-key-1",
+				Algorithm:       "Ed25519",
+				PublicKey:       base64.StdEncoding.EncodeToString(gatePublicKey),
+				PublicKeyDigest: resources.PublicKeyDigest(gatePublicKey),
+				ValidFrom:       time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano),
+				ValidUntil:      time.Date(2026, 7, 19, 12, 30, 0, 0, time.UTC).Format(time.RFC3339Nano),
+				Status:          "active",
+			}},
+			Limitations: []string{"Trust policy includes only non-secret signer identities."},
+		},
+	}
+	trustPolicy, err = trustPolicy.AssignPolicyID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustPolicyPath := filepath.Join(filepath.Dir(gatePublicPath), "airgap-gate-trust-policy.yaml")
+	writeYAMLFixture(t, trustPolicyPath, trustPolicy)
+	return trustPolicyPath
 }

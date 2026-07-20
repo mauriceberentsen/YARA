@@ -354,7 +354,7 @@ go run ./cmd/yara airgap provenance-gate evaluate \
   --audit-output reference-stack.airgap-gate.audit.jsonl
 go run ./cmd/yara airgap provenance-gate verify \
   --gate-result reference-stack.airgap-gate.yaml \
-  --public-key gate-public.pem
+  --trust-policy reference-stack.airgap-gate-trust-policy.yaml
 ```
 
 Currently implemented:
