@@ -104,6 +104,13 @@ func (f *fakeKubectl) Run(_ context.Context, _ string, stdin []byte, args ...str
 		return json.Marshal(map[string]any{"metadata": map[string]any{"labels": map[string]any{"app.kubernetes.io/managed-by": "yara", "yara.dev/role": "verifier"}, "annotations": map[string]any{"yara.dev/authorization-id": authorizationID}}, "status": map[string]any{"phase": phase, "containerStatuses": containerStatuses}})
 	case strings.HasPrefix(command, "delete pod ") || strings.HasPrefix(command, "rollout status deployment/"):
 		return nil, nil
+	case strings.HasPrefix(command, "delete ") && !strings.HasPrefix(command, "delete lease ") && !strings.HasPrefix(command, "delete pod "):
+		ref, ok := referenceFromDelete(args)
+		if !ok {
+			return nil, errors.New("unexpected delete")
+		}
+		delete(f.objects, keyOf(ref))
+		return nil, nil
 	case strings.HasPrefix(command, "get lease "):
 		data, _ := json.Marshal(map[string]any{"metadata": map[string]any{"labels": map[string]any{"app.kubernetes.io/managed-by": "yara"}, "annotations": map[string]any{"yara.dev/authorization-id": f.authorizationID}}, "spec": map[string]any{"holderIdentity": f.holder}})
 		return data, nil
@@ -254,6 +261,95 @@ func TestKubernetesExecutorRejectsChangeSetNotMatchingBundleBeforeTargetAccess(t
 	}
 }
 
+func TestKubernetesRetirementDeletesOwnedReviewedResourcesUnderLock(t *testing.T) {
+	bundle, desired, changeSet, authorization, _, fake := executorFixture(t, false)
+	retireSet := changeSet
+	retireOps := make([]resources.KubernetesChangeOperation, 0, len(desired))
+	for _, object := range desired {
+		retireOps = append(retireOps, resources.KubernetesChangeOperation{
+			Resource:      object.Reference,
+			Action:        "no-op",
+			Ownership:     "owned",
+			DesiredDigest: object.Digest,
+			CurrentDigest: object.Digest,
+			RiskClasses:   riskForTest(object.Reference.Kind),
+		})
+		fake.objects[keyOf(object.Reference)] = cloneObject(object.Object)
+	}
+	retireSet.Spec.Operations = retireOps
+	retireSet.Spec.Summary = resources.KubernetesChangeSummary{NoOps: len(retireOps)}
+	authorization.Metadata.AuthorizationID = testDigest('c')
+	authorization.Spec.Constraints.AllowedActions = []string{"delete"}
+	authorization.Spec.Constraints.AllowDelete = true
+	authorization.Spec.Constraints.AllowActiveVerification = false
+	authorization.Spec.Constraints.AcceptedPreflightBlockers = nil
+	authorization.Spec.Constraints.MaxOperations = len(desired) - 1
+	engine := Kubernetes{Executable: "kubectl", Runner: fake}
+	result, err := engine.Retire(t.Context(), bundle, retireSet, authorization, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.MutationStarted {
+		t.Fatalf("retirement did not start mutation: %#v", result)
+	}
+	for _, operation := range result.Operations {
+		if operation.Resource.Kind == "Namespace" {
+			t.Fatalf("namespace should not be retired: %#v", operation)
+		}
+		if operation.Outcome != "deleted" {
+			t.Fatalf("retirement operation did not delete: %#v", operation)
+		}
+	}
+	leaseCreate, firstDelete, leaseDelete := callIndex(fake.calls, "create -f -"), callIndex(fake.calls, "delete "), callIndex(fake.calls, "delete lease")
+	if leaseCreate < 0 || firstDelete <= leaseCreate || leaseDelete <= firstDelete {
+		t.Fatalf("retirement escaped lock ordering: %#v", fake.calls)
+	}
+}
+
+func TestKubernetesRetirementRejectsDriftBeforeDelete(t *testing.T) {
+	bundle, desired, changeSet, authorization, _, fake := executorFixture(t, false)
+	retireSet := changeSet
+	retireOps := make([]resources.KubernetesChangeOperation, 0, len(desired))
+	for _, object := range desired {
+		retireOps = append(retireOps, resources.KubernetesChangeOperation{
+			Resource:      object.Reference,
+			Action:        "no-op",
+			Ownership:     "owned",
+			DesiredDigest: object.Digest,
+			CurrentDigest: object.Digest,
+			RiskClasses:   riskForTest(object.Reference.Kind),
+		})
+	}
+	retireSet.Spec.Operations = retireOps
+	retireSet.Spec.Summary = resources.KubernetesChangeSummary{NoOps: len(retireOps)}
+	for _, object := range desired {
+		if object.Reference.Kind == "Deployment" {
+			drifted := cloneObject(object.Object)
+			metadata := drifted["metadata"].(map[string]any)
+			metadata["labels"] = map[string]any{"app.kubernetes.io/managed-by": "foreign"}
+			fake.objects[keyOf(object.Reference)] = drifted
+			continue
+		}
+		fake.objects[keyOf(object.Reference)] = cloneObject(object.Object)
+	}
+	authorization.Metadata.AuthorizationID = testDigest('d')
+	authorization.Spec.Constraints.AllowedActions = []string{"delete"}
+	authorization.Spec.Constraints.AllowDelete = true
+	authorization.Spec.Constraints.AllowActiveVerification = false
+	authorization.Spec.Constraints.AcceptedPreflightBlockers = nil
+	authorization.Spec.Constraints.MaxOperations = len(desired) - 1
+	engine := Kubernetes{Executable: "kubectl", Runner: fake}
+	result, err := engine.Retire(t.Context(), bundle, retireSet, authorization, time.Now().UTC())
+	if err == nil || !result.MutationStarted {
+		t.Fatalf("retirement drift was not rejected: result=%#v err=%v", result, err)
+	}
+	for _, call := range fake.calls {
+		if strings.HasPrefix(call, "delete ") && !strings.HasPrefix(call, "delete lease ") {
+			t.Fatalf("retirement deleted after drift detection: %s", call)
+		}
+	}
+}
+
 func executorFixture(t *testing.T, foreign bool) (resources.DeploymentBundle, []changeset.DesiredObject, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, *fakeKubectl) {
 	t.Helper()
 	root := filepath.Join("..", "..")
@@ -384,6 +480,31 @@ func serviceWithIP(objects map[string]map[string]any, name, namespace, ip string
 	return json.Marshal(object)
 }
 func referenceFromGet(args []string) (resources.KubernetesObjectReference, bool) {
+	if len(args) < 3 {
+		return resources.KubernetesObjectReference{}, false
+	}
+	ref := resources.KubernetesObjectReference{Kind: args[1], Name: args[2]}
+	for index := 3; index+1 < len(args); index++ {
+		if args[index] == "-n" {
+			ref.Namespace = args[index+1]
+		}
+	}
+	switch ref.Kind {
+	case "Namespace":
+		ref.APIVersion = "v1"
+	case "ConfigMap", "Service":
+		ref.APIVersion = "v1"
+	case "Deployment":
+		ref.APIVersion = "apps/v1"
+	case "NetworkPolicy":
+		ref.APIVersion = "networking.k8s.io/v1"
+	default:
+		return ref, false
+	}
+	return ref, true
+}
+
+func referenceFromDelete(args []string) (resources.KubernetesObjectReference, bool) {
 	if len(args) < 3 {
 		return resources.KubernetesObjectReference{}, false
 	}

@@ -135,6 +135,37 @@ go run ./cmd/yara import-receipt validate reference-stack.import-receipt.yaml
 
 `deployment apply kubernetes` now requires this receipt and rejects mutation when its plan/bundle/target or file bindings drift from the reviewed bundle.
 
+## Separate authorized retirement
+
+Retirement is a separate delete-only path and never extends ordinary apply with prune behavior:
+
+```bash
+go run ./cmd/yara authorization issue-retirement \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --preflight reference-stack.preflight.yaml \
+  --change-set reference-stack.change-set.yaml \
+  --approval reference-stack.approval.yaml \
+  --private-key execution-private.pem \
+  --key-id operations-key-1 \
+  --name reference-stack-retirement-authorization \
+  --output reference-stack.retirement.authorization.yaml \
+  --audit-output reference-stack.retirement.authorization.audit.jsonl
+
+go run ./cmd/yara deployment retire kubernetes \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --preflight reference-stack.preflight.yaml \
+  --change-set reference-stack.change-set.yaml \
+  --approval reference-stack.approval.yaml \
+  --authorization reference-stack.retirement.authorization.yaml \
+  --public-key execution-public.pem \
+  --confirm-authorization 'sha256:<full-authorization-id>' \
+  --name reference-stack-retirement \
+  --receipt-output reference-stack.retirement.receipt.yaml \
+  --audit-output reference-stack.retirement.audit.jsonl
+```
+
+Retirement authorization requires an exact fresh no-op owned baseline and issues delete-only constraints. The executor then rechecks ownership/digests under lock before each delete and emits a content-addressed `RetirementReceipt`.
+
 The initial apply-capable executor now produces this receipt after rechecking target identity, signed authorization, audit availability and operation state under a Lease. See [Authorized Kubernetes apply](kubernetes-apply.md).
 
 ## Audit and privacy
@@ -146,5 +177,5 @@ Change-set generation and approval recording require audit output and remove gen
 - short-lived Kubernetes credential issuance remains operator-managed;
 - acquisition/import execution remains out of scope; apply only consumes a separate import receipt and re-verifies model-PVC file digests;
 - verifier-label admission governance remains an explicit limitation;
-- owned rollback/removal, retry orchestration and retirement remain unimplemented;
+- owned rollback remains unimplemented; safe owned-resource retirement is implemented as a separate authorization and executor path;
 - clean-cluster namespace, storage and model provisioning remain outside the first executor.

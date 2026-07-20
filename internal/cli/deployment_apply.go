@@ -32,6 +32,7 @@ type deploymentApplyOptions struct {
 
 type kubernetesExecutor interface {
 	Execute(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
+	Retire(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RetirementResult, error)
 }
 
 var newKubernetesExecutor = func(kubeconfig, contextName string) (kubernetesExecutor, error) {
@@ -53,7 +54,7 @@ func applyKubernetesDeploymentAt(args []string, stdout, stderr io.Writer, now fu
 	}
 	correlationID := fmt.Sprintf("deployment-%d", now().UTC().UnixNano())
 	subjects := executionSubjects(bundle, preflight, changeSet, approval, authorization, importReceipt)
-	auditWriter, err := newExecutionAudit(options.auditPath, correlationID, "kubernetes:"+authorization.Spec.Target.ReferenceDigest, subjects, now())
+	auditWriter, err := newExecutionAudit(options.auditPath, correlationID, "deployment.apply", "kubernetes:"+authorization.Spec.Target.ReferenceDigest, subjects, now())
 	if err != nil {
 		return writeLoadErrorWithExit(stdout, "YARA-AUD-005", err, ExitInvalidInput)
 	}
@@ -390,19 +391,19 @@ func writeReserved(file *os.File, data []byte) error {
 }
 
 type executionAudit struct {
-	file                             *os.File
-	chain                            *audit.Chain
-	correlationID, target, startedID string
+	file                                     *os.File
+	chain                                    *audit.Chain
+	correlationID, action, target, startedID string
 }
 
-func newExecutionAudit(path, correlationID, target string, subjects []audit.Subject, at time.Time) (*executionAudit, error) {
+func newExecutionAudit(path, correlationID, action, target string, subjects []audit.Subject, at time.Time) (*executionAudit, error) {
 	file, err := reserveOutput(path)
 	if err != nil {
 		return nil, err
 	}
 	actorID, assurance := localActor()
-	writer := &executionAudit{file: file, chain: audit.NewChain(), correlationID: correlationID, target: target, startedID: correlationID + "-started"}
-	event, err := writer.chain.Append(audit.Event{Metadata: audit.Metadata{ID: writer.startedID, OccurredAt: at.UTC().Format(time.RFC3339Nano)}, Spec: audit.Spec{CorrelationID: correlationID, Actor: audit.Actor{ID: actorID, Type: "user", Assurance: assurance}, Action: "deployment.apply.started", Subjects: subjects, Reason: audit.Reason{Type: "user-request", Reference: "cli"}, Target: target, Outcome: "started", DiagnosticCodes: []string{}}})
+	writer := &executionAudit{file: file, chain: audit.NewChain(), correlationID: correlationID, action: action, target: target, startedID: correlationID + "-started"}
+	event, err := writer.chain.Append(audit.Event{Metadata: audit.Metadata{ID: writer.startedID, OccurredAt: at.UTC().Format(time.RFC3339Nano)}, Spec: audit.Spec{CorrelationID: correlationID, Actor: audit.Actor{ID: actorID, Type: "user", Assurance: assurance}, Action: action + ".started", Subjects: subjects, Reason: audit.Reason{Type: "user-request", Reference: "cli"}, Target: target, Outcome: "started", DiagnosticCodes: []string{}}})
 	if err != nil {
 		_ = file.Close()
 		_ = os.Remove(path)
@@ -423,7 +424,7 @@ func newExecutionAudit(path, correlationID, target string, subjects []audit.Subj
 
 func (w *executionAudit) finish(outcome string, subjects []audit.Subject, codes []string, at time.Time) error {
 	actorID, assurance := localActor()
-	event, err := w.chain.Append(audit.Event{Metadata: audit.Metadata{ID: w.correlationID + "-terminal", OccurredAt: at.UTC().Format(time.RFC3339Nano)}, Spec: audit.Spec{CorrelationID: w.correlationID, CausationID: w.startedID, Actor: audit.Actor{ID: actorID, Type: "user", Assurance: assurance}, Action: "deployment.apply.completed", Subjects: subjects, Reason: audit.Reason{Type: "user-request", Reference: "cli"}, Target: w.target, Outcome: outcome, DiagnosticCodes: codes}})
+	event, err := w.chain.Append(audit.Event{Metadata: audit.Metadata{ID: w.correlationID + "-terminal", OccurredAt: at.UTC().Format(time.RFC3339Nano)}, Spec: audit.Spec{CorrelationID: w.correlationID, CausationID: w.startedID, Actor: audit.Actor{ID: actorID, Type: "user", Assurance: assurance}, Action: w.action + ".completed", Subjects: subjects, Reason: audit.Reason{Type: "user-request", Reference: "cli"}, Target: w.target, Outcome: outcome, DiagnosticCodes: codes}})
 	if err != nil {
 		return err
 	}

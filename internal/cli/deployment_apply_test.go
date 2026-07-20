@@ -19,10 +19,18 @@ import (
 
 type fixedKubernetesExecutor struct {
 	execute func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
+	retire  func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RetirementResult, error)
 }
 
 func (f fixedKubernetesExecutor) Execute(ctx context.Context, bundle resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, started time.Time) (executor.ExecutionResult, error) {
 	return f.execute(ctx, bundle, changeSet, authorization, importReceipt, started)
+}
+
+func (f fixedKubernetesExecutor) Retire(ctx context.Context, bundle resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, started time.Time) (executor.RetirementResult, error) {
+	if f.retire == nil {
+		return executor.RetirementResult{}, nil
+	}
+	return f.retire(ctx, bundle, changeSet, authorization, started)
 }
 
 func TestDeploymentApplyDurablyAuditsBeforeMutationAndBindsReceipt(t *testing.T) {

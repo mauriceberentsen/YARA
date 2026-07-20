@@ -143,12 +143,19 @@ func (r ExecutionAuthorization) Validate() diagnostics.Report {
 		items = append(items, diagnostics.Error("YARA-AUT-013", "Allowed actions must be non-empty, unique and sorted.", "spec.constraints.allowedActions"))
 	}
 	for _, action := range r.Spec.Constraints.AllowedActions {
-		if !slices.Contains([]string{"create", "no-op", "update"}, action) {
+		if !slices.Contains([]string{"create", "no-op", "update", "delete"}, action) {
 			items = append(items, diagnostics.Error("YARA-AUT-014", "Authorization action is unsupported.", "spec.constraints.allowedActions"))
 		}
 	}
-	if r.Spec.Constraints.MaxOperations < 1 || r.Spec.Constraints.MaxOperations > 100 || r.Spec.Constraints.AllowDelete {
-		items = append(items, diagnostics.Error("YARA-AUT-015", "v0.2 authorization requires 1-100 operations and forbids deletion.", "spec.constraints"))
+	if r.Spec.Constraints.MaxOperations < 1 || r.Spec.Constraints.MaxOperations > 100 {
+		items = append(items, diagnostics.Error("YARA-AUT-015", "Authorization requires 1-100 operations.", "spec.constraints.maxOperations"))
+	}
+	if r.Spec.Constraints.AllowDelete {
+		if len(r.Spec.Constraints.AllowedActions) != 1 || r.Spec.Constraints.AllowedActions[0] != "delete" || r.Spec.Constraints.AllowActiveVerification || len(r.Spec.Constraints.AcceptedPreflightBlockers) != 0 {
+			items = append(items, diagnostics.Error("YARA-AUT-015", "Delete authorization must be delete-only and cannot accept active verification blockers.", "spec.constraints"))
+		}
+	} else if slices.Contains(r.Spec.Constraints.AllowedActions, "delete") {
+		items = append(items, diagnostics.Error("YARA-AUT-015", "Delete action requires allowDelete=true.", "spec.constraints"))
 	}
 	if !slices.IsSorted(r.Spec.Constraints.AcceptedPreflightBlockers) || hasDuplicateStrings(r.Spec.Constraints.AcceptedPreflightBlockers) {
 		items = append(items, diagnostics.Error("YARA-AUT-016", "Accepted preflight blockers must be unique and sorted.", "spec.constraints.acceptedPreflightBlockers"))

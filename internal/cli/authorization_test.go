@@ -91,6 +91,87 @@ func TestIssueAndVerifyExecutionAuthorization(t *testing.T) {
 	}
 }
 
+func TestIssueRetirementAuthorizationDeleteOnly(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 20, 9, 0, 0, 0, time.UTC)
+	bundlePath := writeKubernetesBundle(t, directory)
+	bundle, _ := resources.LoadDeploymentBundle(bundlePath)
+	target := resources.TargetIdentity{Type: "kubernetes", ReferenceDigest: testCLIDigest('c'), ServerVersion: "v1.35.2"}
+	preflightPath := writeFreshPreflight(t, directory, bundle, target, now)
+	preflight, _ := resources.LoadTargetPreflightResult(preflightPath)
+	desired, err := changeset.DesiredObjects(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := make([]resources.KubernetesChangeOperation, 0, len(desired))
+	for _, object := range desired {
+		operations = append(operations, resources.KubernetesChangeOperation{
+			Resource:      object.Reference,
+			Action:        "no-op",
+			Ownership:     "owned",
+			DesiredDigest: object.Digest,
+			CurrentDigest: object.Digest,
+			RiskClasses:   []string{"workload"},
+		})
+	}
+	changeSet := resources.KubernetesChangeSet{
+		APIVersion: resources.APIVersion,
+		Kind:       "KubernetesChangeSet",
+		Metadata: resources.KubernetesChangeSetMetadata{
+			Name: "retire-change-set",
+		},
+		Spec: resources.KubernetesChangeSetSpec{
+			Outcome:           "review-required",
+			ObservedAt:        now.Add(time.Minute).Format(time.RFC3339Nano),
+			BundleID:          bundle.Metadata.BundleID,
+			PlanID:            bundle.Spec.PlanID,
+			PreflightResultID: preflight.Metadata.ResultID,
+			Observer:          resources.TargetPreflightObserver{Name: "observer", Version: "0.2.0", Mode: "read-only"},
+			Target:            target,
+			Summary: resources.KubernetesChangeSummary{
+				NoOps: len(desired),
+			},
+			Operations:  operations,
+			Limitations: []string{"retirement baseline"},
+		},
+	}
+	changeSet, err = changeSet.AssignChangeSetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	changeSetPath := filepath.Join(directory, "retire-change-set.yaml")
+	writeYAMLFixture(t, changeSetPath, changeSet)
+	approval := resources.DeploymentApproval{APIVersion: resources.APIVersion, Kind: "DeploymentApproval", Metadata: resources.DeploymentApprovalMetadata{Name: "retire-approval"}, Spec: resources.DeploymentApprovalSpec{
+		Decision: "approved", Effect: "review-only", RecordedAt: now.Add(time.Minute).Format(time.RFC3339Nano), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339Nano),
+		PlanID: bundle.Spec.PlanID, BundleID: bundle.Metadata.BundleID, PreflightResultID: preflight.Metadata.ResultID, ChangeSetID: changeSet.Metadata.ChangeSetID, Target: target,
+		Actor: resources.ApprovalActor{ID: "local:reviewer", Type: "user", Assurance: "self-asserted-local"}, Reason: resources.ApprovalReason{Type: "user-review", Reference: "ticket-456"}, Limitations: []string{"Review only."},
+	}}
+	approval, err = approval.AssignApprovalID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvalPath := filepath.Join(directory, "retire-approval.yaml")
+	writeYAMLFixture(t, approvalPath, approval)
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privatePath, _ := writeAuthorizationKeys(t, directory, publicKey, privateKey)
+	authorizationPath, auditPath := filepath.Join(directory, "retirement-authorization.yaml"), filepath.Join(directory, "retirement-authorization.audit.jsonl")
+	args := []string{"--bundle", bundlePath, "--preflight", preflightPath, "--change-set", changeSetPath, "--approval", approvalPath, "--private-key", privatePath, "--key-id", "operations-key-1", "--name", "retire-authorization", "--output", authorizationPath, "--audit-output", auditPath, "--valid-for", "10m"}
+	var stdout, stderr bytes.Buffer
+	if exit := issueRetirementAuthorizationAt(args, &stdout, &stderr, func() time.Time { return now.Add(2 * time.Minute) }); exit != ExitSuccess {
+		t.Fatalf("issue retirement authorization: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	authorization, err := resources.LoadExecutionAuthorization(authorizationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !authorization.Spec.Constraints.AllowDelete || authorization.Spec.Constraints.MaxOperations != len(desired)-1 || len(authorization.Spec.Constraints.AllowedActions) != 1 || authorization.Spec.Constraints.AllowedActions[0] != "delete" {
+		t.Fatalf("retirement constraints not delete-only: %#v", authorization.Spec.Constraints)
+	}
+}
+
 func TestAuthorizationTamperAndAuditFailureFailClosed(t *testing.T) {
 	publicKey, privateKey, _ := ed25519.GenerateKey(rand.Reader)
 	now := time.Now().UTC()

@@ -25,6 +25,10 @@ func issueExecutionAuthorization(args []string, stdout, stderr io.Writer) int {
 	return issueExecutionAuthorizationAt(args, stdout, stderr, time.Now)
 }
 
+func issueRetirementAuthorization(args []string, stdout, stderr io.Writer) int {
+	return issueRetirementAuthorizationAt(args, stdout, stderr, time.Now)
+}
+
 func issueExecutionAuthorizationAt(args []string, stdout, stderr io.Writer, now func() time.Time) int {
 	options, ok := parseAuthorizationIssueOptions(args, stderr)
 	if !ok {
@@ -135,6 +139,135 @@ func issueExecutionAuthorizationAt(args []string, stdout, stderr io.Writer, now 
 	return ExitSuccess
 }
 
+func issueRetirementAuthorizationAt(args []string, stdout, stderr io.Writer, now func() time.Time) int {
+	options, ok := parseAuthorizationIssueOptions(args, stderr)
+	if !ok {
+		return ExitInvalidInput
+	}
+	bundle, err := resources.LoadDeploymentBundle(options.bundlePath)
+	if err != nil {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:unresolved", []audit.Subject{attemptedInputSubject("DeploymentBundle", options.bundlePath)}, "YARA-AUT-004", err, ExitInvalidInput)
+	}
+	bundleSubject := audit.Subject{Kind: "DeploymentBundle", Digest: bundle.Metadata.BundleID}
+	preflight, err := resources.LoadTargetPreflightResult(options.preflightPath)
+	if err != nil {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:unresolved", []audit.Subject{bundleSubject, attemptedInputSubject("TargetPreflightResult", options.preflightPath)}, "YARA-AUT-005", err, ExitInvalidInput)
+	}
+	preflightSubject := audit.Subject{Kind: "TargetPreflightResult", Digest: preflight.Metadata.ResultID}
+	changeSet, err := resources.LoadKubernetesChangeSet(options.changeSetPath)
+	if err != nil {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, attemptedInputSubject("KubernetesChangeSet", options.changeSetPath)}, "YARA-AUT-006", err, ExitInvalidInput)
+	}
+	changeSetSubject := audit.Subject{Kind: "KubernetesChangeSet", Digest: changeSet.Metadata.ChangeSetID}
+	approval, err := resources.LoadDeploymentApproval(options.approvalPath)
+	if err != nil {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, attemptedInputSubject("DeploymentApproval", options.approvalPath)}, "YARA-AUT-007", err, ExitInvalidInput)
+	}
+	approvalSubject := audit.Subject{Kind: "DeploymentApproval", Digest: approval.Metadata.ApprovalID}
+	if report := bundle.Validate(); !report.Valid {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:unresolved", []audit.Subject{bundleSubject}, "YARA-AUT-008", fmt.Errorf("bundle is invalid"), ExitInvalidInput)
+	}
+	if report := preflight.Validate(); !report.Valid {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:unresolved", []audit.Subject{bundleSubject, preflightSubject}, "YARA-AUT-009", fmt.Errorf("preflight is invalid"), ExitInvalidInput)
+	}
+	if report := changeSet.Validate(); !report.Valid {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject}, "YARA-AUT-010", fmt.Errorf("change set is invalid"), ExitInvalidInput)
+	}
+	if report := approval.Validate(); !report.Valid {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-011", fmt.Errorf("approval is invalid"), ExitInvalidInput)
+	}
+	if approval.Spec.Decision != "approved" || approval.Spec.Effect != "review-only" || changeSet.Spec.Outcome != "review-required" {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-101", fmt.Errorf("approved conflict-free review inputs are required"), ExitInfeasible)
+	}
+	if bundle.Metadata.BundleID != preflight.Spec.BundleID || bundle.Metadata.BundleID != changeSet.Spec.BundleID || bundle.Metadata.BundleID != approval.Spec.BundleID ||
+		preflight.Metadata.ResultID != changeSet.Spec.PreflightResultID || preflight.Metadata.ResultID != approval.Spec.PreflightResultID ||
+		changeSet.Metadata.ChangeSetID != approval.Spec.ChangeSetID || preflight.Spec.Target != changeSet.Spec.Target || preflight.Spec.Target != approval.Spec.Target {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-102", fmt.Errorf("authorization inputs do not bind the same deployment"), ExitInfeasible)
+	}
+	issuedAt := now().UTC()
+	preflightObservedAt, preflightTimeErr := time.Parse(time.RFC3339Nano, preflight.Spec.ObservedAt)
+	changeSetObservedAt, changeSetTimeErr := time.Parse(time.RFC3339Nano, changeSet.Spec.ObservedAt)
+	approvalRecordedAt, approvalRecordedErr := time.Parse(time.RFC3339Nano, approval.Spec.RecordedAt)
+	approvalExpires, _ := time.Parse(time.RFC3339Nano, approval.Spec.ExpiresAt)
+	if preflightTimeErr != nil || changeSetTimeErr != nil || approvalRecordedErr != nil || issuedAt.Before(preflightObservedAt) || issuedAt.Sub(preflightObservedAt) > 15*time.Minute || issuedAt.Before(changeSetObservedAt) || issuedAt.Sub(changeSetObservedAt) > 5*time.Minute || issuedAt.Before(approvalRecordedAt) {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-103", fmt.Errorf("authorization inputs are stale or not yet valid"), ExitInfeasible)
+	}
+	expiresAt := issuedAt.Add(options.validFor)
+	if !issuedAt.Before(approvalExpires) || expiresAt.After(approvalExpires) {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-103", fmt.Errorf("authorization validity exceeds the approval validity"), ExitInfeasible)
+	}
+	privateKey, err := authkeys.LoadPrivateKey(options.privateKeyPath)
+	if err != nil {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-104", err, ExitInvalidInput)
+	}
+	deletes := 0
+	for _, operation := range changeSet.Spec.Operations {
+		if operation.Resource.Kind == "Namespace" {
+			if operation.Action != "no-op" {
+				return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-105", fmt.Errorf("namespace operation must remain no-op for retirement"), ExitInfeasible)
+			}
+			continue
+		}
+		if operation.Action != "no-op" || operation.Ownership != "owned" || operation.CurrentDigest != operation.DesiredDigest {
+			return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-105", fmt.Errorf("retirement requires an exact owned no-op baseline"), ExitInfeasible)
+		}
+		deletes++
+	}
+	if deletes == 0 {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-105", fmt.Errorf("retirement operation set is empty"), ExitInfeasible)
+	}
+	authorization := resources.ExecutionAuthorization{
+		APIVersion: resources.APIVersion,
+		Kind:       "ExecutionAuthorization",
+		Metadata: resources.ExecutionAuthorizationMetadata{
+			Name: options.name,
+		},
+		Spec: resources.ExecutionAuthorizationSpec{
+			IssuedAt:          issuedAt.Format(time.RFC3339Nano),
+			ExpiresAt:         expiresAt.Format(time.RFC3339Nano),
+			PlanID:            bundle.Spec.PlanID,
+			BundleID:          bundle.Metadata.BundleID,
+			PreflightResultID: preflight.Metadata.ResultID,
+			ChangeSetID:       changeSet.Metadata.ChangeSetID,
+			ApprovalID:        approval.Metadata.ApprovalID,
+			Target:            preflight.Spec.Target,
+			Issuer:            resources.ExecutionAuthorizationIssuer{KeyID: options.keyID},
+			Constraints: resources.ExecutionAuthorizationConstraints{
+				AllowedActions:            []string{"delete"},
+				MaxOperations:             deletes,
+				AllowDelete:               true,
+				AllowActiveVerification:   false,
+				AcceptedPreflightBlockers: []string{},
+			},
+		},
+	}
+	authorization, err = authorization.Sign(privateKey)
+	if err != nil {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-500", err, ExitInternal)
+	}
+	if report := authorization.Validate(); !report.Valid {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-500", fmt.Errorf("authorization construction failed: %s", report.Diagnostics[0].Code), ExitInternal)
+	}
+	data, err := yaml.Marshal(authorization)
+	if err != nil {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-500", err, ExitInternal)
+	}
+	if err := writeExclusive(options.outputPath, data); err != nil {
+		return writeAuthorizationFailureForAction(stdout, options.auditPath, "authorization.issue-retirement", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject}, "YARA-AUT-018", err, ExitInvalidInput)
+	}
+	authorizationSubject := audit.Subject{Kind: "ExecutionAuthorization", Digest: authorization.Metadata.AuthorizationID}
+	if err := persistOperationAuditForTarget(options.auditPath, "authorization.issue-retirement", "completed", "success", "kubernetes:"+preflight.Spec.Target.ReferenceDigest, []audit.Subject{bundleSubject, preflightSubject, changeSetSubject, approvalSubject, authorizationSubject}, nil); err != nil {
+		_ = os.Remove(options.outputPath)
+		return writeLoadError(stdout, "YARA-AUD-005", err)
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(map[string]any{"valid": true, "authorizationId": authorization.Metadata.AuthorizationID, "publicKeyDigest": authorization.Spec.Issuer.PublicKeyDigest, "expiresAt": authorization.Spec.ExpiresAt, "output": options.outputPath, "auditOutput": options.auditPath}); err != nil {
+		return ExitInternal
+	}
+	return ExitSuccess
+}
+
 func acceptedActiveVerificationBlockers(preflight resources.TargetPreflightResult) ([]string, error) {
 	allowed := map[string]struct{}{"YARA-TPR-114": {}, "YARA-TPR-115": {}, "YARA-TPR-116": {}, "YARA-TPR-117": {}}
 	blockers := []string{}
@@ -230,6 +363,13 @@ func verifyExecutionAuthorizationAt(args []string, stdout, stderr io.Writer, now
 
 func writeAuthorizationFailure(output io.Writer, auditPath, target string, subjects []audit.Subject, code string, err error, exitCode int) int {
 	if auditErr := persistOperationAuditForTarget(auditPath, "authorization.issue", "failed", "failed", target, subjects, []string{code}); auditErr != nil {
+		return writeLoadError(output, "YARA-AUD-005", auditErr)
+	}
+	return writeLoadErrorWithExit(output, code, err, exitCode)
+}
+
+func writeAuthorizationFailureForAction(output io.Writer, auditPath, action, target string, subjects []audit.Subject, code string, err error, exitCode int) int {
+	if auditErr := persistOperationAuditForTarget(auditPath, action, "failed", "failed", target, subjects, []string{code}); auditErr != nil {
 		return writeLoadError(output, "YARA-AUD-005", auditErr)
 	}
 	return writeLoadErrorWithExit(output, code, err, exitCode)

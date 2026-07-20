@@ -74,12 +74,129 @@ type ExecutionResult struct {
 	Limitations     []string
 }
 
+type RetirementResult struct {
+	StartedAt       time.Time
+	CompletedAt     time.Time
+	Target          resources.TargetIdentity
+	MutationStarted bool
+	Operations      []resources.RetirementOperationReceipt
+	Limitations     []string
+}
+
 func NewKubernetes(kubeconfig, contextName string) (Kubernetes, error) {
 	executable, err := exec.LookPath("kubectl")
 	if err != nil {
 		return Kubernetes{}, errors.New("kubectl executable is unavailable")
 	}
 	return Kubernetes{Executable: executable, Kubeconfig: kubeconfig, Context: contextName, Runner: ExecRunner{}}, nil
+}
+
+func (k Kubernetes) Retire(ctx context.Context, bundle resources.DeploymentBundle, approved resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, startedAt time.Time) (result RetirementResult, err error) {
+	result.StartedAt = startedAt.UTC()
+	if k.Executable == "" || k.Runner == nil {
+		return result, errors.New("Kubernetes executor is incomplete")
+	}
+	desired, err := changeset.DesiredObjects(bundle)
+	if err != nil {
+		return result, err
+	}
+	approvedByKey := map[string]resources.KubernetesChangeOperation{}
+	for _, operation := range approved.Spec.Operations {
+		approvedByKey[objectKey(operation.Resource)] = operation
+	}
+	targets := make([]changeset.DesiredObject, 0, len(desired))
+	for _, object := range desired {
+		operation, ok := approvedByKey[objectKey(object.Reference)]
+		if !ok {
+			return result, errors.New("change set does not cover exact bundle objects")
+		}
+		if operation.Resource.Kind == "Namespace" {
+			continue
+		}
+		if operation.Action != "no-op" || operation.Ownership != "owned" || operation.CurrentDigest != object.Digest {
+			return result, errors.New("retirement requires an exact owned no-op baseline before delete authorization")
+		}
+		targets = append(targets, object)
+	}
+	if len(targets) == 0 {
+		return result, errors.New("retirement target set is empty")
+	}
+	if !strings.HasPrefix(authorization.Metadata.AuthorizationID, "sha256:") || len(authorization.Metadata.AuthorizationID) != 71 || !authorization.Spec.Constraints.AllowDelete || len(authorization.Spec.Constraints.AllowedActions) != 1 || authorization.Spec.Constraints.AllowedActions[0] != "delete" || authorization.Spec.Constraints.AllowActiveVerification || len(authorization.Spec.Constraints.AcceptedPreflightBlockers) != 0 || authorization.Spec.Constraints.MaxOperations != len(targets) {
+		return result, errors.New("retirement authorization constraints are invalid")
+	}
+	target, err := k.identify(ctx)
+	if err != nil {
+		return result, err
+	}
+	result.Target = target
+	if target != authorization.Spec.Target || target != approved.Spec.Target {
+		return result, errors.New("target identity changed before retirement")
+	}
+	lockName := "yara-retire-lock-" + bundle.Metadata.Name
+	holder := strings.TrimPrefix(authorization.Metadata.AuthorizationID, "sha256:")[:24]
+	if err := k.acquireLock(ctx, bundle.Metadata.Name, lockName, holder, authorization.Metadata.AuthorizationID); err != nil {
+		return result, err
+	}
+	result.MutationStarted = true
+	locked := true
+	defer func() {
+		if locked {
+			if releaseErr := k.releaseLock(context.WithoutCancel(ctx), bundle.Metadata.Name, lockName, holder, authorization.Metadata.AuthorizationID); releaseErr != nil && err == nil {
+				err = releaseErr
+			}
+		}
+		if result.MutationStarted {
+			completeRetirementResult(&result, targets)
+		}
+	}()
+	for _, object := range targets {
+		observed, observeErr := k.observeObject(ctx, object.Reference, bundle.Spec.PlanID)
+		if observeErr != nil || !observed.Exists || !observed.Owned || !observed.PlanMatch || observed.Digest != object.Digest {
+			return result, errors.New("target state changed after reviewed retirement set")
+		}
+	}
+	ordered := append([]changeset.DesiredObject(nil), targets...)
+	slices.SortFunc(ordered, func(left, right changeset.DesiredObject) int {
+		leftPriority, rightPriority := retirePriority(left.Reference.Kind), retirePriority(right.Reference.Kind)
+		if leftPriority != rightPriority {
+			return leftPriority - rightPriority
+		}
+		return strings.Compare(objectKey(left.Reference), objectKey(right.Reference))
+	})
+	failed := false
+	for _, object := range ordered {
+		receipt := resources.RetirementOperationReceipt{Resource: object.Reference, Action: "delete", BeforeDigest: object.Digest}
+		if failed {
+			receipt.Outcome = "skipped"
+			result.Operations = append(result.Operations, receipt)
+			continue
+		}
+		if err := k.deleteObject(ctx, object.Reference); err != nil {
+			receipt.Outcome, receipt.DiagnosticCode = "failed", "YARA-RET-201"
+			failed = true
+			result.Operations = append(result.Operations, receipt)
+			continue
+		}
+		observed, observeErr := k.observeObject(ctx, object.Reference, bundle.Spec.PlanID)
+		if observeErr != nil {
+			receipt.Outcome, receipt.DiagnosticCode = "failed", "YARA-RET-202"
+			failed = true
+		} else if !observed.Exists {
+			receipt.Outcome = "deleted"
+		} else if observed.Owned && observed.PlanMatch {
+			receipt.Outcome, receipt.DiagnosticCode = "failed", "YARA-RET-202"
+			failed = true
+		} else {
+			receipt.Outcome, receipt.DiagnosticCode = "failed", "YARA-RET-203"
+			failed = true
+		}
+		result.Operations = append(result.Operations, receipt)
+	}
+	if releaseErr := k.releaseLock(ctx, bundle.Metadata.Name, lockName, holder, authorization.Metadata.AuthorizationID); releaseErr != nil {
+		return result, releaseErr
+	}
+	locked = false
+	return result, nil
 }
 
 func (k Kubernetes) Execute(ctx context.Context, bundle resources.DeploymentBundle, approved resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, startedAt time.Time) (result ExecutionResult, err error) {
@@ -254,6 +371,31 @@ func completeResult(result *ExecutionResult, desired []changeset.DesiredObject, 
 		"The initial executor does not create namespaces, PVCs, storage classes or import model artifacts.",
 		"The initial executor never adopts, deletes or prunes managed or foreign resources.",
 		"Verifier-label governance remains an explicitly accepted authorization limitation, not a proved postcondition.",
+	}
+	slices.Sort(result.Limitations)
+	result.CompletedAt = time.Now().UTC()
+}
+
+func completeRetirementResult(result *RetirementResult, targets []changeset.DesiredObject) {
+	if len(result.Operations) < len(targets) {
+		recorded := map[string]struct{}{}
+		for _, operation := range result.Operations {
+			recorded[objectKey(operation.Resource)] = struct{}{}
+		}
+		for _, object := range targets {
+			if _, exists := recorded[objectKey(object.Reference)]; exists {
+				continue
+			}
+			result.Operations = append(result.Operations, resources.RetirementOperationReceipt{Resource: object.Reference, Action: "delete", Outcome: "skipped", BeforeDigest: object.Digest})
+		}
+	}
+	slices.SortFunc(result.Operations, func(left, right resources.RetirementOperationReceipt) int {
+		return strings.Compare(objectKey(left.Resource), objectKey(right.Resource))
+	})
+	result.Limitations = []string{
+		"Retirement never deletes Namespace, PVCs, storage classes or unmanaged resources.",
+		"Retirement runs only from a fresh exact no-op baseline and fails closed on any observed drift.",
+		"Retirement does not implement rollback or re-provisioning.",
 	}
 	slices.Sort(result.Limitations)
 	result.CompletedAt = time.Now().UTC()
@@ -615,6 +757,16 @@ func (k Kubernetes) applyObject(ctx context.Context, manifest []byte) error {
 	return err
 }
 
+func (k Kubernetes) deleteObject(ctx context.Context, reference resources.KubernetesObjectReference) error {
+	args := []string{"delete", reference.Kind, reference.Name}
+	if reference.Namespace != "" {
+		args = append(args, "-n", reference.Namespace)
+	}
+	args = append(args, "--wait=true", "--timeout=60s")
+	_, err := k.run(ctx, nil, args...)
+	return err
+}
+
 func (k Kubernetes) run(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
 	base := []string{}
 	if k.Kubeconfig != "" {
@@ -647,6 +799,21 @@ func applyPriority(kind string) int {
 		return 30
 	case "Deployment":
 		return 40
+	default:
+		return 100
+	}
+}
+
+func retirePriority(kind string) int {
+	switch kind {
+	case "Deployment":
+		return 0
+	case "NetworkPolicy":
+		return 10
+	case "Service":
+		return 20
+	case "ConfigMap":
+		return 30
 	default:
 		return 100
 	}

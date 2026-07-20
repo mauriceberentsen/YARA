@@ -87,6 +87,10 @@ func LoadExecutionAuthorization(path string) (ExecutionAuthorization, error) {
 	return loadResource[ExecutionAuthorization](path)
 }
 
+func LoadRetirementReceipt(path string) (RetirementReceipt, error) {
+	return loadResource[RetirementReceipt](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

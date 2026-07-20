@@ -25,7 +25,7 @@ The [offline renderers](rendering.md) translate the exact LiteLLM/vLLM plan into
 
 ## Decisions intentionally deferred
 
-- Clean-cluster bootstrap, acquisition/import execution workflows, rollback, deletion and retirement remain deferred beyond the initial bounded Kubernetes executor.
+- Clean-cluster bootstrap, acquisition/import execution workflows and rollback remain deferred beyond the bounded Kubernetes executor. Safe owned-resource retirement is now a separate authorized path.
 - Persistent service/API database.
 - Web UI framework.
 - General plugin transport implementation.
