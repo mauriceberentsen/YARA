@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `ae1c94a` (`Add lifecycle publication policy diagnostics CLI parity.`).
+- Branch baseline before this slice: `main` at `9da6239` (`Harden lifecycle publication blocker taxonomy diagnostics.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
@@ -41,6 +41,8 @@
   - catalog coverage validation now fails closed when lifecycle publication blockers use malformed encoding or summary readiness counts drift from assertion-level evidence.
   - lifecycle publication blocker taxonomy is now centralized and canonicalized in one deterministic machine-readable map, and policy diagnostics fail closed when blocker codes are unknown, remediation text drifts, or encoding is ambiguous;
   - lifecycle publication policy diagnostics now emit bounded explainability metadata (`reportSubject`, `assertionScope`) and expose taxonomy definitions with each response for auditable operator interpretation.
+  - new `integration execute <component-smoke|topology-end-to-end>` dispatches to the existing bounded integration executors without adding mutation authority;
+  - topology `integration execute` now fails closed before executor dispatch when selected components are stale versus assertion/runtime bindings or do not satisfy topology-role coverage.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -70,6 +72,8 @@
   - lifecycle proof publication approvals are content-addressed (`approvalId`), bind exact `catalogDigest`/`assertionRef`/`ledgerId`/selected evidence IDs with bounded validity and reviewer decision, and are consumed by catalog-coverage lifecycle publication gating;
   - lifecycle publication diagnostics now provide deterministic operator remediation hints (`...|remediation:<action>`) for missing, stale, unbound, or decision-mismatched lifecycle approvals;
   - lifecycle publication policy diagnostics are now available via both coverage create output and the dedicated policy command, with fail-closed validation of blocker encoding parity and strict taxonomy matching;
+  - generic integration execution dispatch (`integration execute`) now preserves deterministic `IntegrationTestResult` semantics by reusing existing mode-specific bounded executors with unchanged output contracts;
+  - integration execution now fails closed on unsupported generic modes and stale topology/component assertion drift prior to executor invocation;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -78,6 +82,7 @@
     - `deployment rollback kubernetes`,
     - `integration component-smoke`,
     - `integration topology-end-to-end`,
+    - `integration execute`,
     - `promotion review record`,
     - `artifact transfer record`,
     - `artifact scan record`,
@@ -105,9 +110,9 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by two commits before this uncommitted work).
-- Recent commits before this slice (newest first): `ae1c94a`, `3bd2ec3`, `1cde58c`, `6528cbc`, `cbae37a`.
-- This slice hardens lifecycle publication blocker taxonomy governance with deterministic machine-readable mappings, explainability metadata, and fail-closed policy diagnostics.
+- Branch: `main` tracking `origin/main` (local ahead by three commits before this uncommitted work).
+- Recent commits before this slice (newest first): `9da6239`, `ae1c94a`, `3bd2ec3`, `1cde58c`, `6528cbc`.
+- This slice introduces generic integration executor dispatch and fail-closed stale-state checks while preserving bounded integration evidence semantics.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -120,18 +125,19 @@
 
 ## Next implementation slice
 
-Implement **Phase 3 major milestone continuation: generic integration executor kickoff for bounded LiteLLM-to-vLLM topology evidence execution**:
+Implement **Phase 3 major milestone continuation: generic integration executor policy and audit parity closure**:
 
-- add a narrow `integration execute` command path that dispatches to existing `component-smoke` and `topology-end-to-end` bounded modes without granting deployment mutation authority;
-- preserve deterministic `IntegrationTestResult` identities while formalizing executor input normalization/order guarantees for repeatable outputs;
-- add fail-closed executor stale-state and unsupported-mode tests proving no execution occurs when requested topology/component bindings drift from catalog assertions;
+- add explicit generic integration executor diagnostics documentation for unsupported mode and stale binding codes (`YARA-INT-109`, `YARA-INT-110`) and wire them into operator remediation guidance;
+- add focused tests proving `integration execute` preserves sorted/unique component normalization and deterministic result identity parity with the direct mode-specific commands;
+- add an auditable CLI explainability field in generic execute output that records the selected bounded mode path without changing durable resource schemas;
 - keep gate-evaluation signing authority independent from deployment authorization keys while preserving deterministic, content-addressed evidence;
 - preserve non-secret durable evidence boundaries (no raw scanner logs, payloads, secrets, kubeconfig, or host addresses).
 
 Acceptance criteria:
 
-- one bounded generic integration executor path exists and deterministically emits the same immutable evidence structure as existing specific integration commands;
-- executor dispatch and normalization are deterministic and fail closed on stale/foreign/unsupported execution inputs;
+- generic integration executor emits explicit diagnostics/remediation guidance for unsupported mode and stale binding failures;
+- generic `integration execute` output carries bounded mode-path explainability metadata while keeping immutable result/audit resource contracts unchanged;
+- executor dispatch and normalization remain deterministic and fail closed on stale/foreign/unsupported execution inputs;
 - lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
 - apply-side provenance remains fail-closed and unaffected by lifecycle publication-policy UX additions;

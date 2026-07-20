@@ -163,6 +163,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "integration" && args[1] == "topology-end-to-end" {
 		return runIntegrationTopologyEndToEnd(args[2:], stdout, stderr)
 	}
+	if len(args) >= 2 && args[0] == "integration" && args[1] == "execute" {
+		return runIntegrationExecute(args[2:], stdout, stderr)
+	}
 	if len(args) >= 3 && args[0] == "catalog" && args[1] == "coverage" && args[2] == "create" {
 		return catalogCoverage(args[3:], stdout, stderr)
 	}
@@ -613,6 +616,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara lifecycle-proof-approval validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara integration component-smoke --catalog <file> --target <local|user@host> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration topology-end-to-end --catalog <file> --target <local|user@host> --topology <id@version> --component <id@version> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara integration execute <component-smoke|topology-end-to-end> [mode-flags]")
 	fmt.Fprintln(output, "  yara integration validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara audit verify <file>")
 }

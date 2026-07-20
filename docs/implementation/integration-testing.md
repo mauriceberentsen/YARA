@@ -57,9 +57,20 @@ go run ./cmd/yara integration topology-end-to-end \
   --name private-chat-coding-e2e \
   --output private-chat-coding.e2e.integration.yaml \
   --audit-output private-chat-coding.e2e.integration.audit.jsonl
+
+go run ./cmd/yara integration execute topology-end-to-end \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --target local \
+  --topology core.local-chat-coding-vllm@1.0.0 \
+  --component core.litellm@1.93.0 \
+  --component core.vllm@0.8.5-post1 \
+  --confirm-catalog-digest sha256:<catalog-digest> \
+  --name private-chat-coding-e2e \
+  --output private-chat-coding.e2e.integration.yaml \
+  --audit-output private-chat-coding.e2e.integration.audit.jsonl
 ```
 
-The execution path remains bounded: it validates exact catalog references, records pseudonymized local/SSH target facts, emits sorted content-addressed checks, and fails closed on audit persistence errors.
+The execution path remains bounded: it validates exact catalog references, records pseudonymized local/SSH target facts, emits sorted content-addressed checks, and fails closed on audit persistence errors. `integration execute` dispatches only `component-smoke` and `topology-end-to-end`; unsupported modes and stale topology/component bindings are rejected before executor dispatch.
 
 ## Coverage semantics
 

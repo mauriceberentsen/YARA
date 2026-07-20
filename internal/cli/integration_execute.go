@@ -46,6 +46,19 @@ func runIntegrationTopologyEndToEnd(args []string, stdout, stderr io.Writer) int
 	return runIntegrationAt("topology-end-to-end", args, stdout, stderr, time.Now)
 }
 
+func runIntegrationExecute(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "integration execute requires a mode: component-smoke or topology-end-to-end")
+		return ExitInvalidInput
+	}
+	mode := strings.TrimSpace(args[0])
+	if mode != "component-smoke" && mode != "topology-end-to-end" {
+		fmt.Fprintln(stderr, "integration execute supports only component-smoke or topology-end-to-end")
+		return ExitInvalidInput
+	}
+	return runIntegrationAt(mode, args[1:], stdout, stderr, time.Now)
+}
+
 func runIntegrationAt(mode string, args []string, stdout, stderr io.Writer, now func() time.Time) int {
 	options, ok := parseIntegrationExecuteOptions(mode, args, stderr)
 	if !ok {
@@ -208,6 +221,13 @@ func resolveIntegrationInputs(snapshot catalog.Snapshot, mode string, options in
 	for _, component := range inventory.Components {
 		componentStatus[component.ID+"@"+component.Version] = component.Status
 	}
+	assertionBoundRuntimeRefs := map[string]struct{}{}
+	for _, assertion := range inventory.Compatibility {
+		if assertion.Compatibility == "supported" && slices.Contains([]string{"known", "experimental", "supported"}, assertion.Status) {
+			assertionBoundRuntimeRefs[assertion.RuntimeRef] = struct{}{}
+		}
+	}
+	selectedAssertionBoundRuntime := false
 	for _, reference := range options.componentRefs {
 		status, ok := componentStatus[reference]
 		if !ok {
@@ -215,6 +235,10 @@ func resolveIntegrationInputs(snapshot catalog.Snapshot, mode string, options in
 		}
 		if status == "deprecated" || status == "quarantined" {
 			return nil, "", resources.ContractTestEnvironment{}, "YARA-INT-105", fmt.Errorf("component reference %q is not selectable for integration execution", reference)
+		}
+		componentID := strings.SplitN(reference, "@", 2)[0]
+		if _, ok := assertionBoundRuntimeRefs[componentID]; ok {
+			selectedAssertionBoundRuntime = true
 		}
 	}
 	if mode == "topology-end-to-end" {
@@ -224,6 +248,22 @@ func resolveIntegrationInputs(snapshot catalog.Snapshot, mode string, options in
 		}
 		if topology.Status == "deprecated" || topology.Status == "quarantined" {
 			return nil, "", resources.ContractTestEnvironment{}, "YARA-INT-107", fmt.Errorf("topology reference %q is not selectable for integration execution", options.topologyRef)
+		}
+		if !selectedAssertionBoundRuntime {
+			return nil, "", resources.ContractTestEnvironment{}, "YARA-INT-109", errors.New("selected topology components are not bound to a supported compatibility runtime assertion")
+		}
+		for _, role := range topology.Roles {
+			roleCandidates := snapshot.ComponentsForRole(role.Role)
+			matched := false
+			for _, candidate := range roleCandidates {
+				if slices.Contains(options.componentRefs, candidate.ComponentRef) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return nil, "", resources.ContractTestEnvironment{}, "YARA-INT-110", fmt.Errorf("selected topology components do not satisfy role %q", role.Role)
+			}
 		}
 	}
 	target, err := observeIntegrationTarget(options.target)

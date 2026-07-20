@@ -198,3 +198,114 @@ func TestIntegrationExecutionDeterministicResultIdentity(t *testing.T) {
 		t.Fatalf("integration result identity is not deterministic: %s != %s", first, second)
 	}
 }
+
+func TestIntegrationExecuteDispatchesComponentSmokeMode(t *testing.T) {
+	directory := t.TempDir()
+	catalogPath := filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml")
+	snapshot, err := catalog.Load(catalogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(directory, "execute-component.yaml")
+	auditPath := filepath.Join(directory, "execute-component.audit.jsonl")
+	original := integrationRun
+	t.Cleanup(func() { integrationRun = original })
+	called := false
+	integrationRun = fixedIntegrationExecutor{
+		componentSmoke: func(_ context.Context, _ catalog.Snapshot, refs []string, _ resources.ContractTestEnvironment) ([]resources.ContractTestCheck, []string, error) {
+			called = true
+			if len(refs) != 1 || refs[0] != "core.litellm@1.93.0" {
+				t.Fatalf("unexpected refs: %#v", refs)
+			}
+			return []resources.ContractTestCheck{{ID: "execute.component.check", Status: "passed", EvidenceDigest: testCLIDigest('e')}}, []string{"generic execute dispatch"}, nil
+		},
+		topology: func(context.Context, catalog.Snapshot, string, []string, resources.ContractTestEnvironment) ([]resources.ContractTestCheck, []string, error) {
+			t.Fatal("topology executor should not be called")
+			return nil, nil, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	exit := Run([]string{
+		"integration", "execute", "component-smoke",
+		"--catalog", catalogPath,
+		"--target", "local",
+		"--component", "core.litellm@1.93.0",
+		"--confirm-catalog-digest", digest,
+		"--name", "generic-component-smoke",
+		"--output", outputPath,
+		"--audit-output", auditPath,
+	}, &stdout, &stderr)
+	if exit != ExitSuccess {
+		t.Fatalf("integration execute component-smoke failed with %d: stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	if !called {
+		t.Fatal("component-smoke executor was not dispatched")
+	}
+}
+
+func TestIntegrationExecuteRejectsUnsupportedModeWithoutExecutorCall(t *testing.T) {
+	original := integrationRun
+	t.Cleanup(func() { integrationRun = original })
+	integrationRun = fixedIntegrationExecutor{
+		componentSmoke: func(context.Context, catalog.Snapshot, []string, resources.ContractTestEnvironment) ([]resources.ContractTestCheck, []string, error) {
+			t.Fatal("component executor must not be called for unsupported mode")
+			return nil, nil, nil
+		},
+		topology: func(context.Context, catalog.Snapshot, string, []string, resources.ContractTestEnvironment) ([]resources.ContractTestCheck, []string, error) {
+			t.Fatal("topology executor must not be called for unsupported mode")
+			return nil, nil, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	exit := Run([]string{"integration", "execute", "unknown-mode"}, &stdout, &stderr)
+	if exit != ExitInvalidInput {
+		t.Fatalf("unsupported integration execute mode must return invalid input, got %d", exit)
+	}
+}
+
+func TestIntegrationTopologyExecuteRejectsStaleBindingWithoutExecutorCall(t *testing.T) {
+	directory := t.TempDir()
+	catalogPath := filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml")
+	snapshot, err := catalog.Load(catalogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(directory, "execute-topology.yaml")
+	auditPath := filepath.Join(directory, "execute-topology.audit.jsonl")
+	original := integrationRun
+	t.Cleanup(func() { integrationRun = original })
+	integrationRun = fixedIntegrationExecutor{
+		componentSmoke: func(context.Context, catalog.Snapshot, []string, resources.ContractTestEnvironment) ([]resources.ContractTestCheck, []string, error) {
+			t.Fatal("component executor must not run for stale topology binding")
+			return nil, nil, nil
+		},
+		topology: func(context.Context, catalog.Snapshot, string, []string, resources.ContractTestEnvironment) ([]resources.ContractTestCheck, []string, error) {
+			t.Fatal("topology executor must not run for stale topology binding")
+			return nil, nil, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	exit := Run([]string{
+		"integration", "execute", "topology-end-to-end",
+		"--catalog", catalogPath,
+		"--target", "local",
+		"--topology", "core.local-chat-coding-vllm@1.0.0",
+		"--component", "core.litellm@1.93.0",
+		"--component", "core.open-webui@0.6.20",
+		"--confirm-catalog-digest", digest,
+		"--name", "stale-topology-binding",
+		"--output", outputPath,
+		"--audit-output", auditPath,
+	}, &stdout, &stderr)
+	if exit != ExitInfeasible {
+		t.Fatalf("expected infeasible exit for stale topology binding, got %d: stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+}
