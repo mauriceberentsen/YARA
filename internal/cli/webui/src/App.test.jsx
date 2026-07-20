@@ -23,6 +23,20 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/render" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          render: {
+            bundleId: "sha256:bundle",
+            bundlePath: ".yara/workspaces/default/reference-stack.kubernetes.bundle.yaml",
+            auditPath: ".yara/workspaces/default/reference-stack.kubernetes.bundle.audit.jsonl",
+            renderer: "kubernetes-gitops",
+            manifestCount: 9,
+            artifactCount: 3,
+            operationCount: 6,
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -47,6 +61,21 @@ describe("App", () => {
             stages: [
               { id: "plan", label: "Plan", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.plan.yaml" },
               { id: "bundle", label: "Bundle", status: "not-started" },
+              { id: "preflight", label: "Preflight", status: "not-started" },
+              { id: "changeset", label: "Change-set", status: "not-started" },
+              { id: "approval", label: "Approval", status: "not-started" },
+              { id: "authorization", label: "Authorization", status: "not-started" },
+              { id: "receipt", label: "Apply receipt", status: "not-started" },
+            ],
+          },
+        },
+        "/api/v1/workspace?refresh=2": {
+          valid: true,
+          workspace: {
+            path: ".yara/workspaces/default",
+            stages: [
+              { id: "plan", label: "Plan", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.plan.yaml" },
+              { id: "bundle", label: "Bundle", status: "complete", artifactPath: ".yara/workspaces/default/reference-stack.kubernetes.bundle.yaml" },
               { id: "preflight", label: "Preflight", status: "not-started" },
               { id: "changeset", label: "Change-set", status: "not-started" },
               { id: "approval", label: "Approval", status: "not-started" },
@@ -130,6 +159,11 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("Workspace: .yara/workspaces/default")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Create plan" }));
     await waitFor(() => expect(screen.getByText("sha256:plan")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Render" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Render bundle" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Render bundle" }));
+    await waitFor(() => expect(screen.getByText("sha256:bundle")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());

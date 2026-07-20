@@ -213,6 +213,106 @@ func TestServeWorkflowPlanCreateWritesPlanAndAudit(t *testing.T) {
 	}
 }
 
+func TestServeWorkflowRenderRejectsUnsupportedTarget(t *testing.T) {
+	workspacePath := t.TempDir()
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{
+		"planPath": "%s",
+		"catalogPath": "%s",
+		"target": "unknown-target",
+		"bundleName": "reference-stack",
+		"outputPath": "%s",
+		"auditPath": "%s"
+	}`,
+		filepath.Join(workspacePath, "reference-stack.plan.yaml"),
+		filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		filepath.Join(workspacePath, "reference-stack.bundle.yaml"),
+		filepath.Join(workspacePath, "reference-stack.bundle.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/render", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unsupported render target, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-SRV-013") {
+		t.Fatalf("expected structured render target error, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowRenderWritesBundleAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	handler := serveHandlerFixture(t, false, workspacePath)
+	planRequest := fmt.Sprintf(`{
+		"requestPath": "%s",
+		"inventoryPath": "%s",
+		"catalogPath": "%s",
+		"outputPath": "%s",
+		"auditPath": "%s"
+	}`,
+		filepath.Join("..", "..", "docs", "examples", "v0.2-platform-request.yaml"),
+		filepath.Join("..", "..", "docs", "examples", "v0.2-inventory.yaml"),
+		filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		filepath.Join(workspacePath, "reference-stack.plan.yaml"),
+		filepath.Join(workspacePath, "reference-stack.plan.audit.jsonl"),
+	)
+	planRequestRecorder := httptest.NewRecorder()
+	planHTTP := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/plan", strings.NewReader(planRequest))
+	planHTTP.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(planRequestRecorder, planHTTP)
+	if planRequestRecorder.Code != http.StatusOK {
+		t.Fatalf("expected plan creation success before render, got %d: %s", planRequestRecorder.Code, planRequestRecorder.Body.String())
+	}
+	renderRequest := fmt.Sprintf(`{
+		"planPath": "%s",
+		"catalogPath": "%s",
+		"target": "kubernetes-gitops",
+		"bundleName": "reference-stack",
+		"outputPath": "%s",
+		"auditPath": "%s"
+	}`,
+		filepath.Join(workspacePath, "reference-stack.plan.yaml"),
+		filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"),
+		filepath.Join(workspacePath, "reference-stack.kubernetes.bundle.yaml"),
+		filepath.Join(workspacePath, "reference-stack.kubernetes.bundle.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/render", strings.NewReader(renderRequest))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected render success, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode workflow render response: %v", err)
+	}
+	renderPayload, _ := payload["render"].(map[string]any)
+	if renderPayload["bundleId"] == "" || renderPayload["bundlePath"] == "" || renderPayload["auditPath"] == "" {
+		t.Fatalf("workflow render response omitted expected fields: %#v", renderPayload)
+	}
+	workspaceRequest := httptest.NewRequest(http.MethodGet, "/api/v1/workspace", nil)
+	workspaceRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(workspaceRecorder, workspaceRequest)
+	if workspaceRecorder.Code != http.StatusOK {
+		t.Fatalf("expected workspace success after render, got %d: %s", workspaceRecorder.Code, workspaceRecorder.Body.String())
+	}
+	var workspacePayload map[string]any
+	if err := json.Unmarshal(workspaceRecorder.Body.Bytes(), &workspacePayload); err != nil {
+		t.Fatalf("decode workspace response: %v", err)
+	}
+	workspace, _ := workspacePayload["workspace"].(map[string]any)
+	stages, _ := workspace["stages"].([]any)
+	if len(stages) < 2 {
+		t.Fatalf("expected two stages at minimum, got %#v", stages)
+	}
+	second, _ := stages[1].(map[string]any)
+	if second["status"] != "complete" {
+		t.Fatalf("expected bundle stage complete after render, got %#v", second)
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)

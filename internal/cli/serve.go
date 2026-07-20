@@ -366,6 +366,95 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Plan.Diagnostics = len(plan.Spec.Diagnostics)
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/render", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow render requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowRenderRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-013", err.Error())
+			return
+		}
+		outputPath, err := ensureWorkspaceFilePath(workspacePath, payload.OutputPath, "outputPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-013", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-013", err.Error())
+			return
+		}
+		if strings.EqualFold(outputPath, auditPath) {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-013", "outputPath and auditPath must be different files")
+			return
+		}
+		var commandStdout bytes.Buffer
+		var commandStderr bytes.Buffer
+		renderArgs := []string{
+			"--plan", payload.PlanPath,
+			"--catalog", payload.CatalogPath,
+			"--name", payload.BundleName,
+			"--output", outputPath,
+			"--audit-output", auditPath,
+		}
+		exitCode := ExitInternal
+		switch payload.Target {
+		case "kubernetes-gitops":
+			exitCode = renderKubernetesGitOps(renderArgs, &commandStdout, &commandStderr)
+		case "docker-compose":
+			exitCode = renderDockerCompose(renderArgs, &commandStdout, &commandStderr)
+		default:
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-013", "target must be either kubernetes-gitops or docker-compose")
+			return
+		}
+		if exitCode != ExitSuccess {
+			var failurePayload any
+			if err := json.Unmarshal(commandStdout.Bytes(), &failurePayload); err == nil {
+				writeServeJSON(writer, workflowRenderStatus(exitCode), failurePayload)
+				return
+			}
+			writeServeError(writer, workflowRenderStatus(exitCode), "YARA-SRV-014", strings.TrimSpace(commandStderr.String()))
+			return
+		}
+		var renderCommandResult struct {
+			Valid    bool   `json:"valid"`
+			BundleID string `json:"bundleId"`
+			Renderer struct {
+				Target string `json:"target"`
+			} `json:"renderer"`
+			Output      string `json:"output"`
+			AuditOutput string `json:"auditOutput"`
+		}
+		if err := json.Unmarshal(commandStdout.Bytes(), &renderCommandResult); err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("decode render workflow output: %v", err))
+			return
+		}
+		bundle, err := resources.LoadDeploymentBundle(renderCommandResult.Output)
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("load generated bundle: %v", err))
+			return
+		}
+		report := bundle.Validate()
+		if !report.Valid {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("generated bundle failed validation: %s", report.Diagnostics[0].Code))
+			return
+		}
+		response := workflowRenderResponse{Valid: true}
+		response.Render.BundleID = bundle.Metadata.BundleID
+		response.Render.BundlePath = renderCommandResult.Output
+		response.Render.AuditPath = renderCommandResult.AuditOutput
+		response.Render.Renderer = bundle.Spec.Renderer.Target
+		response.Render.ManifestCount = len(bundle.Spec.Files)
+		response.Render.ArtifactCount = len(bundle.Spec.Artifacts)
+		response.Render.OperationCount = len(bundle.Spec.Operations)
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -436,6 +525,28 @@ type workflowPlanCreateResponse struct {
 		Components  int    `json:"components"`
 		Diagnostics int    `json:"diagnostics"`
 	} `json:"plan"`
+}
+
+type workflowRenderRequest struct {
+	PlanPath    string `json:"planPath"`
+	CatalogPath string `json:"catalogPath"`
+	Target      string `json:"target"`
+	BundleName  string `json:"bundleName"`
+	OutputPath  string `json:"outputPath"`
+	AuditPath   string `json:"auditPath"`
+}
+
+type workflowRenderResponse struct {
+	Valid  bool `json:"valid"`
+	Render struct {
+		BundleID       string `json:"bundleId"`
+		BundlePath     string `json:"bundlePath"`
+		AuditPath      string `json:"auditPath"`
+		Renderer       string `json:"renderer"`
+		ManifestCount  int    `json:"manifestCount"`
+		ArtifactCount  int    `json:"artifactCount"`
+		OperationCount int    `json:"operationCount"`
+	} `json:"render"`
 }
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
@@ -583,6 +694,40 @@ func workflowPlanCreateStatus(exitCode int) int {
 	default:
 		return http.StatusInternalServerError
 	}
+}
+
+func workflowRenderStatus(exitCode int) int {
+	switch exitCode {
+	case ExitInvalidInput:
+		return http.StatusBadRequest
+	case ExitUnsupported:
+		return http.StatusUnprocessableEntity
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func decodeWorkflowRenderRequest(request *http.Request) (workflowRenderRequest, error) {
+	var payload workflowRenderRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.PlanPath) == "" || strings.TrimSpace(payload.CatalogPath) == "" || strings.TrimSpace(payload.Target) == "" || strings.TrimSpace(payload.BundleName) == "" || strings.TrimSpace(payload.OutputPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("planPath, catalogPath, target, bundleName, outputPath and auditPath are required")
+	}
+	if payload.OutputPath == payload.AuditPath {
+		return payload, errors.New("outputPath and auditPath must be different files")
+	}
+	if payload.Target != "kubernetes-gitops" && payload.Target != "docker-compose" {
+		return payload, errors.New("target must be either kubernetes-gitops or docker-compose")
+	}
+	return payload, nil
 }
 
 func serveUIIndex(writer http.ResponseWriter, uiFileSystem fs.FS) {

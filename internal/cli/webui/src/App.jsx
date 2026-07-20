@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 const views = [
   { id: "pipeline", label: "Pipeline", endpoint: "/api/v1/workspace" },
   { id: "plan-create", label: "Plan create", endpoint: "/api/v1/workspace" },
+  { id: "render", label: "Render", endpoint: "/api/v1/workspace" },
   { id: "catalog", label: "Catalog", endpoint: "/api/v1/catalog" },
   { id: "coverage", label: "Coverage", endpoint: "/api/v1/coverage" },
   { id: "drift", label: "Drift", endpoint: "/api/v1/drift-posture" },
@@ -362,12 +363,121 @@ function PlanCreateView({ workspacePayload, onPlanCreated }) {
   );
 }
 
+function RenderView({ workspacePayload, onRenderCreated }) {
+  const workspacePath = workspacePayload?.workspace?.path || "";
+  const [form, setForm] = useState(() => ({
+    planPath: workspacePath ? `${workspacePath}/reference-stack.plan.yaml` : "",
+    catalogPath: "catalog/v0.2/snapshot.yaml",
+    target: "kubernetes-gitops",
+    bundleName: "reference-stack",
+    outputPath: workspacePath ? `${workspacePath}/reference-stack.kubernetes.bundle.yaml` : "",
+    auditPath: workspacePath ? `${workspacePath}/reference-stack.kubernetes.bundle.audit.jsonl` : "",
+  }));
+  const [submitState, setSubmitState] = useState({ loading: false, error: "", result: null });
+
+  useEffect(() => {
+    if (!workspacePath) {
+      return;
+    }
+    setForm((previous) => {
+      const next = { ...previous };
+      if (!previous.planPath) {
+        next.planPath = `${workspacePath}/reference-stack.plan.yaml`;
+      }
+      if (!previous.outputPath) {
+        next.outputPath = `${workspacePath}/reference-stack.kubernetes.bundle.yaml`;
+      }
+      if (!previous.auditPath) {
+        next.auditPath = `${workspacePath}/reference-stack.kubernetes.bundle.audit.jsonl`;
+      }
+      return next;
+    });
+  }, [workspacePath]);
+
+  const update = (key) => (event) => {
+    setForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.diagnostics?.[0]?.message || "Render failed");
+      }
+      setSubmitState({ loading: false, error: "", result: payload.render || null });
+      onRenderCreated();
+    } catch (error) {
+      setSubmitState({ loading: false, error: error.message || "Render failed", result: null });
+    }
+  };
+
+  return (
+    <>
+      <p>Workspace: {workspacePath || "unknown"}</p>
+      <form onSubmit={submit}>
+        <div className="formRow">
+          <label htmlFor="render-plan-path">Plan path</label>
+          <input id="render-plan-path" value={form.planPath} onChange={update("planPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="render-catalog-path">Catalog path</label>
+          <input id="render-catalog-path" value={form.catalogPath} onChange={update("catalogPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="render-target">Target</label>
+          <select id="render-target" value={form.target} onChange={update("target")}>
+            <option value="kubernetes-gitops">kubernetes-gitops</option>
+            <option value="docker-compose">docker-compose</option>
+          </select>
+        </div>
+        <div className="formRow">
+          <label htmlFor="render-bundle-name">Bundle name</label>
+          <input id="render-bundle-name" value={form.bundleName} onChange={update("bundleName")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="render-output-path">Bundle output path</label>
+          <input id="render-output-path" value={form.outputPath} onChange={update("outputPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="render-audit-path">Audit output path</label>
+          <input id="render-audit-path" value={form.auditPath} onChange={update("auditPath")} />
+        </div>
+        <button type="submit" disabled={submitState.loading}>
+          {submitState.loading ? "Rendering bundle..." : "Render bundle"}
+        </button>
+      </form>
+      {submitState.error && <p className="error">Error: {submitState.error}</p>}
+      {submitState.result && (
+        <dl className="grid">
+          <div><dt>Bundle ID</dt><dd>{submitState.result.bundleId || "n/a"}</dd></div>
+          <div><dt>Renderer</dt><dd>{submitState.result.renderer || "n/a"}</dd></div>
+          <div><dt>Bundle path</dt><dd>{submitState.result.bundlePath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{submitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Manifests</dt><dd>{String(submitState.result.manifestCount ?? 0)}</dd></div>
+          <div><dt>Artifacts</dt><dd>{String(submitState.result.artifactCount ?? 0)}</dd></div>
+          <div><dt>Operations</dt><dd>{String(submitState.result.operationCount ?? 0)}</dd></div>
+        </dl>
+      )}
+    </>
+  );
+}
+
 function renderView(viewID, payload, extra = {}) {
   if (viewID === "pipeline") {
     return <PipelineView payload={payload} />;
   }
   if (viewID === "plan-create") {
     return <PlanCreateView workspacePayload={payload} onPlanCreated={extra.onPlanCreated || (() => {})} />;
+  }
+  if (viewID === "render") {
+    return <RenderView workspacePayload={payload} onRenderCreated={extra.onRenderCreated || (() => {})} />;
   }
   if (viewID === "catalog") {
     return (
@@ -406,13 +516,13 @@ export function App() {
   const driftEndpoint = driftAssertion ? `/api/v1/drift-posture?assertion=${encodeURIComponent(driftAssertion)}` : "/api/v1/drift-posture";
   const lifecycleEndpoint = lifecycleAssertion ? `/api/v1/lifecycle-policy?assertion=${encodeURIComponent(lifecycleAssertion)}` : "/api/v1/lifecycle-policy";
   const activeView = useMemo(() => views.find((view) => view.id === activeViewID) || views[0], [activeViewID]);
-  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.id === "pipeline" || activeView.id === "plan-create" ? workspaceEndpoint : activeView.endpoint;
+  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render" ? workspaceEndpoint : activeView.endpoint;
   const decoder =
     activeView.id === "drift"
       ? decodeDriftPayload
       : activeView.id === "lifecycle"
         ? decodeLifecyclePayload
-        : activeView.id === "pipeline" || activeView.id === "plan-create"
+        : activeView.id === "pipeline" || activeView.id === "plan-create" || activeView.id === "render"
           ? decodeWorkspacePayload
           : undefined;
   const { loading, payload, error } = useEndpoint(endpoint, decoder);
@@ -451,6 +561,7 @@ export function App() {
             setLifecycleAssertion,
             assertions: assertionIDs,
             onPlanCreated: () => setWorkspaceRefresh((value) => value + 1),
+            onRenderCreated: () => setWorkspaceRefresh((value) => value + 1),
           })}
       </section>
     </main>
