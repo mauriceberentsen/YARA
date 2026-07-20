@@ -95,6 +95,10 @@ func LoadRollbackReceipt(path string) (RollbackReceipt, error) {
 	return loadResource[RollbackReceipt](path)
 }
 
+func LoadPromotionReview(path string) (PromotionReview, error) {
+	return loadResource[PromotionReview](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

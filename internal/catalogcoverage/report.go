@@ -124,10 +124,17 @@ type acceptedIntegrationEvidence struct {
 	OccurredAt string
 }
 
+type acceptedPromotionReview struct {
+	Review     resources.PromotionReview
+	AuditHead  string
+	OccurredAt string
+}
+
 type evidenceIndex struct {
 	Contracts          map[string][]acceptedEvidence
 	ComponentEvidence  map[string][]acceptedIntegrationEvidence
 	TopologyEvidence   map[string][]acceptedIntegrationEvidence
+	PromotionReviews   map[string][]acceptedPromotionReview
 	AcceptedCount      int
 	VerifiedAuditCount int
 }
@@ -159,7 +166,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 	}
 	slices.Sort(report.Spec.Limitations)
 	for _, assertion := range inventory.Compatibility {
-		coverage := assertionCoverage(assertion, evidence.Contracts[assertion.ID])
+		coverage := assertionCoverage(assertion, evidence.Contracts[assertion.ID], evidence.PromotionReviews[assertion.ID])
 		report.Spec.Assertions = append(report.Spec.Assertions, coverage)
 		if coverage.PromotionEligible {
 			report.Spec.Summary.PromotionEligibleAssertions++
@@ -183,7 +190,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 	return report.AssignReportID()
 }
 
-func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []acceptedEvidence) AssertionCoverage {
+func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []acceptedEvidence, reviews []acceptedPromotionReview) AssertionCoverage {
 	coverage := AssertionCoverage{
 		ID: assertion.ID, Status: assertion.Status, RuntimeRef: assertion.RuntimeRef, ModelRef: assertion.ModelRef,
 		HardwareProfileRef: assertion.HardwareProfileRef,
@@ -199,7 +206,7 @@ func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []accepte
 		coverage.Gates = append(coverage.Gates, contractGate(mode, evidence))
 	}
 	coverage.Gates = append(coverage.Gates,
-		GateCoverage{ID: "independent-promotion-review", Status: "missing", ObservedEvidence: []EvidenceBinding{}, Blocker: "promotion-review-not-recorded"},
+		promotionReviewGate(reviews),
 	)
 	slices.SortFunc(coverage.Gates, func(left, right GateCoverage) int { return strings.Compare(left.ID, right.ID) })
 	for _, gate := range coverage.Gates {
@@ -213,6 +220,53 @@ func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []accepte
 	slices.Sort(coverage.Blockers)
 	coverage.PromotionEligible = slices.Contains([]string{"known", "experimental", "supported"}, assertion.Status) && assertion.Compatibility == "supported" && len(coverage.Blockers) == 0
 	return coverage
+}
+
+func promotionReviewGate(reviews []acceptedPromotionReview) GateCoverage {
+	gate := GateCoverage{
+		ID:               "independent-promotion-review",
+		Status:           "missing",
+		ObservedEvidence: []EvidenceBinding{},
+		Blocker:          "promotion-review-not-recorded",
+	}
+	if len(reviews) == 0 {
+		return gate
+	}
+	sorted := slices.Clone(reviews)
+	slices.SortFunc(sorted, func(left, right acceptedPromotionReview) int {
+		if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Review.Metadata.ReviewID, right.Review.Metadata.ReviewID)
+	})
+	for _, item := range sorted {
+		outcome := "failed"
+		if item.Review.Spec.Decision == resources.PromotionDecisionApproved {
+			outcome = "passed"
+		} else if item.Review.Spec.Decision == resources.PromotionDecisionAbstained {
+			outcome = "blocked"
+		}
+		gate.ObservedEvidence = append(gate.ObservedEvidence, EvidenceBinding{
+			ResultID:  item.Review.Metadata.ReviewID,
+			Outcome:   outcome,
+			AuditHead: item.AuditHead,
+		})
+	}
+	selected := sorted[len(sorted)-1]
+	gate.SelectedResult = selected.Review.Metadata.ReviewID
+	gate.SelectedAuditHead = selected.AuditHead
+	switch selected.Review.Spec.Decision {
+	case resources.PromotionDecisionApproved:
+		gate.Status = "passed"
+		gate.Blocker = ""
+	case resources.PromotionDecisionAbstained:
+		gate.Status = "blocked"
+		gate.Blocker = "selected-review-decision-abstained"
+	default:
+		gate.Status = "failed"
+		gate.Blocker = "selected-review-decision-changes-required"
+	}
+	return gate
 }
 
 func contractGate(mode string, evidence []acceptedEvidence) GateCoverage {
@@ -425,6 +479,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		Contracts:         make(map[string][]acceptedEvidence),
 		ComponentEvidence: make(map[string][]acceptedIntegrationEvidence),
 		TopologyEvidence:  make(map[string][]acceptedIntegrationEvidence),
+		PromotionReviews:  make(map[string][]acceptedPromotionReview),
 	}
 	assertions := make(map[string]catalog.AssertionDescriptor)
 	inventory := snapshot.ManifestInventory()
@@ -439,6 +494,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 	for _, topology := range inventory.Topologies {
 		topologies[topology.ID+"@"+topology.Version] = struct{}{}
 	}
+	pendingPromotionReviewPaths := []string{}
 	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -488,6 +544,10 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 			result.VerifiedAuditCount++
 			return nil
 		}
+		if kind == "PromotionReview" {
+			pendingPromotionReviewPaths = append(pendingPromotionReviewPaths, path)
+			return nil
+		}
 		if kind != "ContractTestResult" {
 			return fmt.Errorf("evidence %s has unsupported kind %q", filepath.Base(path), kind)
 		}
@@ -522,6 +582,54 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 	})
 	if err != nil {
 		return evidenceIndex{}, fmt.Errorf("discover catalog evidence: %w", err)
+	}
+	for _, path := range pendingPromotionReviewPaths {
+		review, err := resources.LoadPromotionReview(path)
+		if err != nil {
+			return evidenceIndex{}, fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if report := review.Validate(); !report.Valid || review.Spec.CatalogDigest != catalogDigest {
+			return evidenceIndex{}, fmt.Errorf("evidence %s is invalid or not bound to this catalog", filepath.Base(path))
+		}
+		assertion, ok := assertions[review.Spec.AssertionRef]
+		if !ok {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references an unknown assertion", filepath.Base(path))
+		}
+		acceptedEvidenceIDs := map[string]struct{}{}
+		for _, item := range result.Contracts[assertion.ID] {
+			acceptedEvidenceIDs[item.Result.Metadata.ResultID] = struct{}{}
+		}
+		for _, item := range result.ComponentEvidence {
+			for _, integrationResult := range item {
+				for _, componentRef := range integrationResult.Result.Spec.ComponentRefs {
+					if componentRef == assertion.RuntimeRef {
+						acceptedEvidenceIDs[integrationResult.Result.Metadata.ResultID] = struct{}{}
+						break
+					}
+				}
+			}
+		}
+		for _, selected := range review.Spec.SelectedEvidence {
+			if _, ok := acceptedEvidenceIDs[selected]; !ok {
+				return evidenceIndex{}, fmt.Errorf("evidence %s selects unknown or unbound evidence %s", filepath.Base(path), selected)
+			}
+		}
+		auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
+		events, head, err := loadVerifiedAudit(auditPath)
+		if err != nil {
+			return evidenceIndex{}, err
+		}
+		if err := verifyPromotionReviewAudit(events, review, catalogDigest); err != nil {
+			return evidenceIndex{}, fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
+		}
+		terminal := events[len(events)-1]
+		result.PromotionReviews[assertion.ID] = append(result.PromotionReviews[assertion.ID], acceptedPromotionReview{
+			Review:     review,
+			AuditHead:  head,
+			OccurredAt: terminal.Metadata.OccurredAt,
+		})
+		result.AcceptedCount++
+		result.VerifiedAuditCount++
 	}
 	return result, nil
 }
@@ -611,6 +719,20 @@ func verifyIntegrationEvidenceAudit(events []audit.Event, result resources.Integ
 	}
 	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) || !hasSubject(terminal.Spec.Subjects, "IntegrationTestResult", result.Metadata.ResultID) {
 		return errors.New("terminal event does not bind catalog and integration-result identities")
+	}
+	return nil
+}
+
+func verifyPromotionReviewAudit(events []audit.Event, review resources.PromotionReview, catalogDigest string) error {
+	if len(events) != 2 {
+		return fmt.Errorf("expected two events, found %d", len(events))
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "promotion.review.completed" || terminal.Spec.Outcome != "success" || terminal.Spec.Target != "catalog:"+catalogDigest {
+		return errors.New("terminal action, outcome or target does not match promotion review")
+	}
+	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) || !hasSubject(terminal.Spec.Subjects, "PromotionReview", review.Metadata.ReviewID) {
+		return errors.New("terminal event does not bind catalog and promotion-review identities")
 	}
 	return nil
 }

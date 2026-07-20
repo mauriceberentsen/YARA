@@ -1,13 +1,16 @@
 package catalogcoverage
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/resources"
+	"gopkg.in/yaml.v3"
 )
 
 func TestBuildReportsExactV02EvidenceGaps(t *testing.T) {
@@ -110,6 +113,78 @@ func TestBuildRejectsEvidenceWithoutAdjacentAudit(t *testing.T) {
 	}
 }
 
+func TestBuildBindsPromotionReviewGateFromAcceptedReview(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	directory := t.TempDir()
+	sourceResult := filepath.Join(root, "catalog", "v0.2", "evidence", "gb10", "qwen-coder-7b-awq-runtime-smoke.yaml")
+	sourceAudit := filepath.Join(root, "catalog", "v0.2", "evidence", "gb10", "qwen-coder-7b-awq-runtime-smoke.audit.jsonl")
+	resultData, err := os.ReadFile(sourceResult)
+	if err != nil {
+		t.Fatalf("read source evidence: %v", err)
+	}
+	auditData, err := os.ReadFile(sourceAudit)
+	if err != nil {
+		t.Fatalf("read source audit: %v", err)
+	}
+	resultPath := filepath.Join(directory, "runtime-smoke.yaml")
+	if err := os.WriteFile(resultPath, resultData, 0o600); err != nil {
+		t.Fatalf("write runtime evidence: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "runtime-smoke.audit.jsonl"), auditData, 0o600); err != nil {
+		t.Fatalf("write runtime audit: %v", err)
+	}
+	contractResult, err := resources.LoadContractTestResult(sourceResult)
+	if err != nil {
+		t.Fatalf("load source contract result: %v", err)
+	}
+	review := resources.PromotionReview{
+		APIVersion: resources.APIVersion,
+		Kind:       "PromotionReview",
+		Metadata: resources.PromotionReviewMetadata{
+			Name: "gb10-qwen-coder-review",
+		},
+		Spec: resources.PromotionReviewSpec{
+			CatalogDigest:    catalogDigest,
+			AssertionRef:     contractResult.Spec.AssertionRef,
+			SelectedEvidence: []string{contractResult.Metadata.ResultID},
+			Reviewer: resources.ReviewerRecord{
+				Identity:  "local:reviewer",
+				Role:      "release-manager",
+				Assurance: "self-asserted-local",
+			},
+			ReviewedAt:      time.Now().UTC().Format(time.RFC3339Nano),
+			Decision:        resources.PromotionDecisionApproved,
+			ReasonReference: "ticket-9021",
+			Limitations: []string{
+				"Promotion review remains bounded to immutable evidence identities.",
+			},
+		},
+	}
+	review, err = review.AssignReviewID()
+	if err != nil {
+		t.Fatalf("assign promotion review id: %v", err)
+	}
+	writeYAML(t, filepath.Join(directory, "promotion-review.yaml"), review)
+	writePromotionReviewAudit(t, filepath.Join(directory, "promotion-review.audit.jsonl"), catalogDigest, review.Metadata.ReviewID)
+	report, err := Build("coverage", snapshot, directory)
+	if err != nil {
+		t.Fatalf("build coverage with promotion review: %v", err)
+	}
+	assertion := findAssertion(t, report, contractResult.Spec.AssertionRef)
+	gate := findGate(t, assertion, "independent-promotion-review")
+	if gate.Status != "passed" || gate.SelectedResult != review.Metadata.ReviewID {
+		t.Fatalf("promotion review gate was not bound: %#v", gate)
+	}
+}
+
 func findAssertion(t *testing.T, report Report, id string) AssertionCoverage {
 	t.Helper()
 	for _, item := range report.Spec.Assertions {
@@ -139,4 +214,62 @@ func contains(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func writeYAML(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := yaml.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal YAML: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write YAML: %v", err)
+	}
+}
+
+func writePromotionReviewAudit(t *testing.T, path, catalogDigest, reviewID string) {
+	t.Helper()
+	chain := audit.NewChain()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	started, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "promotion-started", OccurredAt: now},
+		Spec: audit.Spec{
+			CorrelationID: "promotion-review",
+			Actor:         audit.Actor{ID: "local:reviewer", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "promotion.review.started",
+			Subjects:      []audit.Subject{{Kind: "CatalogSnapshot", Digest: catalogDigest}},
+			Reason:        audit.Reason{Type: "user-request", Reference: "test"},
+			Target:        "catalog:" + catalogDigest,
+			Outcome:       "started",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append started promotion audit: %v", err)
+	}
+	terminal, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "promotion-terminal", OccurredAt: now},
+		Spec: audit.Spec{
+			CorrelationID: "promotion-review",
+			CausationID:   started.Metadata.ID,
+			Actor:         audit.Actor{ID: "local:reviewer", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "promotion.review.completed",
+			Subjects: []audit.Subject{
+				{Kind: "CatalogSnapshot", Digest: catalogDigest},
+				{Kind: "PromotionReview", Digest: reviewID},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "catalog:" + catalogDigest,
+			Outcome: "success",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append terminal promotion audit: %v", err)
+	}
+	var buffer bytes.Buffer
+	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, terminal}); err != nil {
+		t.Fatalf("encode promotion audit: %v", err)
+	}
+	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
+		t.Fatalf("write promotion audit: %v", err)
+	}
 }

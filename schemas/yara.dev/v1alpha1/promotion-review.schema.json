@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/promotion-review.schema.json",
+  "title": "YARA PromotionReview v1alpha1",
+  "description": "Independent promotion review decision bound to exact catalog and evidence identities.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "PromotionReview" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "reviewId"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "reviewId": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalogDigest", "assertionRef", "selectedEvidence", "reviewer", "reviewedAt", "decision", "reasonReference", "limitations"],
+      "properties": {
+        "catalogDigest": { "$ref": "#/$defs/digest" },
+        "assertionRef": { "type": "string", "minLength": 1 },
+        "selectedEvidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/digest" },
+          "uniqueItems": true
+        },
+        "reviewer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["identity", "role", "assurance"],
+          "properties": {
+            "identity": { "type": "string", "minLength": 1 },
+            "role": { "type": "string", "minLength": 1 },
+            "assurance": { "type": "string", "minLength": 1 }
+          }
+        },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "decision": { "enum": ["approved", "changes-required", "abstained"] },
+        "reasonReference": { "type": "string", "minLength": 1 },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "name": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$" }
+  }
+}

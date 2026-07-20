@@ -127,6 +127,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "contract" && args[1] == "lifecycle" {
 		return lifecycleContract(args[2:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "promotion" && args[1] == "review" && args[2] == "record" {
+		return recordPromotionReview(args[3:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "integration" && args[1] == "component-smoke" {
 		return runIntegrationComponentSmoke(args[2:], stdout, stderr)
 	}
@@ -341,6 +344,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "RollbackReceipt", Digest: result.Metadata.ReceiptID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "deployment.rollback-receipt.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "promotion-review":
+		result, err := resources.LoadPromotionReview(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "promotion.review.validate", "PromotionReview", options.inputPath, "YARA-PRM-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("PromotionReview", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "PromotionReview", Digest: result.Metadata.ReviewID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "promotion.review.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -432,6 +449,8 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara contract policy --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara contract lifecycle --catalog <file> --assertion <id> --target <user@host> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara contract validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara promotion review record --catalog <file> --assertion <id> --evidence <sha256:id> [--evidence <sha256:id> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara promotion-review validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara integration component-smoke --catalog <file> --target <local|user@host> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration topology-end-to-end --catalog <file> --target <local|user@host> --topology <id@version> --component <id@version> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration validate <file> [--audit-output <file>]")

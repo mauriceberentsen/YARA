@@ -310,6 +310,16 @@ go run ./cmd/yara contract lifecycle \
   --name gb10-qwen-coder-lifecycle \
   --output gb10-qwen-coder-lifecycle.yaml \
   --audit-output gb10-qwen-coder-lifecycle.audit.jsonl
+go run ./cmd/yara promotion review record \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --evidence sha256:<accepted-result-id> \
+  --reviewer-role release-manager \
+  --decision approved \
+  --reason-reference ticket-123 \
+  --name gb10-qwen-coder-promotion-review \
+  --output gb10-qwen-coder-promotion-review.yaml \
+  --audit-output gb10-qwen-coder-promotion-review.audit.jsonl
 ```
 
 Currently implemented:
@@ -325,6 +335,7 @@ Currently implemented:
 - a deterministic, content-addressed catalog coverage report that accepts only exact-catalog contract results with verified adjacent audit chains and exposes every missing promotion gate;
 - a strict component/topology integration result contract whose validation audit cannot be mistaken for execution evidence;
 - bounded integration execution commands for `component-smoke` and `topology-end-to-end` that emit content-addressed evidence with dedicated execution audit actions;
+- independent promotion review records bound to exact catalog and selected evidence identities, with deterministic coverage-gate evaluation;
 - a pure versioned Docker Compose renderer for the exact LiteLLM/vLLM topology, producing pinned files, artifact/license inventory, checks, limitations and a fail-closed render audit;
 - a pure Kubernetes/GitOps renderer for the same exact topology plus content-addressed read-only target preflight and object-level change-set observation;
 - review-only deployment approvals, short-lived signed execution authorization and a fail-closed direct Kubernetes executor producing deployment receipts;
