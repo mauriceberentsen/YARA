@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASE_NOTES_TEMPLATE: .github/release-notes/v0.1.0-alpha.1.md
+
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
@@ -24,11 +27,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Verify release notes template
+        run: test -f "${RELEASE_NOTES_TEMPLATE}"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes "${{ env.RELEASE_NOTES_TEMPLATE }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

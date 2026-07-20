@@ -12,6 +12,8 @@ After v0.1 acceptance, `catalog/v0.2/` introduces the first curated real stack. 
 
 The [offline renderers](rendering.md) translate the exact LiteLLM/vLLM plan into content-addressed Docker Compose or Kubernetes/GitOps `DeploymentBundle` resources. Both remain pure and never acquire or deploy anything. The [Kubernetes target preflight](target-preflight.md), [change-set and approval flow](change-sets-and-approvals.md), and short-lived signed authorization lead to the [initial direct executor](kubernetes-apply.md). Separate bounded commands now cover first-use infrastructure and artifact staging: `deployment bootstrap kubernetes` provisions a YARA-owned namespace plus model PVC, and `deployment import kubernetes` stages one explicitly selected model artifact payload into that PVC with immutable receipt/audit evidence. See the command-by-command [first-use quickstart](quickstart.md).
 
+Release automation now builds reproducible multi-platform binaries and a deterministic schema archive from repository-owned configuration. The first pre-alpha release notes path and authoring policy are documented in [release notes policy](release-process.md).
+
 ## Fixed decisions
 
 - Go CLI and planning core ([ADR-0008](../adr/0008-use-go-for-the-v0-cli-and-core.md)).
