@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/airgap-gate-transition-review.schema.json",
+  "title": "YARA AirgapGateTransitionReview v1alpha1",
+  "description": "Independent review artifact for destructive trust-policy transitions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "AirgapGateTransitionReview" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "reviewId"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "reviewId": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recordedAt", "policyDiffId", "fromPolicyId", "toPolicyId", "targetReferenceDigest", "reviewer", "decision", "reasonReference", "limitations"],
+      "properties": {
+        "recordedAt": { "type": "string", "format": "date-time" },
+        "policyDiffId": { "$ref": "#/$defs/digest" },
+        "fromPolicyId": { "$ref": "#/$defs/digest" },
+        "toPolicyId": { "$ref": "#/$defs/digest" },
+        "targetReferenceDigest": { "$ref": "#/$defs/digest" },
+        "reviewer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["identity", "role", "assurance"],
+          "properties": {
+            "identity": { "type": "string", "minLength": 1 },
+            "role": { "type": "string", "minLength": 1 },
+            "assurance": { "type": "string", "minLength": 1 }
+          }
+        },
+        "decision": { "enum": ["approved", "changes-required", "abstained"] },
+        "reasonReference": { "type": "string", "minLength": 1 },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "name": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$" }
+  }
+}

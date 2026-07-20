@@ -202,7 +202,11 @@ go run ./cmd/yara airgap provenance-gate evaluate \
 go run ./cmd/yara airgap provenance-gate verify \
   --gate-result reference-stack.airgap-gate.yaml \
   --trust-policy reference-stack.airgap-gate-trust-policy.yaml \
-  --confirm-policy 'sha256:<full-policy-id>'
+  --confirm-policy 'sha256:<full-policy-id>' \
+  --policy-diff reference-stack.airgap-gate-trust-policy-diff.yaml \
+  --confirm-policy-diff 'sha256:<full-policy-diff-id>' \
+  --transition-review reference-stack.airgap-gate-transition-review.yaml \
+  --confirm-transition-review 'sha256:<full-transition-review-id>'
 
 go run ./cmd/yara airgap gate-trust-policy record \
   --target-reference-digest sha256:<target-reference-digest> \
@@ -217,6 +221,15 @@ go run ./cmd/yara airgap gate-trust-policy diff \
   --name reference-stack-airgap-gate-trust-policy-diff \
   --output reference-stack.airgap-gate-trust-policy-diff.yaml \
   --audit-output reference-stack.airgap-gate-trust-policy-diff.audit.jsonl
+
+go run ./cmd/yara airgap gate-trust-policy review-transition \
+  --policy-diff reference-stack.airgap-gate-trust-policy-diff.yaml \
+  --decision approved \
+  --reviewer-role platform-security \
+  --reason-reference ticket-airgap-transition-review-123 \
+  --name reference-stack-airgap-gate-transition-review \
+  --output reference-stack.airgap-gate-transition-review.yaml \
+  --audit-output reference-stack.airgap-gate-transition-review.audit.jsonl
 ```
 
 Validate it through:
@@ -225,7 +238,7 @@ Validate it through:
 go run ./cmd/yara airgap-provenance-gate-result validate reference-stack.airgap-gate.yaml
 ```
 
-When provided via `deployment apply kubernetes --airgap-gate-result --airgap-gate-trust-policy --confirm-airgap-gate-trust-policy`, apply can fail closed on this gate binding instead of recomputing provenance checks ad hoc. The gate result must be passed, signature-valid under an active trust-policy signer identity, explicitly policy-confirmed by operator-supplied `policyId`, unexpired at apply time, and bind the exact plan/bundle/catalog/target/import identities plus referenced receipt sets. For automated policy transitions, apply can also consume `--airgap-gate-policy-diff --confirm-airgap-gate-policy-diff` so reviewed signer transition evidence is auditable in the same execution chain.
+When provided via `deployment apply kubernetes --airgap-gate-result --airgap-gate-trust-policy --confirm-airgap-gate-trust-policy`, apply can fail closed on this gate binding instead of recomputing provenance checks ad hoc. The gate result must be passed, signature-valid under an active trust-policy signer identity, explicitly policy-confirmed by operator-supplied `policyId`, unexpired at apply time, and bind the exact plan/bundle/catalog/target/import identities plus referenced receipt sets. For automated policy transitions, apply can also consume `--airgap-gate-policy-diff --confirm-airgap-gate-policy-diff`; destructive policy diffs additionally require `--airgap-gate-transition-review --confirm-airgap-gate-transition-review` with an approved transition review bound to the same diff/policy/target.
 
 ## Separate authorized retirement
 

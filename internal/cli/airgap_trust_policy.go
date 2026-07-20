@@ -33,6 +33,16 @@ type airgapTrustPolicyDiffOptions struct {
 	auditPath      string
 }
 
+type airgapTransitionReviewOptions struct {
+	policyDiffPath  string
+	decision        string
+	reviewerRole    string
+	reasonReference string
+	name            string
+	outputPath      string
+	auditPath       string
+}
+
 func recordAirgapGateTrustPolicy(args []string, stdout, stderr io.Writer) int {
 	options, ok := parseAirgapTrustPolicyRecordOptions(args, stderr)
 	if !ok {
@@ -400,4 +410,114 @@ func enforceTrustPolicyTransitionSafety(fromPolicy, toPolicy resources.AirgapGat
 		return errors.New("trust-policy transition cannot replace all active signers in one change")
 	}
 	return nil
+}
+
+func reviewAirgapGateTrustPolicyTransition(args []string, stdout, stderr io.Writer) int {
+	options, ok := parseAirgapTransitionReviewOptions(args, stderr)
+	if !ok {
+		return ExitInvalidInput
+	}
+	diff, err := resources.LoadAirgapGateTrustPolicyDiff(options.policyDiffPath)
+	if err != nil || !diff.Validate().Valid {
+		return writeLoadErrorWithExit(stdout, "YARA-AGR-101", errors.New("trust-policy diff is invalid"), ExitInvalidInput)
+	}
+	if diff.Spec.HighestImpact != "destructive" {
+		return writeLoadErrorWithExit(stdout, "YARA-AGR-102", errors.New("transition review is required only for destructive trust-policy diffs"), ExitInvalidInput)
+	}
+	decision := strings.TrimSpace(options.decision)
+	if decision == "approve" {
+		decision = resources.PromotionDecisionApproved
+	} else if decision == "reject" {
+		decision = resources.PromotionDecisionChangesRequired
+	}
+	if !slices.Contains([]string{resources.PromotionDecisionApproved, resources.PromotionDecisionChangesRequired, resources.PromotionDecisionAbstained}, decision) {
+		return writeLoadErrorWithExit(stdout, "YARA-AGR-103", errors.New("decision must be approved, changes-required or abstained"), ExitInvalidInput)
+	}
+	actorID, assurance := localActor()
+	review := resources.AirgapGateTransitionReview{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTransitionReview",
+		Metadata: resources.AirgapGateTransitionReviewMetadata{
+			Name: options.name,
+		},
+		Spec: resources.AirgapGateTransitionReviewSpec{
+			RecordedAt:            time.Now().UTC().Format(time.RFC3339Nano),
+			PolicyDiffID:          diff.Metadata.DiffID,
+			FromPolicyID:          diff.Spec.FromPolicyID,
+			ToPolicyID:            diff.Spec.ToPolicyID,
+			TargetReferenceDigest: diff.Spec.TargetReferenceDigest,
+			Reviewer: resources.ReviewerRecord{
+				Identity:  actorID,
+				Role:      options.reviewerRole,
+				Assurance: assurance,
+			},
+			Decision:        decision,
+			ReasonReference: options.reasonReference,
+			Limitations: []string{
+				"Transition review is scoped to one destructive trust-policy diff identity.",
+				"Transition review records non-secret reviewer metadata only.",
+			},
+		},
+	}
+	slices.Sort(review.Spec.Limitations)
+	review, err = review.AssignReviewID()
+	if err != nil {
+		return writeLoadErrorWithExit(stdout, "YARA-AGR-500", err, ExitInternal)
+	}
+	if report := review.Validate(); !report.Valid {
+		return writeLoadErrorWithExit(stdout, "YARA-AGR-500", errors.New("constructed transition review is invalid"), ExitInternal)
+	}
+	data, err := yaml.Marshal(review)
+	if err != nil {
+		return writeLoadErrorWithExit(stdout, "YARA-AGR-500", err, ExitInternal)
+	}
+	if err := writeExclusive(options.outputPath, data); err != nil {
+		return writeLoadErrorWithExit(stdout, "YARA-AGR-104", err, ExitInvalidInput)
+	}
+	subjects := []audit.Subject{
+		{Kind: "AirgapGateTrustPolicyDiff", Digest: diff.Metadata.DiffID},
+		{Kind: "AirgapGateTransitionReview", Digest: review.Metadata.ReviewID},
+	}
+	if err := persistOperationAuditForTarget(options.auditPath, "airgap.gate-trust-policy.review-transition", "completed", "success", "kubernetes:"+diff.Spec.TargetReferenceDigest, subjects, nil); err != nil {
+		_ = os.Remove(options.outputPath)
+		return writeLoadError(stdout, "YARA-AUD-005", err)
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(map[string]any{
+		"valid":        true,
+		"reviewId":     review.Metadata.ReviewID,
+		"policyDiffId": diff.Metadata.DiffID,
+		"decision":     review.Spec.Decision,
+		"output":       options.outputPath,
+		"auditOutput":  options.auditPath,
+	}); err != nil {
+		return ExitInternal
+	}
+	return ExitSuccess
+}
+
+func parseAirgapTransitionReviewOptions(args []string, stderr io.Writer) (airgapTransitionReviewOptions, bool) {
+	var options airgapTransitionReviewOptions
+	flags := flag.NewFlagSet("airgap gate-trust-policy review-transition", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.StringVar(&options.policyDiffPath, "policy-diff", "", "AirgapGateTrustPolicyDiff YAML")
+	flags.StringVar(&options.decision, "decision", "", "Review decision: approved|changes-required|abstained")
+	flags.StringVar(&options.reviewerRole, "reviewer-role", "", "Independent reviewer role")
+	flags.StringVar(&options.reasonReference, "reason-reference", "", "Non-secret review reason reference")
+	flags.StringVar(&options.name, "name", "", "AirgapGateTransitionReview name")
+	flags.StringVar(&options.outputPath, "output", "", "Generated AirgapGateTransitionReview YAML output")
+	flags.StringVar(&options.auditPath, "audit-output", "", "Generated transition review audit JSONL output")
+	if err := flags.Parse(args); err != nil {
+		return options, false
+	}
+	if flags.NArg() != 0 || options.policyDiffPath == "" || options.decision == "" || options.reviewerRole == "" || options.reasonReference == "" || options.name == "" || options.outputPath == "" || options.auditPath == "" {
+		fmt.Fprintln(stderr, "airgap gate-trust-policy review-transition requires --policy-diff --decision --reviewer-role --reason-reference --name --output --audit-output")
+		return options, false
+	}
+	if options.outputPath == options.auditPath {
+		fmt.Fprintln(stderr, "--output and --audit-output must be different files")
+		return options, false
+	}
+	return options, true
 }

@@ -108,9 +108,37 @@ func TestAirgapProvenanceGateEvaluateWritesResultAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	transitionReview := resources.AirgapGateTransitionReview{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTransitionReview",
+		Metadata: resources.AirgapGateTransitionReviewMetadata{
+			Name: "airgap-transition-review",
+		},
+		Spec: resources.AirgapGateTransitionReviewSpec{
+			RecordedAt:            now.Add(2 * time.Minute).Format(time.RFC3339Nano),
+			PolicyDiffID:          diff.Metadata.DiffID,
+			FromPolicyID:          diff.Spec.FromPolicyID,
+			ToPolicyID:            diff.Spec.ToPolicyID,
+			TargetReferenceDigest: diff.Spec.TargetReferenceDigest,
+			Reviewer: resources.ReviewerRecord{
+				Identity:  "local:reviewer",
+				Role:      "platform-security",
+				Assurance: "self-asserted-local",
+			},
+			Decision:        resources.PromotionDecisionApproved,
+			ReasonReference: "ticket-transition-review",
+			Limitations:     []string{"Review fixture."},
+		},
+	}
+	transitionReview, err = transitionReview.AssignReviewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	transitionReviewPath := filepath.Join(directory, "airgap-transition-review.yaml")
+	writeYAMLFixture(t, transitionReviewPath, transitionReview)
 	stdout.Reset()
 	stderr.Reset()
-	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", filepath.Join(directory, "airgap-gate.yaml"), "--trust-policy", policyPath, "--confirm-policy", trustPolicy.Metadata.PolicyID, "--policy-diff", policyDiffPath, "--confirm-policy-diff", diff.Metadata.DiffID}, &stdout, &stderr); exit != ExitSuccess {
+	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", filepath.Join(directory, "airgap-gate.yaml"), "--trust-policy", policyPath, "--confirm-policy", trustPolicy.Metadata.PolicyID, "--policy-diff", policyDiffPath, "--confirm-policy-diff", diff.Metadata.DiffID, "--transition-review", transitionReviewPath, "--confirm-transition-review", transitionReview.Metadata.ReviewID}, &stdout, &stderr); exit != ExitSuccess {
 		t.Fatalf("airgap gate verify failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }
@@ -283,5 +311,92 @@ func TestAirgapProvenanceGateVerifyRejectsPolicyConfirmationMismatch(t *testing.
 	stderr.Reset()
 	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", filepath.Join(directory, "airgap-gate.yaml"), "--trust-policy", policyPath, "--confirm-policy", testCLIDigest('f')}, &stdout, &stderr); exit != ExitInfeasible {
 		t.Fatalf("expected confirmation mismatch failure: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestAirgapProvenanceGateVerifyRejectsDestructivePolicyDiffWithoutReview(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, _ := writeExecutionInputs(t, directory, now)
+	gatePublicKey, gatePrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gatePrivatePath, _ := writeAuthorizationKeys(t, directory, gatePublicKey, gatePrivateKey)
+	args := []string{
+		"airgap", "provenance-gate", "evaluate",
+		"--bundle", valueForFlag(paths, "--bundle"),
+		"--import-receipt", valueForFlag(paths, "--import-receipt"),
+		"--transfer-receipt", valueForFlag(paths, "--transfer-receipt"),
+		"--scan-receipt", valueForFlag(paths, "--scan-receipt"),
+		"--private-key", gatePrivatePath,
+		"--key-id", "operations-key-1",
+		"--reason-reference", "ticket-gate-no-review",
+		"--name", "airgap-gate",
+		"--output", filepath.Join(directory, "airgap-gate.yaml"),
+		"--audit-output", filepath.Join(directory, "airgap-gate.audit.jsonl"),
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := Run(args, &stdout, &stderr); exit != ExitSuccess {
+		t.Fatalf("airgap gate evaluate failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	result, err := resources.LoadAirgapProvenanceGateResult(filepath.Join(directory, "airgap-gate.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := resources.AirgapGateTrustPolicy{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicy",
+		Metadata: resources.AirgapGateTrustPolicyMetadata{
+			Name: "to-policy",
+		},
+		Spec: resources.AirgapGateTrustPolicySpec{
+			RecordedAt:            now.Add(time.Minute).Format(time.RFC3339Nano),
+			TargetReferenceDigest: result.Spec.Target.ReferenceDigest,
+			TrustedSignerIdentities: []resources.AirgapTrustedSignerIdentity{{
+				KeyID:           "operations-key-1",
+				Algorithm:       "Ed25519",
+				PublicKey:       base64.StdEncoding.EncodeToString(gatePublicKey),
+				PublicKeyDigest: resources.PublicKeyDigest(gatePublicKey),
+				Status:          "active",
+			}},
+			Limitations: []string{"policy"},
+		},
+	}
+	policy, err = policy.AssignPolicyID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(directory, "to-policy.yaml")
+	writeYAMLFixture(t, policyPath, policy)
+	fromPolicy := policy
+	fromPolicy.Metadata.Name = "from-policy"
+	fromPolicy.Spec.TrustedSignerIdentities = append(fromPolicy.Spec.TrustedSignerIdentities, resources.AirgapTrustedSignerIdentity{
+		KeyID:           "operations-key-2",
+		Algorithm:       "Ed25519",
+		PublicKey:       base64.StdEncoding.EncodeToString(ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x44}, ed25519.SeedSize)).Public().(ed25519.PublicKey)),
+		PublicKeyDigest: resources.PublicKeyDigest(ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x44}, ed25519.SeedSize)).Public().(ed25519.PublicKey)),
+		Status:          "active",
+	})
+	fromPolicy, err = fromPolicy.AssignPolicyID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromPath := filepath.Join(directory, "from-policy.yaml")
+	writeYAMLFixture(t, fromPath, fromPolicy)
+	diffPath := filepath.Join(directory, "policy-diff.yaml")
+	stdout.Reset()
+	stderr.Reset()
+	if exit := Run([]string{"airgap", "gate-trust-policy", "diff", "--from-policy", fromPath, "--to-policy", policyPath, "--name", "policy-diff", "--output", diffPath, "--audit-output", filepath.Join(directory, "policy-diff.audit.jsonl")}, &stdout, &stderr); exit != ExitSuccess {
+		t.Fatalf("policy diff failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	diff, err := resources.LoadAirgapGateTrustPolicyDiff(diffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if exit := Run([]string{"airgap", "provenance-gate", "verify", "--gate-result", filepath.Join(directory, "airgap-gate.yaml"), "--trust-policy", policyPath, "--confirm-policy", policy.Metadata.PolicyID, "--policy-diff", diffPath, "--confirm-policy-diff", diff.Metadata.DiffID}, &stdout, &stderr); exit != ExitInfeasible {
+		t.Fatalf("destructive policy diff without review should fail: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }

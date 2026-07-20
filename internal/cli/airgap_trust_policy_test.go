@@ -158,3 +158,105 @@ func TestAirgapGateTrustPolicyDiffWritesArtifactAndAudit(t *testing.T) {
 		t.Fatalf("terminal trust-policy diff audit missing: %#v", events)
 	}
 }
+
+func TestAirgapGateTrustPolicyReviewTransitionWritesArtifactAndAudit(t *testing.T) {
+	directory := t.TempDir()
+	keyA, privA, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyB, privB, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = privA, privB
+	fromPolicy := resources.AirgapGateTrustPolicy{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicy",
+		Metadata:   resources.AirgapGateTrustPolicyMetadata{Name: "from-policy"},
+		Spec: resources.AirgapGateTrustPolicySpec{
+			RecordedAt:            "2026-07-20T10:00:00Z",
+			TargetReferenceDigest: testCLIDigest('c'),
+			TrustedSignerIdentities: []resources.AirgapTrustedSignerIdentity{
+				{
+					KeyID:           "operations-key-1",
+					Algorithm:       "Ed25519",
+					PublicKey:       base64.StdEncoding.EncodeToString(keyA),
+					PublicKeyDigest: resources.PublicKeyDigest(keyA),
+					Status:          "active",
+				},
+				{
+					KeyID:           "operations-key-2",
+					Algorithm:       "Ed25519",
+					PublicKey:       base64.StdEncoding.EncodeToString(keyB),
+					PublicKeyDigest: resources.PublicKeyDigest(keyB),
+					Status:          "active",
+				},
+			},
+			Limitations: []string{"from policy"},
+		},
+	}
+	fromPolicy, err = fromPolicy.AssignPolicyID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	toPolicy := resources.AirgapGateTrustPolicy{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicy",
+		Metadata:   resources.AirgapGateTrustPolicyMetadata{Name: "to-policy"},
+		Spec: resources.AirgapGateTrustPolicySpec{
+			RecordedAt:            "2026-07-20T10:05:00Z",
+			TargetReferenceDigest: testCLIDigest('c'),
+			TrustedSignerIdentities: []resources.AirgapTrustedSignerIdentity{{
+				KeyID:           "operations-key-1",
+				Algorithm:       "Ed25519",
+				PublicKey:       base64.StdEncoding.EncodeToString(keyA),
+				PublicKeyDigest: resources.PublicKeyDigest(keyA),
+				Status:          "active",
+			}},
+			Limitations: []string{"to policy"},
+		},
+	}
+	toPolicy, err = toPolicy.AssignPolicyID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromPath := filepath.Join(directory, "from-policy.yaml")
+	toPath := filepath.Join(directory, "to-policy.yaml")
+	writeYAMLFixture(t, fromPath, fromPolicy)
+	writeYAMLFixture(t, toPath, toPolicy)
+	diffPath := filepath.Join(directory, "policy-diff.yaml")
+	diffAuditPath := filepath.Join(directory, "policy-diff.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exit := Run([]string{"airgap", "gate-trust-policy", "diff", "--from-policy", fromPath, "--to-policy", toPath, "--name", "policy-diff", "--output", diffPath, "--audit-output", diffAuditPath}, &stdout, &stderr); exit != ExitSuccess {
+		t.Fatalf("trust policy diff failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	diff, err := resources.LoadAirgapGateTrustPolicyDiff(diffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewPath := filepath.Join(directory, "transition-review.yaml")
+	reviewAuditPath := filepath.Join(directory, "transition-review.audit.jsonl")
+	stdout.Reset()
+	stderr.Reset()
+	if exit := Run([]string{"airgap", "gate-trust-policy", "review-transition", "--policy-diff", diffPath, "--decision", "approved", "--reviewer-role", "platform-security", "--reason-reference", "ticket-transition", "--name", "transition-review", "--output", reviewPath, "--audit-output", reviewAuditPath}, &stdout, &stderr); exit != ExitSuccess {
+		t.Fatalf("transition review failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	review, err := resources.LoadAirgapGateTransitionReview(reviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if review.Spec.PolicyDiffID != diff.Metadata.DiffID || review.Spec.Decision != resources.PromotionDecisionApproved {
+		t.Fatalf("unexpected transition review output: %#v", review.Spec)
+	}
+	events, err := audit.LoadJSONL(reviewAuditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := audit.Verify(events); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[1].Spec.Action != "airgap.gate-trust-policy.review-transition.completed" {
+		t.Fatalf("terminal transition review audit missing: %#v", events)
+	}
+}

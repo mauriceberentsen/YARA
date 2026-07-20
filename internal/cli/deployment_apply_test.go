@@ -306,9 +306,37 @@ func TestDeploymentApplyAcceptsPassedAirgapGateResultWithoutReceiptFlags(t *test
 	}
 	diffPath := filepath.Join(directory, "airgap-gate-policy-diff.yaml")
 	writeYAMLFixture(t, diffPath, diff)
+	transitionReview := resources.AirgapGateTransitionReview{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTransitionReview",
+		Metadata: resources.AirgapGateTransitionReviewMetadata{
+			Name: "airgap-transition-review",
+		},
+		Spec: resources.AirgapGateTransitionReviewSpec{
+			RecordedAt:            now.Add(2*time.Minute + 30*time.Second).Format(time.RFC3339Nano),
+			PolicyDiffID:          diff.Metadata.DiffID,
+			FromPolicyID:          diff.Spec.FromPolicyID,
+			ToPolicyID:            diff.Spec.ToPolicyID,
+			TargetReferenceDigest: diff.Spec.TargetReferenceDigest,
+			Reviewer: resources.ReviewerRecord{
+				Identity:  "local:reviewer",
+				Role:      "platform-security",
+				Assurance: "self-asserted-local",
+			},
+			Decision:        resources.PromotionDecisionApproved,
+			ReasonReference: "ticket-transition-review",
+			Limitations:     []string{"Review fixture."},
+		},
+	}
+	transitionReview, err = transitionReview.AssignReviewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	transitionReviewPath := filepath.Join(directory, "airgap-transition-review.yaml")
+	writeYAMLFixture(t, transitionReviewPath, transitionReview)
 	paths = removeFlag(paths, "--transfer-receipt")
 	paths = removeFlag(paths, "--scan-receipt")
-	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-trust-policy", gateTrustPolicyPath, "--confirm-airgap-gate-trust-policy", gateTrustPolicy.Metadata.PolicyID, "--airgap-gate-policy-diff", diffPath, "--confirm-airgap-gate-policy-diff", diff.Metadata.DiffID)
+	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-trust-policy", gateTrustPolicyPath, "--confirm-airgap-gate-trust-policy", gateTrustPolicy.Metadata.PolicyID, "--airgap-gate-policy-diff", diffPath, "--confirm-airgap-gate-policy-diff", diff.Metadata.DiffID, "--airgap-gate-transition-review", transitionReviewPath, "--confirm-airgap-gate-transition-review", transitionReview.Metadata.ReviewID)
 	originalFactory := newKubernetesExecutor
 	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
 	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
@@ -338,6 +366,9 @@ func TestDeploymentApplyAcceptsPassedAirgapGateResultWithoutReceiptFlags(t *test
 	}
 	if receipt.Spec.AirgapGateTrustPolicyDiffID != diff.Metadata.DiffID {
 		t.Fatalf("receipt missing trust-policy diff binding: %#v", receipt.Spec)
+	}
+	if receipt.Spec.AirgapGateTransitionReviewID != transitionReview.Metadata.ReviewID {
+		t.Fatalf("receipt missing transition review binding: %#v", receipt.Spec)
 	}
 }
 
@@ -413,6 +444,59 @@ func TestDeploymentApplyRejectsAirgapTrustPolicyDiffConfirmationMismatch(t *test
 	var stdout, stderr bytes.Buffer
 	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitInfeasible {
 		t.Fatalf("trust policy diff confirmation mismatch should fail: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestDeploymentApplyRejectsDestructivePolicyDiffWithoutTransitionReview(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, directory, now)
+	gatePath := filepath.Join(directory, "airgap-gate.yaml")
+	gateTrustPolicyPath := writeAirgapGateFixture(t, gatePath, paths)
+	gateTrustPolicy, err := resources.LoadAirgapGateTrustPolicy(gateTrustPolicyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff := resources.AirgapGateTrustPolicyDiff{
+		APIVersion: resources.APIVersion,
+		Kind:       "AirgapGateTrustPolicyDiff",
+		Metadata:   resources.AirgapGateTrustPolicyDiffMetadata{Name: "destructive-policy-diff"},
+		Spec: resources.AirgapGateTrustPolicyDiffSpec{
+			RecordedAt:            now.Add(2 * time.Minute).Format(time.RFC3339Nano),
+			FromPolicyID:          testCLIDigest('e'),
+			ToPolicyID:            gateTrustPolicy.Metadata.PolicyID,
+			TargetReferenceDigest: gateTrustPolicy.Spec.TargetReferenceDigest,
+			HighestImpact:         "destructive",
+			Changes: []resources.AirgapGateTrustPolicyChange{{
+				ID:       "change-001",
+				KeyID:    "operations-key-1",
+				Digest:   gateTrustPolicy.Spec.TrustedSignerIdentities[0].PublicKeyDigest,
+				Category: "removed",
+				Impact:   "destructive",
+				Summary:  "Signer removed.",
+			}},
+			Limitations: []string{"Policy diff fixture."},
+		},
+	}
+	diff, err = diff.AssignDiffID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	diffPath := filepath.Join(directory, "destructive-policy-diff.yaml")
+	writeYAMLFixture(t, diffPath, diff)
+	paths = removeFlag(paths, "--transfer-receipt")
+	paths = removeFlag(paths, "--scan-receipt")
+	paths = append(paths, "--airgap-gate-result", gatePath, "--airgap-gate-trust-policy", gateTrustPolicyPath, "--confirm-airgap-gate-trust-policy", gateTrustPolicy.Metadata.PolicyID, "--airgap-gate-policy-diff", diffPath, "--confirm-airgap-gate-policy-diff", diff.Metadata.DiffID)
+	originalFactory := newKubernetesExecutor
+	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
+	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
+		t.Fatal("executor reached without destructive transition review")
+		return nil, nil
+	}
+	args := append(paths, "--confirm-authorization", authorization.Metadata.AuthorizationID, "--name", "receipt", "--receipt-output", filepath.Join(directory, "receipt.yaml"), "--audit-output", filepath.Join(directory, "apply.audit.jsonl"))
+	var stdout, stderr bytes.Buffer
+	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitInfeasible {
+		t.Fatalf("destructive policy diff without transition review should fail: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }
 

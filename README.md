@@ -355,7 +355,11 @@ go run ./cmd/yara airgap provenance-gate evaluate \
 go run ./cmd/yara airgap provenance-gate verify \
   --gate-result reference-stack.airgap-gate.yaml \
   --trust-policy reference-stack.airgap-gate-trust-policy.yaml \
-  --confirm-policy 'sha256:<full-policy-id>'
+  --confirm-policy 'sha256:<full-policy-id>' \
+  --policy-diff reference-stack.airgap-gate-trust-policy-diff.yaml \
+  --confirm-policy-diff 'sha256:<full-policy-diff-id>' \
+  --transition-review reference-stack.airgap-gate-transition-review.yaml \
+  --confirm-transition-review 'sha256:<full-transition-review-id>'
 go run ./cmd/yara airgap gate-trust-policy record \
   --target-reference-digest sha256:<target-reference-digest> \
   --signer key-id=operations-key-1,public-key=gate-public.pem,status=active \
@@ -368,6 +372,14 @@ go run ./cmd/yara airgap gate-trust-policy diff \
   --name reference-stack-airgap-gate-trust-policy-diff \
   --output reference-stack.airgap-gate-trust-policy-diff.yaml \
   --audit-output reference-stack.airgap-gate-trust-policy-diff.audit.jsonl
+go run ./cmd/yara airgap gate-trust-policy review-transition \
+  --policy-diff reference-stack.airgap-gate-trust-policy-diff.yaml \
+  --decision approved \
+  --reviewer-role platform-security \
+  --reason-reference ticket-airgap-transition-review-123 \
+  --name reference-stack-airgap-gate-transition-review \
+  --output reference-stack.airgap-gate-transition-review.yaml \
+  --audit-output reference-stack.airgap-gate-transition-review.audit.jsonl
 ```
 
 Currently implemented:

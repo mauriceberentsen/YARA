@@ -25,7 +25,7 @@ type airgapGateOptions struct {
 }
 
 type airgapGateVerifyOptions struct {
-	gateResultPath, trustPolicyPath, confirmPolicyID, policyDiffPath, confirmPolicyDiffID, auditPath string
+	gateResultPath, trustPolicyPath, confirmPolicyID, policyDiffPath, confirmPolicyDiffID, transitionReviewPath, confirmTransitionReviewID, auditPath string
 }
 
 func evaluateAirgapProvenanceGate(args []string, stdout, stderr io.Writer) int {
@@ -221,6 +221,8 @@ func verifyAirgapProvenanceGateResultAt(args []string, stdout, stderr io.Writer,
 	flags.StringVar(&options.confirmPolicyID, "confirm-policy", "", "Exact trust-policy ID confirmation")
 	flags.StringVar(&options.policyDiffPath, "policy-diff", "", "Optional AirgapGateTrustPolicyDiff YAML for policy transition evidence")
 	flags.StringVar(&options.confirmPolicyDiffID, "confirm-policy-diff", "", "Optional explicit policy-diff ID confirmation")
+	flags.StringVar(&options.transitionReviewPath, "transition-review", "", "Optional AirgapGateTransitionReview for destructive policy-diff transitions")
+	flags.StringVar(&options.confirmTransitionReviewID, "confirm-transition-review", "", "Optional explicit transition-review ID confirmation")
 	flags.StringVar(&options.auditPath, "audit-output", "", "Optional verification audit JSONL")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || options.gateResultPath == "" || options.trustPolicyPath == "" || options.confirmPolicyID == "" {
 		fmt.Fprintln(stderr, "airgap provenance-gate verify requires --gate-result --trust-policy and --confirm-policy")
@@ -228,6 +230,10 @@ func verifyAirgapProvenanceGateResultAt(args []string, stdout, stderr io.Writer,
 	}
 	if (options.policyDiffPath == "") != (options.confirmPolicyDiffID == "") {
 		fmt.Fprintln(stderr, "airgap provenance-gate verify requires both --policy-diff and --confirm-policy-diff when either is set")
+		return ExitInvalidInput
+	}
+	if (options.transitionReviewPath == "") != (options.confirmTransitionReviewID == "") {
+		fmt.Fprintln(stderr, "airgap provenance-gate verify requires both --transition-review and --confirm-transition-review when either is set")
 		return ExitInvalidInput
 	}
 	result, err := resources.LoadAirgapProvenanceGateResult(options.gateResultPath)
@@ -275,6 +281,34 @@ func verifyAirgapProvenanceGateResultAt(args []string, stdout, stderr io.Writer,
 			return writeLoadErrorWithExit(stdout, "YARA-AGP-111", errors.New("policy-diff artifact does not bind the verified trust policy and target"), ExitInfeasible)
 		}
 		subjects = append(subjects, audit.Subject{Kind: "AirgapGateTrustPolicyDiff", Digest: diff.Metadata.DiffID})
+		if diff.Spec.HighestImpact == "destructive" {
+			if options.transitionReviewPath == "" {
+				if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, subjects, []string{"YARA-AGP-112"}); auditErr != nil {
+					return writeLoadError(stdout, "YARA-AUD-005", auditErr)
+				}
+				return writeLoadErrorWithExit(stdout, "YARA-AGP-112", errors.New("destructive policy-diff verification requires a reviewed transition artifact"), ExitInfeasible)
+			}
+			review, err := resources.LoadAirgapGateTransitionReview(options.transitionReviewPath)
+			if err != nil || !review.Validate().Valid {
+				if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, subjects, []string{"YARA-AGP-112"}); auditErr != nil {
+					return writeLoadError(stdout, "YARA-AUD-005", auditErr)
+				}
+				return writeLoadErrorWithExit(stdout, "YARA-AGP-112", errors.New("transition review artifact is invalid"), ExitInvalidInput)
+			}
+			if review.Metadata.ReviewID != options.confirmTransitionReviewID {
+				if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, subjects, []string{"YARA-AGP-112"}); auditErr != nil {
+					return writeLoadError(stdout, "YARA-AUD-005", auditErr)
+				}
+				return writeLoadErrorWithExit(stdout, "YARA-AGP-112", errors.New("explicit transition-review confirmation does not match the supplied review"), ExitInfeasible)
+			}
+			if review.Spec.PolicyDiffID != diff.Metadata.DiffID || review.Spec.ToPolicyID != policy.Metadata.PolicyID || review.Spec.TargetReferenceDigest != result.Spec.Target.ReferenceDigest || review.Spec.Decision != resources.PromotionDecisionApproved {
+				if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, subjects, []string{"YARA-AGP-112"}); auditErr != nil {
+					return writeLoadError(stdout, "YARA-AUD-005", auditErr)
+				}
+				return writeLoadErrorWithExit(stdout, "YARA-AGP-112", errors.New("transition review does not approve the destructive policy-diff transition"), ExitInfeasible)
+			}
+			subjects = append(subjects, audit.Subject{Kind: "AirgapGateTransitionReview", Digest: review.Metadata.ReviewID})
+		}
 	}
 	if err := policy.VerifyGateResult(result, now()); err != nil {
 		if auditErr := persistOperationAuditForTarget(options.auditPath, "airgap.provenance-gate.verify", "failed", "failed", "kubernetes:"+result.Spec.Target.ReferenceDigest, subjects, []string{"YARA-AGP-109"}); auditErr != nil {
