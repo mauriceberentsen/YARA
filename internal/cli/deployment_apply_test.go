@@ -161,6 +161,52 @@ func TestDeploymentApplyRejectsMismatchedImportReceiptBeforeExecutor(t *testing.
 	}
 }
 
+func TestDeploymentApplyRejectsMissingTransferReceiptForAirGappedBundle(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, directory, now)
+	paths = removeFlag(paths, "--transfer-receipt")
+	originalFactory := newKubernetesExecutor
+	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
+	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
+		t.Fatal("executor reached without transfer receipt chain")
+		return nil, nil
+	}
+	args := append(paths, "--confirm-authorization", authorization.Metadata.AuthorizationID, "--name", "receipt", "--receipt-output", filepath.Join(directory, "receipt.yaml"), "--audit-output", filepath.Join(directory, "apply.audit.jsonl"))
+	var stdout, stderr bytes.Buffer
+	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitInfeasible {
+		t.Fatalf("missing transfer receipt exit=%d stdout=%s", exit, stdout.String())
+	}
+}
+
+func TestDeploymentApplyRejectsTransferReceiptWithoutImportLink(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, directory, now)
+	transferPath := valueForFlag(paths, "--transfer-receipt")
+	transferReceipt, err := resources.LoadArtifactTransferReceipt(transferPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transferReceipt.Spec.PriorReceiptIDs = []string{testCLIDigest('f')}
+	transferReceipt, err = transferReceipt.AssignTransferReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeYAMLFixture(t, transferPath, transferReceipt)
+	originalFactory := newKubernetesExecutor
+	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
+	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
+		t.Fatal("executor reached with invalid transfer receipt chain")
+		return nil, nil
+	}
+	args := append(paths, "--confirm-authorization", authorization.Metadata.AuthorizationID, "--name", "receipt", "--receipt-output", filepath.Join(directory, "receipt.yaml"), "--audit-output", filepath.Join(directory, "apply.audit.jsonl"))
+	var stdout, stderr bytes.Buffer
+	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitInfeasible {
+		t.Fatalf("broken transfer chain exit=%d stdout=%s", exit, stdout.String())
+	}
+}
+
 func writeExecutionInputs(t *testing.T, directory string, now time.Time) ([]string, resources.ExecutionAuthorization) {
 	t.Helper()
 	bundlePath := writeKubernetesBundle(t, directory)
@@ -221,7 +267,33 @@ func writeExecutionInputs(t *testing.T, directory string, now time.Time) ([]stri
 	}
 	importPath := filepath.Join(directory, "import-receipt.yaml")
 	writeYAMLFixture(t, importPath, importReceipt)
-	return []string{"--bundle", bundlePath, "--preflight", preflightPath, "--change-set", changeSetPath, "--approval", approvalPath, "--import-receipt", importPath, "--authorization", authorizationPath, "--public-key", publicPath}, authorization
+	transferReceipt := resources.ArtifactTransferReceipt{
+		APIVersion: resources.APIVersion,
+		Kind:       "ArtifactTransferReceipt",
+		Metadata: resources.ArtifactTransferReceiptMetadata{
+			Name: "reference-transfer",
+		},
+		Spec: resources.ArtifactTransferReceiptSpec{
+			RecordedAt:                now.Add(90 * time.Second).Format(time.RFC3339Nano),
+			PlanID:                    bundle.Spec.PlanID,
+			BundleID:                  bundle.Metadata.BundleID,
+			CatalogDigest:             bundle.Spec.CatalogDigest,
+			Target:                    target,
+			Stage:                     "vault-to-registry",
+			SourceAttestationRef:      "ticket-source",
+			DestinationAttestationRef: "ticket-destination",
+			PriorReceiptIDs:           []string{importReceipt.Metadata.ImportReceiptID},
+			ModelArtifacts:            importReceipt.Spec.ModelArtifacts,
+			Limitations:               []string{"Transfer evidence excludes secret-bearing payload metadata."},
+		},
+	}
+	transferReceipt, err = transferReceipt.AssignTransferReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	transferPath := filepath.Join(directory, "transfer-receipt.yaml")
+	writeYAMLFixture(t, transferPath, transferReceipt)
+	return []string{"--bundle", bundlePath, "--preflight", preflightPath, "--change-set", changeSetPath, "--approval", approvalPath, "--import-receipt", importPath, "--transfer-receipt", transferPath, "--authorization", authorizationPath, "--public-key", publicPath}, authorization
 }
 
 func testModelArtifact(t *testing.T, bundle resources.DeploymentBundle) resources.BundleArtifact {
@@ -233,4 +305,25 @@ func testModelArtifact(t *testing.T, bundle resources.DeploymentBundle) resource
 	}
 	t.Fatal("fixture bundle missing huggingface-snapshot artifact")
 	return resources.BundleArtifact{}
+}
+
+func removeFlag(args []string, flag string) []string {
+	result := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		if args[index] == flag {
+			index++
+			continue
+		}
+		result = append(result, args[index])
+	}
+	return result
+}
+
+func valueForFlag(args []string, flag string) string {
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == flag {
+			return args[index+1]
+		}
+	}
+	return ""
 }

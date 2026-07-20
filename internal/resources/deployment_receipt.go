@@ -35,6 +35,7 @@ type DeploymentReceiptSpec struct {
 	ApprovalID             string                       `json:"approvalId" yaml:"approvalId"`
 	AuthorizationID        string                       `json:"authorizationId" yaml:"authorizationId"`
 	ImportReceiptID        string                       `json:"importReceiptId" yaml:"importReceiptId"`
+	TransferReceiptIDs     []string                     `json:"transferReceiptIds,omitempty" yaml:"transferReceiptIds,omitempty"`
 	Target                 TargetIdentity               `json:"target" yaml:"target"`
 	Executor               DeploymentExecutorIdentity   `json:"executor" yaml:"executor"`
 	Operations             []DeploymentOperationReceipt `json:"operations" yaml:"operations"`
@@ -100,6 +101,16 @@ func (r DeploymentReceipt) Validate() diagnostics.Report {
 	}
 	if len(r.Spec.Operations) == 0 || len(r.Spec.Postflight) == 0 {
 		items = append(items, diagnostics.Error("YARA-RCP-014", "Operation and postflight evidence are required.", "spec"))
+	}
+	if len(r.Spec.TransferReceiptIDs) > 0 {
+		if !slices.IsSorted(r.Spec.TransferReceiptIDs) || hasDuplicateStrings(r.Spec.TransferReceiptIDs) {
+			items = append(items, diagnostics.Error("YARA-RCP-023", "Transfer receipt IDs must be unique and sorted when present.", "spec.transferReceiptIds"))
+		}
+		for index, value := range r.Spec.TransferReceiptIDs {
+			if !sha256DigestPattern.MatchString(value) {
+				items = append(items, diagnostics.Error("YARA-RCP-024", "Transfer receipt IDs must be SHA-256 digests.", fmt.Sprintf("spec.transferReceiptIds[%d]", index)))
+			}
+		}
 	}
 	previous, derived := "", "succeeded"
 	for index, operation := range r.Spec.Operations {

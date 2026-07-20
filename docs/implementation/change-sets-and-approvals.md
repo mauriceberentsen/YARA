@@ -18,6 +18,8 @@ DeploymentBundle
        signed ExecutionAuthorization
                     +
          ArtifactImportReceipt
+                    +
+       ArtifactTransferReceipt...
                     |
                     v
        Kubernetes executor -> DeploymentReceipt
@@ -135,6 +137,28 @@ go run ./cmd/yara import-receipt validate reference-stack.import-receipt.yaml
 
 `deployment apply kubernetes` now requires this receipt and rejects mutation when its plan/bundle/target or file bindings drift from the reviewed bundle.
 
+`ArtifactTransferReceipt` is a separate immutable chain-of-custody contract for offline transfer stages between import and deployment contexts. Record it through:
+
+```bash
+go run ./cmd/yara artifact transfer record \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --import-receipt reference-stack.import-receipt.yaml \
+  --stage vault-to-registry \
+  --source-attestation-ref ticket-src \
+  --destination-attestation-ref ticket-dst \
+  --name reference-stack-transfer \
+  --output reference-stack.transfer-receipt.yaml \
+  --audit-output reference-stack.transfer-receipt.audit.jsonl
+```
+
+Validate it through:
+
+```bash
+go run ./cmd/yara artifact-transfer-receipt validate reference-stack.transfer-receipt.yaml
+```
+
+For bundles whose embedded offline-acquisition policy marks air-gapped execution (`networkRequiredDuringAcquisition: true` and `networkAllowedDuringExecution: false`), `deployment apply kubernetes` now requires at least one transfer receipt that binds the same plan/bundle/catalog/target, exactly matches required model artifacts and forms a prior-receipt chain back to the `ArtifactImportReceipt`.
+
 ## Separate authorized retirement
 
 Retirement is a separate delete-only path and never extends ordinary apply with prune behavior:
@@ -206,7 +230,7 @@ Change-set generation and approval recording require audit output and remove gen
 ## Remaining lifecycle work after initial apply
 
 - short-lived Kubernetes credential issuance remains operator-managed;
-- acquisition/import execution remains out of scope; apply only consumes a separate import receipt and re-verifies model-PVC file digests;
+- acquisition/import execution remains out of scope; apply consumes separate import and transfer receipts and re-verifies model-PVC file digests;
 - verifier-label admission governance remains an explicit limitation;
 - safe owned rollback and retirement are implemented as separate authorization and executor paths;
 - clean-cluster namespace, storage and model provisioning remain outside the first executor.

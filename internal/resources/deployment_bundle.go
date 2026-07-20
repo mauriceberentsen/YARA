@@ -273,3 +273,24 @@ func validBundleArtifactFiles(files []BundleArtifactFile) bool {
 	}
 	return true
 }
+
+func (b DeploymentBundle) OfflineAcquisitionManifest() (OfflineAcquisitionManifest, error) {
+	path := b.Spec.SupplyChain.OfflineAcquisitionPath
+	if path == "" {
+		return OfflineAcquisitionManifest{}, fmt.Errorf("offline acquisition path is required")
+	}
+	for _, file := range b.Spec.Files {
+		if file.Path != path {
+			continue
+		}
+		var manifest OfflineAcquisitionManifest
+		if err := decodeYAML([]byte(file.Content), &manifest); err != nil {
+			return OfflineAcquisitionManifest{}, fmt.Errorf("decode offline acquisition manifest: %w", err)
+		}
+		if report := manifest.Validate(); !report.Valid {
+			return OfflineAcquisitionManifest{}, fmt.Errorf("offline acquisition manifest is invalid: %s", report.Diagnostics[0].Code)
+		}
+		return manifest, nil
+	}
+	return OfflineAcquisitionManifest{}, fmt.Errorf("offline acquisition manifest path %q is not present in bundle files", path)
+}

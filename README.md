@@ -320,6 +320,15 @@ go run ./cmd/yara promotion review record \
   --name gb10-qwen-coder-promotion-review \
   --output gb10-qwen-coder-promotion-review.yaml \
   --audit-output gb10-qwen-coder-promotion-review.audit.jsonl
+go run ./cmd/yara artifact transfer record \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --import-receipt reference-stack.import-receipt.yaml \
+  --stage vault-to-registry \
+  --source-attestation-ref ticket-src \
+  --destination-attestation-ref ticket-dst \
+  --name reference-stack-transfer \
+  --output reference-stack.transfer-receipt.yaml \
+  --audit-output reference-stack.transfer-receipt.audit.jsonl
 ```
 
 Currently implemented:
@@ -336,6 +345,7 @@ Currently implemented:
 - a strict component/topology integration result contract whose validation audit cannot be mistaken for execution evidence;
 - bounded integration execution commands for `component-smoke` and `topology-end-to-end` that emit content-addressed evidence with dedicated execution audit actions;
 - independent promotion review records bound to exact catalog and selected evidence identities, with deterministic coverage-gate evaluation;
+- artifact transfer chain-of-custody receipts bound to exact bundle artifacts and prior immutable receipt identities, required by apply when embedded offline policy marks air-gapped execution;
 - a pure versioned Docker Compose renderer for the exact LiteLLM/vLLM topology, producing pinned files, artifact/license inventory, checks, limitations and a fail-closed render audit;
 - a pure Kubernetes/GitOps renderer for the same exact topology plus content-addressed read-only target preflight and object-level change-set observation;
 - review-only deployment approvals, short-lived signed execution authorization and a fail-closed direct Kubernetes executor producing deployment receipts;

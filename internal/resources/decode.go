@@ -99,6 +99,10 @@ func LoadPromotionReview(path string) (PromotionReview, error) {
 	return loadResource[PromotionReview](path)
 }
 
+func LoadArtifactTransferReceipt(path string) (ArtifactTransferReceipt, error) {
+	return loadResource[ArtifactTransferReceipt](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

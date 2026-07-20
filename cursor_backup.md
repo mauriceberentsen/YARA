@@ -3,47 +3,46 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `75da913` (`Refresh handoff after integration executor commit.`).
+- Branch baseline before this slice: `main` at `b0a2ce0` (`Add independent promotion review evidence binding.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
-- Public resource schema set now includes `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`).
-- Coverage gate `independent-promotion-review` is now evaluable from immutable review evidence, not permanently missing-only.
-- Latest archived catalog coverage artifact remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83` (historical snapshot; new logic can evaluate promotion reviews when provided).
+- Public resource schema set now includes:
+  - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
+  - `ArtifactTransferReceipt` (`schemas/yara.dev/v1alpha1/artifact-transfer-receipt.schema.json`).
+- Latest archived catalog coverage artifact remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`.
 
 ## Current product boundary
 
-- Implemented lifecycle chain is now:
+- Implemented lifecycle chain:
   - deterministic plan/render;
   - read-only Kubernetes preflight and change-set;
   - review-only approval;
   - short-lived signed authorization;
-  - separate bounded executor commands for apply, retirement, rollback, and integration evidence execution.
-- Promotion governance now includes a separate immutable review record path:
-  - `promotion review record` emits a content-addressed `PromotionReview` plus two-event audit evidence;
-  - catalog coverage compilation binds those reviews into assertion-level `independent-promotion-review` gate outcomes.
-- Apply remains explicit and bounded to exact rendered objects; it does not implicitly delete/prune/adopt.
-- Retirement remains separate delete-only authority with exact owned no-op baseline requirements.
-- Rollback remains separate non-delete authority bound to exact reviewed rollback actions and operation count.
-- Integration execution now has explicit `component-smoke` and `topology-end-to-end` commands that emit content-addressed `IntegrationTestResult` resources and two-event execution audits.
-- Mutating lifecycle commands still require durable started audit before mutation and fail closed when receipt/audit persistence cannot complete.
+  - bounded apply/retire/rollback executor commands;
+  - bounded integration execution evidence commands.
+- Promotion governance:
+  - `promotion review record` emits immutable `PromotionReview` evidence and audit chains;
+  - coverage compilation deterministically resolves `independent-promotion-review` from accepted review evidence.
+- Air-gap provenance:
+  - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
+  - `deployment apply kubernetes` requires transfer-receipt chain provenance when embedded offline policy marks air-gapped execution.
+- Apply remains explicit and bounded to exact rendered objects; it still does not implicitly delete/prune/adopt.
+- Mutating commands still require durable started audit before mutation and fail closed when terminal audit/receipt persistence cannot complete.
 
 ## Verified capabilities
 
 - **Implemented + locally validated in repository tests/schemas/docs:**
-  - content-addressed resources and schema/Go validation for apply (`DeploymentReceipt`), import (`ArtifactImportReceipt`), retirement (`RetirementReceipt`), rollback (`RollbackReceipt`), integration (`IntegrationTestResult`), and promotion review (`PromotionReview`);
-  - separate authorization issuance paths:
-    - `authorization issue` (apply profile),
-    - `authorization issue-retirement` (delete-only),
-    - `authorization issue-rollback` (non-delete rollback profile);
-  - separate executor command paths:
+  - content-addressed resources and schema/Go validation for apply/import/transfer/retire/rollback/integration/promotion review;
+  - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
+  - apply-time provenance rejects missing, mismatched or unlinked transfer chains for air-gapped policy bundles;
+  - deployment receipts now carry optional `transferReceiptIds` provenance bindings;
+  - separate command paths:
     - `deployment apply kubernetes`,
     - `deployment retire kubernetes`,
     - `deployment rollback kubernetes`,
     - `integration component-smoke`,
-    - `integration topology-end-to-end`;
-    - `promotion review record`;
-  - rollback lock-and-recheck execution with stale/foreign-state rejection before object mutation;
-  - integration execution emits coverage-compatible terminal actions (`integration.component-smoke.*`, `integration.topology-end-to-end.*`) with pseudonymized target identities and deterministic check ordering;
-  - coverage compiler now accepts verified adjacent promotion-review audit chains and deterministically resolves `independent-promotion-review` to `passed`, `failed`, `blocked`, or `missing` based on latest review evidence.
+    - `integration topology-end-to-end`,
+    - `promotion review record`,
+    - `artifact transfer record`.
 - **Validated on live environment (historical evidence already present):**
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
@@ -56,32 +55,32 @@
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `75da913`, `ce5b80d`, `3bde317`, `272e99e`, `0c5e134`.
-- This slice adds promotion-review resource/CLI/coverage binding and related tests/docs as one coherent vertical change.
+- Recent commits before this slice (newest first): `b0a2ce0`, `75da913`, `ce5b80d`, `3bde317`, `272e99e`.
+- This slice adds artifact transfer resource/CLI/apply provenance enforcement and related tests/docs as one coherent vertical change.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## Open limitations and unproven claims
 
-- No live validation was executed for rollback, integration execution, or promotion-review recording in this run; all remain proven only through local/simulated tests.
-- Air-gap completeness remains unproven: import execution, transfer chain-of-custody, and scanning attestations remain external.
+- No live validation was executed for rollback, integration execution, promotion-review recording, or transfer-receipt enforcement in this run.
+- Air-gap completeness remains unproven end-to-end: acquisition execution, transfer medium attestation trust chain, and scanning attestations remain external.
 - Clean-cluster bootstrap (namespace/PVC/storage provisioning) remains out of scope.
-- Integration execution is currently bounded to catalog/target contract checks and does not prove latency, throughput, availability, or production readiness.
+- Integration execution remains bounded to catalog/target contract checks and does not prove latency, throughput, availability, or production readiness.
 
 ## Next implementation slice
 
-Implement **artifact transfer chain-of-custody receipts for air-gap completeness**:
+Implement **scanning attestation receipts bound into air-gap provenance gates**:
 
-- add an explicit immutable receipt resource and CLI path for offline transfer stages between import and deployment contexts;
-- bind transfer receipts to exact artifact digest identities plus source/destination attestation references without exposing secrets or raw host addresses;
-- require apply-time artifact provenance to include the transfer receipt chain when policy marks the path as air-gapped;
-- preserve separation between transfer evidence authority and mutation authority.
+- add an explicit immutable scan-attestation receipt resource and CLI path bound to exact artifact digests and tool/version identities;
+- bind scan receipts into apply-time provenance checks for air-gapped policy bundles so incomplete scan evidence fails closed before mutation;
+- keep scan evidence authority separate from execution/mutation authority and avoid embedding raw logs or secret-bearing scanner output;
+- keep deterministic cross-resource binding with exact plan/bundle/catalog identities.
 
 Acceptance criteria:
 
-- transfer receipts can only reference immutable artifact and prior-receipt identities;
-- durable receipts/audit prove transfer step completion and bounded operator context without secrets;
-- apply-side provenance validation deterministically rejects incomplete or inconsistent transfer chains;
+- scan receipts only reference immutable artifact and prior-receipt identities;
+- durable receipts/audit prove scanner identity, verdict, and non-secret reason references;
+- apply-side provenance deterministically rejects missing or inconsistent scan bindings when policy requires them;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 
 ## Validation requirements

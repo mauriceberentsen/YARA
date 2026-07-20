@@ -130,6 +130,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 3 && args[0] == "promotion" && args[1] == "review" && args[2] == "record" {
 		return recordPromotionReview(args[3:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "artifact" && args[1] == "transfer" && args[2] == "record" {
+		return recordArtifactTransfer(args[3:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "integration" && args[1] == "component-smoke" {
 		return runIntegrationComponentSmoke(args[2:], stdout, stderr)
 	}
@@ -358,6 +361,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "PromotionReview", Digest: result.Metadata.ReviewID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "promotion.review.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "artifact-transfer-receipt":
+		result, err := resources.LoadArtifactTransferReceipt(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "artifact.transfer-receipt.validate", "ArtifactTransferReceipt", options.inputPath, "YARA-ATR-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("ArtifactTransferReceipt", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "ArtifactTransferReceipt", Digest: result.Metadata.TransferReceiptID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "artifact.transfer-receipt.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -451,6 +468,8 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara contract validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara promotion review record --catalog <file> --assertion <id> --evidence <sha256:id> [--evidence <sha256:id> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara promotion-review validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara artifact transfer record --bundle <file> --import-receipt <file> --stage <staging-to-vault|vault-to-registry|registry-to-runtime> --source-attestation-ref <ref> --destination-attestation-ref <ref> [--prior-receipt <sha256:id> ...] --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara artifact-transfer-receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara integration component-smoke --catalog <file> --target <local|user@host> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration topology-end-to-end --catalog <file> --target <local|user@host> --topology <id@version> --component <id@version> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration validate <file> [--audit-output <file>]")
