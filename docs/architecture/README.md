@@ -2,10 +2,15 @@
 
 YARA separates deciding **what should exist** from deciding **how to create it**. Its core is an explainable planner over versioned knowledge; deployment and operations are downstream consumers of the resulting plan.
 
+## Status legend
+
+- **Implemented now**: behavior that exists in the repository and current CLI/docs flow.
+- **Planned/future**: architectural target state or roadmap scope not fully shipped.
+
 ## Architectural layers
 
 ```text
-Interfaces       CLI | API | future web UI
+Interfaces       CLI | planned API | planned web UI
                        |
 Intent           request | inventory | policies | objectives
                        |
@@ -17,7 +22,7 @@ Intermediate     immutable PlatformPlan + decision trace
 representation         |
 Execution        renderers | approval | executors | verification
                        |
-Operations       observation | drift | upgrade | backup | recovery
+Operations       observation | planned drift | planned upgrade | planned backup/recovery
 ```
 
 Dependencies point downward. Knowledge packages do not call deployment code. The planner does not mutate infrastructure. Executors do not reinterpret user intent or silently select different components.
@@ -36,25 +41,30 @@ Dependencies point downward. Knowledge packages do not call deployment code. The
 10. Unknown critical information fails closed.
 11. Every security-relevant or state-changing action emits an append-only audit event; audit failure blocks production mutation.
 
-## Documents
+## Implemented now (architecture surfaces)
 
-- [System overview](system-overview.md)
-- [Domain model](domain-model.md)
-- [Planning pipeline](planning-pipeline.md)
-- [Knowledge base](knowledge-base.md)
-- [Rule engine](rule-engine.md)
-- [Recommendation engine](recommendation-engine.md)
-- [Platform plan](platform-plan.md)
-- [Data and state](data-and-state.md)
-- [Deployment engine](deployment-engine.md)
-- [Runtime and lifecycle](runtime-lifecycle.md)
-- [Plugin system](plugin-system.md)
-- [API](api.md)
-- [Security](security.md)
-- [Auditing](auditing.md)
-- [Observability](observability.md)
-- [Testing strategy](testing-strategy.md)
-- [Repository layout](repository-layout.md)
+- [System overview](system-overview.md) - active architecture map for current scope.
+- [Domain model](domain-model.md) - implemented resource and contract boundaries.
+- [Planning pipeline](planning-pipeline.md) - deterministic planning stages and constraints.
+- [Knowledge base](knowledge-base.md) - curated catalog/evidence model used by planning.
+- [Rule engine](rule-engine.md) - current rule and constraint posture.
+- [Recommendation engine](recommendation-engine.md) - implemented recommendation logic boundary.
+- [Platform plan](platform-plan.md) - immutable plan and explainability contract.
+- [Data and state](data-and-state.md) - current state model and evidence boundaries.
+- [Deployment engine](deployment-engine.md) - bounded preflight/change-set/approval/authorization/executor path.
+- [Security](security.md) - active trust and safety boundary.
+- [Auditing](auditing.md) - append-only audit/event integrity model.
+- [Observability](observability.md) - current diagnostic and evidence surfaces.
+- [Testing strategy](testing-strategy.md) - current verification approach.
+- [Repository layout](repository-layout.md) - package boundaries in current implementation.
+
+## Planned/future architecture areas
+
+- [Runtime and lifecycle](runtime-lifecycle.md) - includes future runtime-manager scope beyond current bounded executor paths.
+- [Plugin system](plugin-system.md) - extension architecture target, not a completed plugin transport runtime.
+- [API](api.md) - remote/service API direction, currently not the primary shipped interface.
+
+Planned/future documents are maintained for design coherence and review, but they are not claims that full corresponding product surfaces are already shipped.
 
 ## Quality attributes
 
@@ -72,4 +82,4 @@ Dependencies point downward. Knowledge packages do not call deployment code. The
 
 ## Architecture maturity
 
-This is a proposed target architecture. v0.1 implements only the request, inventory, catalog, planning, explanation and plan-validation path. Deployment, runtime control and remote APIs are documented now to keep boundaries coherent, not because they are committed to the first release.
+This index intentionally distinguishes implemented versus planned areas. Use `README.md`, `docs/quickstart.md`, and `docs/reference/commands.md` for user-facing "what works now" boundaries, and treat planned/future architecture docs as design direction unless explicitly marked as implemented.

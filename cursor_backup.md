@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `6c5fe38` (`Add visitor-oriented pre-alpha quickstart documentation.`).
+- Branch baseline before this slice: `main` at `0118b61` (`Add CLI command reference aligned to current usage output.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `BootstrapReceipt` (`schemas/yara.dev/v1alpha1/bootstrap-receipt.schema.json`);
@@ -107,6 +107,7 @@
 - `README.md` user-facing sections now present an explicit pre-alpha announcement with implemented capabilities, hard support boundary, deferred features, and contribution policy.
 - `docs/quickstart.md` now provides a concise visitor-oriented pre-alpha entry path with minimum prerequisites, expected time, supported workflow boundaries, and explicit link to the full implementation quickstart.
 - `docs/reference/commands.md` now provides a one-line, implemented-command-only CLI reference aligned to current `yara` usage output and linked from top-level docs entry points.
+- `docs/architecture/README.md` now explicitly separates implemented architecture surfaces from planned/future areas using clear status sections so documented design direction is not confused with shipped behavior.
 
 ## Verified capabilities
 
@@ -122,6 +123,7 @@
   - README pre-alpha messaging now separates implemented behavior from deferred roadmap scope and aligns support boundary statements with current verified capabilities.
   - visitor-facing quickstart documentation now exists at `docs/quickstart.md` and is linked from both top-level `README.md` and `docs/README.md` without changing execution contracts.
   - `docs/reference/commands.md` now documents implemented command surfaces and representative key flags aligned with current CLI usage output.
+  - architecture index documentation now explicitly labels implemented versus planned/future subsystem documents while preserving stable links across the architecture tree.
   - catalog coverage now loads and audit-verifies `ArtifactImportReceipt`, `ArtifactTransferReceipt`, and `ArtifactScanReceipt` evidence and binds assertion-scoped import-chain diagnostics deterministically;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
@@ -204,9 +206,9 @@
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
-- Recent commits before this slice (newest first): `6c5fe38`, `d9b12f8`, `9a4e005`, `8026278`, `293c4b0`.
+- Recent commits before this slice (newest first): `0118b61`, `6c5fe38`, `d9b12f8`, `9a4e005`, `8026278`.
 - M1 (Publication gating closure) is complete.
-- This slice completes M5 slice 3 by adding `docs/reference/commands.md` as an implemented-command-only one-line CLI reference aligned to current usage output and linked for first-time readers.
+- This slice completes M5 slice 4 by clarifying `docs/architecture/README.md` so implemented versus planned subsystem documentation boundaries are explicit.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -276,7 +278,7 @@ Slices:
 1. Completed: `README.md` user-facing sections now present an honest pre-alpha announcement with implemented capabilities, hard support boundary, deferred roadmap scope, and contribution policy.
 2. Completed: `docs/quickstart.md` now provides a concise first-time visitor path with prerequisites, expected time, supported boundaries, and a direct link to `docs/implementation/quickstart.md`.
 3. Completed: `docs/reference/commands.md` now provides one-liner command summaries with representative key flags aligned to current CLI usage output.
-4. `docs/architecture/README.md` updated to link implemented vs. future subsystems clearly, distinguishing what is built from what is planned per the architecture docs.
+4. Completed: `docs/architecture/README.md` now explicitly separates implemented and planned/future subsystem documents to prevent roadmap architecture from being read as shipped behavior.
 
 Exit: an informed reader can answer "what does YARA do today" without reading source code; deferred items are clearly labelled.
 
@@ -306,17 +308,17 @@ These items are on the roadmap but are not required to go public honestly:
 
 ## Next implementation slice
 
-Implement **M5 slice 4: architecture index clarity for implemented vs planned subsystems**:
+Implement **Release execution slice: publish `v0.1.0-alpha.1` from finalized templates/workflows**:
 
-- update `docs/architecture/README.md` so implemented subsystems are clearly separated from planned/future subsystems;
-- add explicit status markers or sections that prevent readers from mistaking planned architecture for shipped behavior;
-- keep links consistent with existing architecture docs while preserving honesty boundary from README/handoff.
+- finalize `.github/release-notes/v0.1.0-alpha.1.md` placeholders with exact catalog and checksum values produced by release artifacts;
+- create and push git tag `v0.1.0-alpha.1` so release workflow runs publish mode and attaches binaries plus schema archive;
+- verify published release assets and checksums are downloadable via `gh release download` and match documented support boundary statements.
 
 Acceptance criteria:
 
-- architecture index clearly distinguishes implemented vs planned areas for first-time readers;
-- architecture links remain valid and organized by current versus future scope;
-- no planned subsystem is phrased as currently shipped behavior;
+- `v0.1.0-alpha.1` release exists with expected artifacts (`linux/amd64`, `linux/arm64`, `darwin/arm64`, schema archive, checksums);
+- release notes include finalized schema digest set, catalog reference, known limitations, and support boundary text;
+- `gh release download` succeeds and checksum verification matches release manifest entries;
 - local validation of documentation changes passes existing repository checks.
 
 ## Validation requirements
