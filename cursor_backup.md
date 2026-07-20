@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `eb0be72`, `3438071`, `2c15d1d`, `b1c3ef0`, `204b6ba`.
+- Recent commits (newest first): `9d2c86a`, `eb0be72`, `3438071`, `2c15d1d`, `b1c3ef0`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
@@ -42,6 +42,9 @@
   - assertion-scoped filtering is supported via `/api/v1/lifecycle-policy?assertion=<id>`;
   - lifecycle rows render deterministic four-pillar statuses (proof, integration, rehearsal, renewal) plus blocker code/remediation;
   - malformed/inconsistent lifecycle payloads fail closed in UI with non-destructive error rendering.
+- Web UI release and documentation slice (W5) is now implemented:
+  - release workflow now references `.github/release-notes/v0.2.0-alpha.1.md` for canonical publication notes;
+  - docs + release notes now align on Web UI startup and local-only/read-only pre-alpha scope.
 - Bootstrap + first-use path is implemented:
   - `deployment bootstrap kubernetes` (bounded namespace/PVC provisioning with `BootstrapReceipt`);
   - `deployment import kubernetes` (bounded single-model local staging into bootstrap PVC with `ArtifactImportReceipt`).
@@ -63,13 +66,12 @@
 
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - assertion-filtered lifecycle API response (`/api/v1/lifecycle-policy?assertion=...`) with fail-closed invalid assertion handling;
-  - lifecycle table now shows four-pillar gate statuses and deterministic blocker/remediation details per assertion;
-  - strict fail-closed UI payload validation for malformed lifecycle posture records;
-  - extended frontend and backend tests for lifecycle filtering, payload validation, and non-regression paths.
+  - release workflow/template and top-level docs now align on Web UI startup and corrected scope (implemented local read-only UI, deferred team API/auth/mutations);
+  - release notes template now documents W1-W4 behavior, known limitations, and support boundary for `v0.2.0-alpha.1`;
+  - built-binary smoke test confirmed `yara serve --ui` serves `index.html` and `/api/v1/lifecycle-policy`.
 - Validation (simulated/local) passed:
-  - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`, `git diff --check`, `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`, and `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
-- Working tree should be clean after committing this slice.
+  - built binary smoke check (`go build` + `catalog coverage create` + `serve --ui` + `curl` UI + `curl` lifecycle endpoint) succeeded.
+  - `git diff --check`, `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`, and `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## MVP milestone path
@@ -88,7 +90,6 @@
 - Web UI remains local-only and read-only in this stage (no auth, no multi-user/session model, no mutation endpoints).
 
 ## MVP-2 milestone path — Web UI
-Goal: a minimal browser-based operator interface that surfaces existing CLI capabilities without weakening any existing gates or mutation controls.
 
 ### W1 — Backend HTTP API layer
 
@@ -112,23 +113,22 @@ Goal: a minimal browser-based operator interface that surfaces existing CLI capa
 
 ### W5 — Web UI release and public documentation
 
-- Bundle and embed the built UI into the binary via Go embed; no separate build artefact required at runtime.
-- Update `README.md`, `docs/quickstart.md`, and `docs/reference/commands.md` to document `yara serve` and the web UI.
-- Publish `v0.2.0-alpha.1` with all W1–W4 capabilities and honest scope statement (read-only, local-only, no auth in pre-alpha).
-- Exit criteria: `gh release download v0.2.0-alpha.1` yields a binary where `yara serve` boots the UI with catalog and coverage data.
+- Release notes template + workflow + docs alignment for Web UI publication.
+- Status: completed.
 
 ## Next implementation slice
 
-Implement **W5 — Web UI release and public documentation**:
+Implement **Post-MVP-2 slice — Web UI read-only auth boundary (fail-closed)**:
 
-- finalize embedded web UI packaging for release and verify `yara serve --ui` behavior from built binaries;
-- update `README.md`, `docs/quickstart.md`, and `docs/reference/commands.md` with web UI startup, scope, and explicit pre-alpha limitations;
-- prepare honest `v0.2.0-alpha.1` release notes covering implemented W1-W4 behavior and deferred features;
+- add optional local auth token requirement for `yara serve` API/UI access (disabled by default, explicit opt-in flag);
+- enforce fail-closed `401` responses for missing/invalid tokens across all `/api/v1/*` endpoints;
+- keep mutation authority absent and preserve deterministic response schemas for authorized reads;
+- update docs/reference with explicit local-auth threat model limits (still single-user local pre-alpha).
 
 Acceptance criteria:
 
-- release assets include embedded UI and `yara serve --ui` works from downloaded binary with no extra runtime build step;
-- top-level docs accurately describe web UI startup path, implemented views, and deferred scope (team API, auth, mutations);
+- opt-in auth mode blocks unauthenticated reads and admits only exact-token requests;
+- UI shell can load successfully when token is present and fail closed otherwise;
 - backend and frontend checks both pass in `make check` and `go test -race ./...` (frontend checks classified simulated/local).
 
 ## Validation requirements

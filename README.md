@@ -40,7 +40,6 @@ The following are intentionally deferred and must not be interpreted as currentl
 - backup and restore contracts;
 - version upgrade path;
 - team API and multi-user approval workflow;
-- web UI / review cockpit;
 - multi-node planning and RAG/embedding topology;
 - additional hardware vendors beyond current NVIDIA-focused coverage.
 
@@ -53,6 +52,9 @@ For first use on the currently implemented path:
 3. Generate/validate plan and render artifacts.
 4. If using Kubernetes, follow preflight -> changeset -> approval -> authorization -> bounded apply exactly as documented.
 5. Verify receipts and audit chains after each major step.
+6. (Optional) Start the local read-only Web UI:
+   - `go run ./cmd/yara serve --catalog catalog/v0.2/snapshot.yaml --coverage-report .yara/catalog-v0.2-coverage.yaml --ui --port 7474`
+   - open `http://127.0.0.1:7474` in a browser.
 
 ## Architecture at a glance
 

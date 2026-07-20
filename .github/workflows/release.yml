@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 env:
-  RELEASE_NOTES_TEMPLATE: .github/release-notes/v0.1.0-alpha.1.md
+  RELEASE_NOTES_TEMPLATE: .github/release-notes/v0.2.0-alpha.1.md
 
 jobs:
   goreleaser:

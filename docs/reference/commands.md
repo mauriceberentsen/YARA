@@ -16,6 +16,11 @@ Source of truth:
 - `yara catalog validate <snapshot-file>` - validate catalog snapshot; key flag: `--audit-output`.
 - `yara audit verify <file>` - verify append-only audit chain integrity.
 
+Typical Web UI startup (pre-alpha, local-only):
+
+- `yara serve --catalog catalog/v0.2/snapshot.yaml --coverage-report .yara/catalog-v0.2-coverage.yaml --ui --port 7474`
+- open `http://127.0.0.1:7474`.
+
 ## Catalog coverage and policy diagnostics
 
 - `yara catalog coverage create` - compile evidence coverage report; key flags: `--catalog`, `--evidence-dir`, `--name`, `--output`, `--audit-output`.

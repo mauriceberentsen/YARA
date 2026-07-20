@@ -4,17 +4,17 @@
 
 Keep release publication deterministic and auditable by requiring one repository-owned release notes template for each pre-alpha tag.
 
-## First pre-alpha tag policy
+## Current pre-alpha tag policy
 
-- First public pre-alpha tag: `v0.1.0-alpha.1`.
-- Canonical template path: `.github/release-notes/v0.1.0-alpha.1.md`.
+- Current public pre-alpha tag target: `v0.2.0-alpha.1`.
+- Canonical template path: `.github/release-notes/v0.2.0-alpha.1.md`.
 - Release workflow source of truth: `.github/workflows/release.yml` sets `RELEASE_NOTES_TEMPLATE` and passes it to GoReleaser via `--release-notes`.
 - Manual `workflow_dispatch` runs a snapshot dry-run (`--snapshot --skip=publish`) for validation; only tag pushes publish release artifacts.
 - Release publication must fail if the configured template file is missing.
 
 ## Authoring requirements
 
-Before publishing `v0.1.0-alpha.1`, update the template with final values:
+Before publishing `v0.2.0-alpha.1`, update the template with final values:
 
 1. Pin the exact catalog snapshot/digest in the `Catalog Version` section.
 2. Copy schema artifact digest values from `checksums.txt` into `Schema Digest Set`.

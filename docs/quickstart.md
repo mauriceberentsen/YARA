@@ -36,6 +36,15 @@ For the full command-by-command implementation flow, use:
 
 The exact command sequence, flags, and fail-closed checkpoints are documented in `docs/implementation/quickstart.md`.
 
+## Optional local Web UI
+
+After producing a coverage report, start the embedded read-only UI:
+
+- `go run ./cmd/yara serve --catalog catalog/v0.2/snapshot.yaml --coverage-report .yara/catalog-v0.2-coverage.yaml --ui --port 7474`
+- Open `http://127.0.0.1:7474`.
+
+The UI is local-only and read-only in pre-alpha. It exposes Catalog, Coverage, Drift, and Lifecycle views backed by the same bounded API endpoints.
+
 ## Known limitations for this quickstart
 
 - This is not a general installer or production deployment manager.
@@ -49,6 +58,5 @@ The exact command sequence, flags, and fail-closed checkpoints are documented in
 - backup and restore workflows;
 - version upgrade orchestration;
 - team API and multi-user approval workflow;
-- web UI / review cockpit;
 - multi-node planning and RAG/embedding topology;
 - additional hardware vendors beyond current NVIDIA-focused scope.
