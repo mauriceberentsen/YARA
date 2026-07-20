@@ -2379,6 +2379,136 @@ func TestServeWorkflowReleasePublicationHandoffReceiptExportRejectsDigestMismatc
 	}
 }
 
+func TestServeWorkflowReleasePublicationAcknowledgmentExportWritesManifestAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	manifestPath := filepath.Join(workspacePath, "workflow.release-publication.acknowledgment.json")
+	auditPath := filepath.Join(workspacePath, "workflow.release-publication.acknowledgment.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"acknowledgmentReference":"ack-2026-07-21","acknowledgedByReference":"release-ops-team","acknowledgmentTimestamp":"2026-07-21T00:30:00Z","manifestPath":%q,"auditPath":%q}`, manifestPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-publication/acknowledgment/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for release publication acknowledgment export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read release publication acknowledgment manifest: %v", err)
+	}
+	manifest := workflowReleasePublicationAcknowledgmentManifest{}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode release publication acknowledgment manifest: %v", err)
+	}
+	if manifest.Acknowledgment.AcknowledgmentState != "acknowledgment-ready" {
+		t.Fatalf("expected acknowledgment-ready state, got %#v", manifest.Acknowledgment)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load release publication acknowledgment audit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected audit events for release publication acknowledgment export")
+	}
+}
+
+func TestServeWorkflowReleasePublicationAcknowledgmentExportRejectsBlockedHandoff(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	handoffPath := writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	receipt := workflowReleasePublicationHandoffReceipt{}
+	receiptBytes, err := os.ReadFile(handoffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(receiptBytes, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	receipt.Handoff.HandoffState = "blocked"
+	receipt.Handoff.BlockerCode = "YARA-RHR-003"
+	corrupted, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted = append(corrupted, '\n')
+	if err := os.WriteFile(handoffPath, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"acknowledgmentReference":"ack-2026-07-21","acknowledgedByReference":"release-ops-team","acknowledgmentTimestamp":"2026-07-21T00:30:00Z","manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.release-publication.acknowledgment.json"),
+		filepath.Join(workspacePath, "workflow.release-publication.acknowledgment.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-publication/acknowledgment/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for blocked handoff receipt, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RAK-003") {
+		t.Fatalf("expected release publication acknowledgment blocker code, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowReleasePublicationAcknowledgmentExportRejectsDigestMismatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	handoffPath := writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	receipt := workflowReleasePublicationHandoffReceipt{}
+	receiptBytes, err := os.ReadFile(handoffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(receiptBytes, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	receipt.Handoff.ReleasePublicationEnvelope.Digest = testCLIDigest('9')
+	corrupted, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted = append(corrupted, '\n')
+	if err := os.WriteFile(handoffPath, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"acknowledgmentReference":"ack-2026-07-21","acknowledgedByReference":"release-ops-team","acknowledgmentTimestamp":"2026-07-21T00:30:00Z","manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.release-publication.acknowledgment.mismatch.json"),
+		filepath.Join(workspacePath, "workflow.release-publication.acknowledgment.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/release-publication/acknowledgment/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for release publication acknowledgment digest mismatch, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RAK-005") {
+		t.Fatalf("expected release publication acknowledgment digest blocker code, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
@@ -2828,6 +2958,30 @@ func writeReleasePublicationEnvelopeFixture(t *testing.T, workspacePath string) 
 		t.Fatalf("write release publication envelope fixture: %v", err)
 	}
 	return manifestPath
+}
+
+func writeReleasePublicationHandoffReceiptFixture(t *testing.T, workspacePath string) string {
+	t.Helper()
+	receipt, _, err := buildWorkflowReleasePublicationHandoffReceipt(workspacePath, workflowReleasePublicationHandoffReceiptExportRequest{
+		ReceiverReference: "release-ops-team",
+		HandoffTimestamp:  "2026-07-21T00:20:00Z",
+		OperatorReference: "operator-6",
+		ReceiptPath:       filepath.Join(workspacePath, "workflow.release-publication.handoff-receipt.json"),
+		AuditPath:         filepath.Join(workspacePath, "workflow.release-publication.handoff-receipt.export.audit.jsonl"),
+	})
+	if err != nil {
+		t.Fatalf("build release publication handoff receipt fixture: %v", err)
+	}
+	receiptPath := filepath.Join(workspacePath, "workflow.release-publication.handoff-receipt.json")
+	receiptBytes, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal release publication handoff receipt fixture: %v", err)
+	}
+	receiptBytes = append(receiptBytes, '\n')
+	if err := os.WriteFile(receiptPath, receiptBytes, 0o600); err != nil {
+		t.Fatalf("write release publication handoff receipt fixture: %v", err)
+	}
+	return receiptPath
 }
 
 func serveHandlerFixture(t *testing.T, uiEnabled bool, workspacePath string) http.Handler {

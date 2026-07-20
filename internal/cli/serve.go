@@ -1839,6 +1839,68 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.BlockerCode = receipt.Handoff.BlockerCode
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/release-publication/acknowledgment/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow release publication acknowledgment export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowReleasePublicationAcknowledgmentExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-040", err.Error())
+			return
+		}
+		manifestPath, err := ensureWorkspaceFilePath(workspacePath, payload.ManifestPath, "manifestPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-040", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-040", err.Error())
+			return
+		}
+		if manifestPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-040", "manifestPath and auditPath must be different files")
+			return
+		}
+		manifest, subjects, err := buildWorkflowReleasePublicationAcknowledgmentManifest(workspacePath, payload)
+		if err != nil {
+			status := http.StatusBadRequest
+			if gateErr, ok := err.(workflowGateError); ok {
+				status = gateErr.Status
+			}
+			writeServeError(writer, status, "YARA-SRV-040", err.Error())
+			return
+		}
+		manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode release publication acknowledgment manifest: %v", err))
+			return
+		}
+		manifestBytes = append(manifestBytes, '\n')
+		if err := writeExclusive(manifestPath, manifestBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-040", err.Error())
+			return
+		}
+		exportSubjects := append(append([]audit.Subject(nil), subjects...),
+			audit.Subject{Kind: "ReleasePublicationAcknowledgmentManifest", Digest: digestBytes(manifestBytes)},
+		)
+		if err := persistOperationAuditForTarget(auditPath, "workflow.release-publication.acknowledgment.export", "completed", manifest.Acknowledgment.AcknowledgmentState, "kubernetes:"+manifest.Acknowledgment.Continuity.TargetDigest, exportSubjects, nil); err != nil {
+			_ = os.Remove(manifestPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowReleasePublicationAcknowledgmentExportResponse{Valid: true}
+		response.Export.ManifestPath = manifestPath
+		response.Export.AuditPath = auditPath
+		response.Export.AcknowledgmentState = manifest.Acknowledgment.AcknowledgmentState
+		response.Export.BlockerCode = manifest.Acknowledgment.BlockerCode
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -2562,6 +2624,45 @@ type workflowReleasePublicationHandoffReceipt struct {
 	} `json:"releasePublicationHandoffReceipt"`
 }
 
+type workflowReleasePublicationAcknowledgmentExportRequest struct {
+	AcknowledgmentReference string `json:"acknowledgmentReference"`
+	AcknowledgedByReference string `json:"acknowledgedByReference"`
+	AcknowledgmentTimestamp string `json:"acknowledgmentTimestamp"`
+	ManifestPath            string `json:"manifestPath"`
+	AuditPath               string `json:"auditPath"`
+}
+
+type workflowReleasePublicationAcknowledgmentExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		ManifestPath        string `json:"manifestPath"`
+		AuditPath           string `json:"auditPath"`
+		AcknowledgmentState string `json:"acknowledgmentState"`
+		BlockerCode         string `json:"blockerCode,omitempty"`
+	} `json:"export"`
+}
+
+type workflowReleasePublicationAcknowledgmentManifest struct {
+	Valid          bool `json:"valid"`
+	Acknowledgment struct {
+		WorkspacePath              string                    `json:"workspacePath"`
+		AcknowledgmentReference    string                    `json:"acknowledgmentReference"`
+		AcknowledgedByReference    string                    `json:"acknowledgedByReference"`
+		AcknowledgmentTimestamp    string                    `json:"acknowledgmentTimestamp"`
+		AcknowledgmentState        string                    `json:"acknowledgmentState"`
+		BlockerCode                string                    `json:"blockerCode,omitempty"`
+		Continuity                 workflowClosureContinuity `json:"continuity"`
+		ClosurePackage             workflowClosureArtifact   `json:"closurePackage"`
+		ReviewGate                 workflowClosureArtifact   `json:"reviewGate"`
+		ReleaseDecision            workflowClosureArtifact   `json:"releaseDecision"`
+		ReleasePublication         workflowClosureArtifact   `json:"releasePublication"`
+		ReleasePublicationIndex    workflowClosureArtifact   `json:"releasePublicationIndex"`
+		ReleasePublicationPackage  workflowClosureArtifact   `json:"releasePublicationPackage"`
+		ReleasePublicationEnvelope workflowClosureArtifact   `json:"releasePublicationEnvelope"`
+		HandoffReceipt             workflowClosureArtifact   `json:"handoffReceipt"`
+	} `json:"releasePublicationAcknowledgment"`
+}
+
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -3175,6 +3276,29 @@ func decodeWorkflowReleasePublicationHandoffReceiptExportRequest(request *http.R
 	}
 	if _, err := time.Parse(time.RFC3339Nano, payload.HandoffTimestamp); err != nil {
 		return payload, errors.New("handoffTimestamp must be a valid RFC3339 timestamp")
+	}
+	return payload, nil
+}
+
+func decodeWorkflowReleasePublicationAcknowledgmentExportRequest(request *http.Request) (workflowReleasePublicationAcknowledgmentExportRequest, error) {
+	var payload workflowReleasePublicationAcknowledgmentExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.AcknowledgmentReference) == "" || strings.TrimSpace(payload.AcknowledgedByReference) == "" || strings.TrimSpace(payload.AcknowledgmentTimestamp) == "" || strings.TrimSpace(payload.ManifestPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("acknowledgmentReference, acknowledgedByReference, acknowledgmentTimestamp, manifestPath and auditPath are required")
+	}
+	if payload.ManifestPath == payload.AuditPath {
+		return payload, errors.New("manifestPath and auditPath must be different files")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.AcknowledgmentTimestamp); err != nil {
+		return payload, errors.New("acknowledgmentTimestamp must be a valid RFC3339 timestamp")
 	}
 	return payload, nil
 }
@@ -4179,6 +4303,78 @@ func buildWorkflowReleasePublicationHandoffReceipt(workspacePath string, payload
 	return receipt, subjects, nil
 }
 
+func buildWorkflowReleasePublicationAcknowledgmentManifest(workspacePath string, payload workflowReleasePublicationAcknowledgmentExportRequest) (workflowReleasePublicationAcknowledgmentManifest, []audit.Subject, error) {
+	closurePackage, closurePackagePath, closurePackageDigest, err := loadLatestClosurePackage(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	reviewGate, reviewGatePath, reviewGateDigest, err := loadLatestClosureReviewGate(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releaseDecision, releaseDecisionPath, releaseDecisionDigest, err := loadLatestReleaseDecision(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublication, releasePublicationPath, releasePublicationDigest, err := loadLatestReleasePublication(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublicationIndex, releasePublicationIndexPath, releasePublicationIndexDigest, err := loadLatestReleasePublicationIndex(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublicationPackage, releasePublicationPackagePath, releasePublicationPackageDigest, err := loadLatestReleasePublicationPackage(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublicationEnvelope, releasePublicationEnvelopePath, releasePublicationEnvelopeDigest, err := loadLatestReleasePublicationEnvelope(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	handoffReceipt, handoffReceiptPath, handoffReceiptDigest, err := loadLatestReleasePublicationHandoffReceipt(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	if handoffReceipt.Handoff.HandoffState != "handoff-ready" {
+		blocker := mapValueOrDefault(handoffReceipt.Handoff.BlockerCode, "none")
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RAK-003: latest release publication handoff receipt is blocked (blocker: " + blocker + ")"}
+	}
+	if closurePackage.Package.Continuity != reviewGate.Gate.Continuity || closurePackage.Package.Continuity != releaseDecision.Ledger.Continuity || closurePackage.Package.Continuity != releasePublication.Publication.Continuity || closurePackage.Package.Continuity != releasePublicationIndex.Index.Continuity || closurePackage.Package.Continuity != releasePublicationPackage.Package.Continuity || closurePackage.Package.Continuity != releasePublicationEnvelope.Envelope.Continuity || closurePackage.Package.Continuity != handoffReceipt.Handoff.Continuity {
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RAK-004: acknowledgment continuity chains are mismatched"}
+	}
+	if handoffReceipt.Handoff.ClosurePackage.Digest != closurePackageDigest || handoffReceipt.Handoff.ReviewGate.Digest != reviewGateDigest || handoffReceipt.Handoff.ReleaseDecision.Digest != releaseDecisionDigest || handoffReceipt.Handoff.ReleasePublication.Digest != releasePublicationDigest || handoffReceipt.Handoff.ReleasePublicationIndex.Digest != releasePublicationIndexDigest || handoffReceipt.Handoff.ReleasePublicationPackage.Digest != releasePublicationPackageDigest || handoffReceipt.Handoff.ReleasePublicationEnvelope.Digest != releasePublicationEnvelopeDigest {
+		return workflowReleasePublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RAK-005: handoff receipt digest bindings do not match current publication chain"}
+	}
+	manifest := workflowReleasePublicationAcknowledgmentManifest{Valid: true}
+	manifest.Acknowledgment.WorkspacePath = workspacePath
+	manifest.Acknowledgment.AcknowledgmentReference = strings.TrimSpace(payload.AcknowledgmentReference)
+	manifest.Acknowledgment.AcknowledgedByReference = strings.TrimSpace(payload.AcknowledgedByReference)
+	manifest.Acknowledgment.AcknowledgmentTimestamp = strings.TrimSpace(payload.AcknowledgmentTimestamp)
+	manifest.Acknowledgment.AcknowledgmentState = "acknowledgment-ready"
+	manifest.Acknowledgment.Continuity = closurePackage.Package.Continuity
+	manifest.Acknowledgment.ClosurePackage = workflowClosureArtifact{Path: closurePackagePath, Digest: closurePackageDigest}
+	manifest.Acknowledgment.ReviewGate = workflowClosureArtifact{Path: reviewGatePath, Digest: reviewGateDigest}
+	manifest.Acknowledgment.ReleaseDecision = workflowClosureArtifact{Path: releaseDecisionPath, Digest: releaseDecisionDigest}
+	manifest.Acknowledgment.ReleasePublication = workflowClosureArtifact{Path: releasePublicationPath, Digest: releasePublicationDigest}
+	manifest.Acknowledgment.ReleasePublicationIndex = workflowClosureArtifact{Path: releasePublicationIndexPath, Digest: releasePublicationIndexDigest}
+	manifest.Acknowledgment.ReleasePublicationPackage = workflowClosureArtifact{Path: releasePublicationPackagePath, Digest: releasePublicationPackageDigest}
+	manifest.Acknowledgment.ReleasePublicationEnvelope = workflowClosureArtifact{Path: releasePublicationEnvelopePath, Digest: releasePublicationEnvelopeDigest}
+	manifest.Acknowledgment.HandoffReceipt = workflowClosureArtifact{Path: handoffReceiptPath, Digest: handoffReceiptDigest}
+	subjects := []audit.Subject{
+		{Kind: "WorkflowClosurePackageManifest", Digest: closurePackageDigest},
+		{Kind: "ClosureReviewGateJSON", Digest: reviewGateDigest},
+		{Kind: "ReleaseDecisionLedger", Digest: releaseDecisionDigest},
+		{Kind: "ReleasePublicationAttestation", Digest: releasePublicationDigest},
+		{Kind: "ReleasePublicationIndexManifest", Digest: releasePublicationIndexDigest},
+		{Kind: "ReleasePublicationPackageManifest", Digest: releasePublicationPackageDigest},
+		{Kind: "ReleasePublicationEnvelopeManifest", Digest: releasePublicationEnvelopeDigest},
+		{Kind: "ReleasePublicationHandoffReceipt", Digest: handoffReceiptDigest},
+		{Kind: "ReleasePublicationAcknowledgment", Digest: digestBytes([]byte(strings.Join([]string{manifest.Acknowledgment.AcknowledgmentReference, manifest.Acknowledgment.AcknowledgedByReference, manifest.Acknowledgment.AcknowledgmentTimestamp, closurePackageDigest, reviewGateDigest, releaseDecisionDigest, releasePublicationDigest, releasePublicationIndexDigest, releasePublicationPackageDigest, releasePublicationEnvelopeDigest, handoffReceiptDigest}, "|")))},
+	}
+	return manifest, subjects, nil
+}
+
 func loadLatestReleasePublication(workspacePath string) (workflowReleasePublicationAttestation, string, string, error) {
 	paths := discoverReleasePublicationExports(workspacePath)
 	if len(paths) == 0 {
@@ -4257,6 +4453,26 @@ func loadLatestReleasePublicationEnvelope(workspacePath string) (workflowRelease
 		return workflowReleasePublicationEnvelopeManifest{}, "", "", errors.New("YARA-RHR-002: latest release publication envelope manifest is invalid")
 	}
 	return manifest, latestPath, digestBytes(content), nil
+}
+
+func loadLatestReleasePublicationHandoffReceipt(workspacePath string) (workflowReleasePublicationHandoffReceipt, string, string, error) {
+	paths := discoverReleasePublicationHandoffReceiptExports(workspacePath)
+	if len(paths) == 0 {
+		return workflowReleasePublicationHandoffReceipt{}, "", "", errors.New("YARA-RAK-001: acknowledgment export requires at least one release publication handoff receipt")
+	}
+	latestPath := paths[len(paths)-1]
+	content, err := os.ReadFile(latestPath)
+	if err != nil {
+		return workflowReleasePublicationHandoffReceipt{}, "", "", fmt.Errorf("read latest handoff receipt %s: %w", filepath.Base(latestPath), err)
+	}
+	receipt := workflowReleasePublicationHandoffReceipt{}
+	if err := json.Unmarshal(content, &receipt); err != nil {
+		return workflowReleasePublicationHandoffReceipt{}, "", "", fmt.Errorf("decode latest handoff receipt %s: %w", filepath.Base(latestPath), err)
+	}
+	if !receipt.Valid {
+		return workflowReleasePublicationHandoffReceipt{}, "", "", errors.New("YARA-RAK-002: latest release publication handoff receipt is invalid")
+	}
+	return receipt, latestPath, digestBytes(content), nil
 }
 
 func workflowCoreArtifacts(workspacePath string) (map[string]string, []string, error) {
@@ -4705,6 +4921,25 @@ func discoverReleasePublicationEnvelopeExports(workspacePath string) []string {
 		}
 		name := entry.Name()
 		if strings.HasSuffix(name, ".release-publication.envelope.json") {
+			paths = append(paths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func discoverReleasePublicationHandoffReceiptExports(workspacePath string) []string {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}
+	}
+	paths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".release-publication.handoff-receipt.json") {
 			paths = append(paths, filepath.Join(workspacePath, name))
 		}
 	}

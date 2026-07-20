@@ -1392,6 +1392,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.handoff-receipt.export.audit.jsonl` : "",
   }));
   const [handoffReceiptSubmitState, setHandoffReceiptSubmitState] = useState({ loading: false, error: "", result: null });
+  const [acknowledgmentForm, setAcknowledgmentForm] = useState(() => ({
+    acknowledgmentReference: "",
+    acknowledgedByReference: "",
+    acknowledgmentTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.release-publication.acknowledgment.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.acknowledgment.export.audit.jsonl` : "",
+  }));
+  const [acknowledgmentSubmitState, setAcknowledgmentSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1454,6 +1462,11 @@ function CapsuleView({ payload }) {
       ...previous,
       receiptPath: previous.receiptPath || `${workspacePath}/workflow.release-publication.handoff-receipt.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.handoff-receipt.export.audit.jsonl`,
+    }));
+    setAcknowledgmentForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.release-publication.acknowledgment.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.acknowledgment.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1787,6 +1800,36 @@ function CapsuleView({ payload }) {
       setHandoffReceiptSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setHandoffReceiptSubmitState({ loading: false, error: error.message || "Release publication handoff receipt export failed", result: null });
+    }
+  };
+  const updateAcknowledgment = (key) => (event) => {
+    setAcknowledgmentForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportAcknowledgment = acknowledgmentForm.acknowledgmentReference.trim() !== "" &&
+    acknowledgmentForm.acknowledgedByReference.trim() !== "" &&
+    acknowledgmentForm.acknowledgmentTimestamp.trim() !== "" &&
+    acknowledgmentForm.manifestPath !== "" &&
+    acknowledgmentForm.auditPath !== "" &&
+    acknowledgmentForm.manifestPath !== acknowledgmentForm.auditPath;
+  const submitAcknowledgment = async (event) => {
+    event.preventDefault();
+    if (!canExportAcknowledgment) {
+      return;
+    }
+    setAcknowledgmentSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/release-publication/acknowledgment/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(acknowledgmentForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Release publication acknowledgment export failed");
+      }
+      setAcknowledgmentSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setAcknowledgmentSubmitState({ loading: false, error: error.message || "Release publication acknowledgment export failed", result: null });
     }
   };
   return (
@@ -2228,6 +2271,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{handoffReceiptSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Handoff readiness</dt><dd>{handoffReceiptSubmitState.result.handoffState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{handoffReceiptSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export release publication acknowledgment</h3>
+      <form onSubmit={submitAcknowledgment}>
+        <div className="formRow">
+          <label htmlFor="ack-reference">Acknowledgment reference</label>
+          <input id="ack-reference" value={acknowledgmentForm.acknowledgmentReference} onChange={updateAcknowledgment("acknowledgmentReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="ack-by-reference">Acknowledged by reference</label>
+          <input id="ack-by-reference" value={acknowledgmentForm.acknowledgedByReference} onChange={updateAcknowledgment("acknowledgedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="ack-timestamp">Acknowledgment timestamp (RFC3339)</label>
+          <input id="ack-timestamp" value={acknowledgmentForm.acknowledgmentTimestamp} onChange={updateAcknowledgment("acknowledgmentTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="ack-manifest-path">Manifest output path</label>
+          <input id="ack-manifest-path" value={acknowledgmentForm.manifestPath} onChange={updateAcknowledgment("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="ack-audit-path">Audit output path</label>
+          <input id="ack-audit-path" value={acknowledgmentForm.auditPath} onChange={updateAcknowledgment("auditPath")} />
+        </div>
+        <button type="submit" disabled={acknowledgmentSubmitState.loading || !canExportAcknowledgment}>
+          {acknowledgmentSubmitState.loading ? "Exporting acknowledgment..." : "Export acknowledgment"}
+        </button>
+      </form>
+      {!canExportAcknowledgment && <p className="error">Acknowledgment export requires acknowledgment reference, acknowledged-by reference, timestamp, and distinct manifest/audit paths.</p>}
+      {acknowledgmentSubmitState.error && <p className="error">Acknowledgment readiness: blocked ({acknowledgmentSubmitState.error})</p>}
+      {acknowledgmentSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{acknowledgmentSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{acknowledgmentSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Acknowledgment readiness</dt><dd>{acknowledgmentSubmitState.result.acknowledgmentState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{acknowledgmentSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>
