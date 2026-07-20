@@ -1473,6 +1473,7 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-recipient-package.export.audit.jsonl` : "",
   }));
   const [closureRecipientPackageSubmitState, setClosureRecipientPackageSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifySubmitState, setClosureVerifySubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -2221,6 +2222,19 @@ function CapsuleView({ payload }) {
       setClosureRecipientPackageSubmitState({ loading: false, error: error.message || "Rollout closure recipient package export failed", result: null });
     }
   };
+  const submitClosureVerify = async () => {
+    setClosureVerifySubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify");
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify failed");
+      }
+      setClosureVerifySubmitState({ loading: false, error: "", result: responsePayload.verification || null });
+    } catch (error) {
+      setClosureVerifySubmitState({ loading: false, error: error.message || "Rollout closure verify failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -2273,6 +2287,56 @@ function CapsuleView({ payload }) {
             ))}
           </tbody>
         </table>
+      )}
+      <h3>Verify rollout closure chain</h3>
+      <button type="button" onClick={submitClosureVerify} disabled={closureVerifySubmitState.loading}>
+        {closureVerifySubmitState.loading ? "Verifying closure chain..." : "Verify rollout closure chain"}
+      </button>
+      {closureVerifySubmitState.error && <p className="error">Closure chain verification: blocked ({closureVerifySubmitState.error})</p>}
+      {closureVerifySubmitState.result && (
+        <>
+          <dl className="grid">
+            <div><dt>Verification readiness</dt><dd>{closureVerifySubmitState.result.ready ? "pass" : "blocked"}</dd></div>
+            <div><dt>Verification state</dt><dd>{closureVerifySubmitState.result.verificationState || "n/a"}</dd></div>
+            <div><dt>Blocker code</dt><dd>{closureVerifySubmitState.result.blockerCode || "none"}</dd></div>
+          </dl>
+          <h4>Chain coverage</h4>
+          <table>
+            <thead>
+              <tr><th>Artifact</th><th>Status</th><th>State</th><th>Digest</th></tr>
+            </thead>
+            <tbody>
+              {(closureVerifySubmitState.result.coverage || []).map((entry) => (
+                <tr key={entry.artifact}>
+                  <td>{entry.artifact}</td>
+                  <td>{entry.status || "n/a"}</td>
+                  <td>{entry.state || "n/a"}</td>
+                  <td>{entry.digest || "n/a"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <h4>Verification diagnostics</h4>
+          {Array.isArray(closureVerifySubmitState.result.diagnostics) && closureVerifySubmitState.result.diagnostics.length > 0 ? (
+            <table>
+              <thead>
+                <tr><th>Code</th><th>Severity</th><th>Message</th><th>Remediation</th></tr>
+              </thead>
+              <tbody>
+                {closureVerifySubmitState.result.diagnostics.map((diagnostic) => (
+                  <tr key={diagnostic.code}>
+                    <td>{diagnostic.code}</td>
+                    <td>{diagnostic.severity || "n/a"}</td>
+                    <td>{diagnostic.message || "n/a"}</td>
+                    <td>{diagnostic.remediation || "n/a"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p>No closure chain diagnostics.</p>
+          )}
+        </>
       )}
       <h3>Export capsule snapshot</h3>
       <form onSubmit={submit}>

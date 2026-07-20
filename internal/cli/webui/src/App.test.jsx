@@ -470,6 +470,23 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (endpoint === "/api/v1/workflow/rollout-closure/verify") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          verification: {
+            workspacePath: ".yara/workspaces/default",
+            ready: true,
+            verificationState: "pass",
+            blockerCode: "",
+            continuity: { authorizationId: "sha256:authorization", targetDigest: "sha256:target" },
+            coverage: [
+              { artifact: "recipient-package", status: "verified", state: "recipient-package-ready", digest: "sha256:recipient" },
+              { artifact: "packet", status: "verified", state: "packet-ready", digest: "sha256:packet" },
+            ],
+            diagnostics: [],
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -789,6 +806,9 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Recipient prepared timestamp (RFC3339)"), { target: { value: "2026-07-21T01:25:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export recipient package" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-recipient-package.json")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Verify rollout closure chain" }));
+    await waitFor(() => expect(screen.getByText("sha256:recipient")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No closure chain diagnostics.")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -966,6 +986,23 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-049", message: "YARA-RPKG-003: latest rollout closure packet is blocked", severity: "error" }],
         }), { status: 422 }));
       }
+      if (endpoint === "/api/v1/workflow/rollout-closure/verify") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          verification: {
+            workspacePath: ".yara/workspaces/default",
+            ready: false,
+            verificationState: "blocked",
+            blockerCode: "YARA-RCV-003",
+            continuity: { authorizationId: "sha256:authorization", targetDigest: "sha256:target" },
+            coverage: [
+              { artifact: "recipient-package", status: "verified", state: "recipient-package-ready", digest: "sha256:recipient" },
+              { artifact: "packet", status: "mismatched", state: "blocked", digest: "sha256:packet", reason: "state mismatch" },
+            ],
+            diagnostics: [{ code: "YARA-RCV-003", severity: "error", message: "artifact state mismatch", remediation: "regenerate blocked artifact" }],
+          },
+        }), { status: 200 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -1104,6 +1141,9 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export recipient package" }));
     await waitFor(() => expect(screen.getByText(/Recipient package readiness: blocked/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText(/YARA-RPKG-003/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Verify rollout closure chain" }));
+    await waitFor(() => expect(screen.getByText("artifact state mismatch")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/YARA-RCV-003/).length).toBeGreaterThan(0));
   }, 55000);
 
   it("fails closed on malformed drift payload", async () => {

@@ -2459,6 +2459,18 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.BlockerCode = manifest.RecipientPackage.BlockerCode
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/rollout-closure/verify", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow rollout closure verify requires --workspace")
+			return
+		}
+		verification := verifyWorkflowRolloutClosureChain(workspacePath)
+		writeServeJSON(writer, http.StatusOK, verification)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -3619,6 +3631,28 @@ type workflowRolloutClosureRecipientPackageManifest struct {
 		ClosurePackage             workflowClosureArtifact   `json:"closurePackage"`
 		ReviewGate                 workflowClosureArtifact   `json:"reviewGate"`
 	} `json:"rolloutClosureRecipientPackage"`
+}
+
+type workflowRolloutClosureVerifyResponse struct {
+	Valid        bool `json:"valid"`
+	Verification struct {
+		WorkspacePath     string                          `json:"workspacePath"`
+		Ready             bool                            `json:"ready"`
+		VerificationState string                          `json:"verificationState"`
+		BlockerCode       string                          `json:"blockerCode,omitempty"`
+		Continuity        workflowClosureContinuity       `json:"continuity"`
+		Coverage          []workflowClosureVerifyCoverage `json:"coverage"`
+		Diagnostics       []workflowCapsuleBlocker        `json:"diagnostics"`
+	} `json:"verification"`
+}
+
+type workflowClosureVerifyCoverage struct {
+	Artifact string `json:"artifact"`
+	Status   string `json:"status"`
+	Path     string `json:"path,omitempty"`
+	Digest   string `json:"digest,omitempty"`
+	State    string `json:"state,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
@@ -7028,6 +7062,355 @@ func loadLatestRolloutClosurePacket(workspacePath string) (workflowRolloutClosur
 	return manifest, latestPath, digestBytes(content), nil
 }
 
+func loadLatestRolloutClosureRecipientPackage(workspacePath string) (workflowRolloutClosureRecipientPackageManifest, string, string, error) {
+	paths := discoverRolloutClosureRecipientPackageExports(workspacePath)
+	if len(paths) == 0 {
+		return workflowRolloutClosureRecipientPackageManifest{}, "", "", errors.New("YARA-RCV-001: rollout closure verify requires at least one rollout closure recipient package manifest")
+	}
+	latestPath := paths[len(paths)-1]
+	content, err := os.ReadFile(latestPath)
+	if err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, "", "", fmt.Errorf("read latest rollout closure recipient package %s: %w", filepath.Base(latestPath), err)
+	}
+	manifest := workflowRolloutClosureRecipientPackageManifest{}
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return workflowRolloutClosureRecipientPackageManifest{}, "", "", fmt.Errorf("decode latest rollout closure recipient package %s: %w", filepath.Base(latestPath), err)
+	}
+	if !manifest.Valid {
+		return workflowRolloutClosureRecipientPackageManifest{}, "", "", errors.New("YARA-RCV-002: latest rollout closure recipient package manifest is invalid")
+	}
+	return manifest, latestPath, digestBytes(content), nil
+}
+
+func verifyWorkflowRolloutClosureChain(workspacePath string) workflowRolloutClosureVerifyResponse {
+	response := workflowRolloutClosureVerifyResponse{Valid: true}
+	response.Verification.WorkspacePath = workspacePath
+	response.Verification.Ready = false
+	response.Verification.VerificationState = "blocked"
+	response.Verification.Coverage = []workflowClosureVerifyCoverage{
+		{Artifact: "recipient-package", Status: "not-evaluated"},
+		{Artifact: "packet", Status: "not-evaluated"},
+		{Artifact: "bulletin", Status: "not-evaluated"},
+		{Artifact: "docket", Status: "not-evaluated"},
+		{Artifact: "ledger", Status: "not-evaluated"},
+		{Artifact: "certificate", Status: "not-evaluated"},
+		{Artifact: "acceptance", Status: "not-evaluated"},
+		{Artifact: "delivery", Status: "not-evaluated"},
+		{Artifact: "summary", Status: "not-evaluated"},
+		{Artifact: "acknowledgment", Status: "not-evaluated"},
+		{Artifact: "handoff", Status: "not-evaluated"},
+		{Artifact: "envelope", Status: "not-evaluated"},
+		{Artifact: "package", Status: "not-evaluated"},
+		{Artifact: "index", Status: "not-evaluated"},
+		{Artifact: "attestation", Status: "not-evaluated"},
+		{Artifact: "decision", Status: "not-evaluated"},
+		{Artifact: "closure", Status: "not-evaluated"},
+		{Artifact: "review", Status: "not-evaluated"},
+	}
+	indexByArtifact := map[string]int{}
+	for index := range response.Verification.Coverage {
+		indexByArtifact[response.Verification.Coverage[index].Artifact] = index
+	}
+	setCoverage := func(artifact, status, path, digest, state, reason string) {
+		index, ok := indexByArtifact[artifact]
+		if !ok {
+			return
+		}
+		response.Verification.Coverage[index] = workflowClosureVerifyCoverage{
+			Artifact: artifact,
+			Status:   status,
+			Path:     path,
+			Digest:   digest,
+			State:    state,
+			Reason:   reason,
+		}
+	}
+	fail := func(code, artifact, reason, remediation string) workflowRolloutClosureVerifyResponse {
+		setCoverage(artifact, "blocked", "", "", "", reason)
+		response.Verification.BlockerCode = code
+		response.Verification.Diagnostics = append(response.Verification.Diagnostics, workflowCapsuleBlocker{
+			Code:        code,
+			Severity:    "error",
+			Message:     reason,
+			Remediation: remediation,
+		})
+		return response
+	}
+	failMismatch := func(code, artifact, path, digest, state, reason, remediation string) workflowRolloutClosureVerifyResponse {
+		setCoverage(artifact, "mismatched", path, digest, state, reason)
+		response.Verification.BlockerCode = code
+		response.Verification.Diagnostics = append(response.Verification.Diagnostics, workflowCapsuleBlocker{
+			Code:        code,
+			Severity:    "error",
+			Message:     reason,
+			Remediation: remediation,
+		})
+		return response
+	}
+	recipientPackage, recipientPackagePath, recipientPackageDigest, err := loadLatestRolloutClosureRecipientPackage(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "recipient-package", "rollout closure recipient package manifest is missing", "export rollout closure recipient package before verification")
+		}
+		return fail("YARA-RCV-002", "recipient-package", "rollout closure recipient package manifest is malformed", "regenerate the recipient package manifest from the latest packet")
+	}
+	setCoverage("recipient-package", "verified", recipientPackagePath, recipientPackageDigest, recipientPackage.RecipientPackage.RecipientPackageState, "")
+	packet, packetPath, packetDigest, err := loadLatestRolloutClosurePacket(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "packet", "rollout closure packet manifest is missing", "export rollout closure packet before verification")
+		}
+		return fail("YARA-RCV-002", "packet", "rollout closure packet manifest is malformed", "regenerate the packet manifest from the latest bulletin")
+	}
+	setCoverage("packet", "verified", packetPath, packetDigest, packet.Packet.PacketState, "")
+	bulletin, bulletinPath, bulletinDigest, err := loadLatestRolloutClosureBulletin(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "bulletin", "rollout closure bulletin manifest is missing", "export rollout closure bulletin before verification")
+		}
+		return fail("YARA-RCV-002", "bulletin", "rollout closure bulletin manifest is malformed", "regenerate the bulletin manifest from the latest docket")
+	}
+	setCoverage("bulletin", "verified", bulletinPath, bulletinDigest, bulletin.Bulletin.BulletinState, "")
+	docket, docketPath, docketDigest, err := loadLatestRolloutClosureDocket(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "docket", "rollout closure docket manifest is missing", "export rollout closure docket before verification")
+		}
+		return fail("YARA-RCV-002", "docket", "rollout closure docket manifest is malformed", "regenerate the docket manifest from the latest ledger")
+	}
+	setCoverage("docket", "verified", docketPath, docketDigest, docket.Docket.DocketState, "")
+	ledger, ledgerPath, ledgerDigest, err := loadLatestRolloutClosureLedger(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "ledger", "rollout closure ledger manifest is missing", "export rollout closure ledger before verification")
+		}
+		return fail("YARA-RCV-002", "ledger", "rollout closure ledger manifest is malformed", "regenerate the ledger manifest from the latest certificate")
+	}
+	setCoverage("ledger", "verified", ledgerPath, ledgerDigest, ledger.Ledger.LedgerState, "")
+	certificate, certificatePath, certificateDigest, err := loadLatestRolloutClosureCertificate(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "certificate", "rollout closure certificate manifest is missing", "export rollout closure certificate before verification")
+		}
+		return fail("YARA-RCV-002", "certificate", "rollout closure certificate manifest is malformed", "regenerate the certificate manifest from the latest acceptance receipt")
+	}
+	setCoverage("certificate", "verified", certificatePath, certificateDigest, certificate.Certificate.CertificateState, "")
+	acceptance, acceptancePath, acceptanceDigest, err := loadLatestRolloutClosureAcceptance(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "acceptance", "rollout closure acceptance manifest is missing", "export rollout closure acceptance before verification")
+		}
+		return fail("YARA-RCV-002", "acceptance", "rollout closure acceptance manifest is malformed", "regenerate the acceptance manifest from the latest delivery record")
+	}
+	setCoverage("acceptance", "verified", acceptancePath, acceptanceDigest, acceptance.Acceptance.AcceptanceState, "")
+	delivery, deliveryPath, deliveryDigest, err := loadLatestRolloutClosureDelivery(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "delivery", "rollout closure delivery manifest is missing", "export rollout closure delivery before verification")
+		}
+		return fail("YARA-RCV-002", "delivery", "rollout closure delivery manifest is malformed", "regenerate the delivery manifest from the latest summary")
+	}
+	setCoverage("delivery", "verified", deliveryPath, deliveryDigest, delivery.Delivery.DeliveryRecordState, "")
+	summary, summaryPath, summaryDigest, err := loadLatestRolloutClosureSummary(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "summary", "rollout closure summary manifest is missing", "export rollout closure summary before verification")
+		}
+		return fail("YARA-RCV-002", "summary", "rollout closure summary manifest is malformed", "regenerate the summary manifest from the latest acknowledgment")
+	}
+	setCoverage("summary", "verified", summaryPath, summaryDigest, summary.Summary.SummaryState, "")
+	acknowledgment, acknowledgmentPath, acknowledgmentDigest, err := loadLatestReleasePublicationAcknowledgment(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "acknowledgment", "release publication acknowledgment manifest is missing", "export release publication acknowledgment before verification")
+		}
+		return fail("YARA-RCV-002", "acknowledgment", "release publication acknowledgment manifest is malformed", "regenerate the acknowledgment manifest from the latest handoff receipt")
+	}
+	setCoverage("acknowledgment", "verified", acknowledgmentPath, acknowledgmentDigest, acknowledgment.Acknowledgment.AcknowledgmentState, "")
+	handoff, handoffPath, handoffDigest, err := loadLatestReleasePublicationHandoffReceipt(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "handoff", "release publication handoff receipt is missing", "export release publication handoff receipt before verification")
+		}
+		return fail("YARA-RCV-002", "handoff", "release publication handoff receipt is malformed", "regenerate the handoff receipt from the latest envelope")
+	}
+	setCoverage("handoff", "verified", handoffPath, handoffDigest, handoff.Handoff.HandoffState, "")
+	envelope, envelopePath, envelopeDigest, err := loadLatestReleasePublicationEnvelope(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "envelope", "release publication envelope manifest is missing", "export release publication envelope before verification")
+		}
+		return fail("YARA-RCV-002", "envelope", "release publication envelope manifest is malformed", "regenerate the envelope manifest from the latest package")
+	}
+	setCoverage("envelope", "verified", envelopePath, envelopeDigest, envelope.Envelope.DeliveryState, "")
+	pkg, packagePath, packageDigest, err := loadLatestReleasePublicationPackage(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "package", "release publication package manifest is missing", "export release publication package before verification")
+		}
+		return fail("YARA-RCV-002", "package", "release publication package manifest is malformed", "regenerate the package manifest from the latest index")
+	}
+	setCoverage("package", "verified", packagePath, packageDigest, pkg.Package.PackageState, "")
+	index, indexPath, indexDigest, err := loadLatestReleasePublicationIndex(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "index", "release publication index manifest is missing", "export release publication index before verification")
+		}
+		return fail("YARA-RCV-002", "index", "release publication index manifest is malformed", "regenerate the index manifest from the latest attestation")
+	}
+	setCoverage("index", "verified", indexPath, indexDigest, index.Index.IndexState, "")
+	attestation, attestationPath, attestationDigest, err := loadLatestReleasePublication(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "attestation", "release publication attestation is missing", "export release publication attestation before verification")
+		}
+		return fail("YARA-RCV-002", "attestation", "release publication attestation is malformed", "regenerate the publication attestation from the latest decision")
+	}
+	setCoverage("attestation", "verified", attestationPath, attestationDigest, attestation.Publication.PublicationState, "")
+	decision, decisionPath, decisionDigest, err := loadLatestReleaseDecision(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "decision", "release decision ledger is missing", "export release decision ledger before verification")
+		}
+		return fail("YARA-RCV-002", "decision", "release decision ledger is malformed", "regenerate the release decision ledger from the latest review gate")
+	}
+	setCoverage("decision", "verified", decisionPath, decisionDigest, decision.Ledger.PublicationState, "")
+	closure, closurePath, closureDigest, err := loadLatestClosurePackage(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "closure", "workflow closure package manifest is missing", "export workflow closure package before verification")
+		}
+		return fail("YARA-RCV-002", "closure", "workflow closure package manifest is malformed", "regenerate closure package from receipt timeline and evidence bundle")
+	}
+	setCoverage("closure", "verified", closurePath, closureDigest, "present", "")
+	review, reviewPath, reviewDigest, err := loadLatestClosureReviewGate(workspacePath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "requires at least one") {
+			return fail("YARA-RCV-001", "review", "closure review gate artifact is missing", "export closure review gate before verification")
+		}
+		return fail("YARA-RCV-002", "review", "closure review gate artifact is malformed", "regenerate closure review gate from latest closure package")
+	}
+	setCoverage("review", "verified", reviewPath, reviewDigest, review.Gate.Outcome, "")
+	expectedStates := []struct {
+		artifact string
+		state    string
+		path     string
+		digest   string
+		expected string
+	}{
+		{"recipient-package", recipientPackage.RecipientPackage.RecipientPackageState, recipientPackagePath, recipientPackageDigest, "recipient-package-ready"},
+		{"packet", packet.Packet.PacketState, packetPath, packetDigest, "packet-ready"},
+		{"bulletin", bulletin.Bulletin.BulletinState, bulletinPath, bulletinDigest, "bulletin-ready"},
+		{"docket", docket.Docket.DocketState, docketPath, docketDigest, "docket-ready"},
+		{"ledger", ledger.Ledger.LedgerState, ledgerPath, ledgerDigest, "ledger-ready"},
+		{"certificate", certificate.Certificate.CertificateState, certificatePath, certificateDigest, "certificate-ready"},
+		{"acceptance", acceptance.Acceptance.AcceptanceState, acceptancePath, acceptanceDigest, "acceptance-ready"},
+		{"delivery", delivery.Delivery.DeliveryRecordState, deliveryPath, deliveryDigest, "delivery-record-ready"},
+		{"summary", summary.Summary.SummaryState, summaryPath, summaryDigest, "summary-ready"},
+		{"acknowledgment", acknowledgment.Acknowledgment.AcknowledgmentState, acknowledgmentPath, acknowledgmentDigest, "acknowledgment-ready"},
+		{"handoff", handoff.Handoff.HandoffState, handoffPath, handoffDigest, "handoff-ready"},
+		{"envelope", envelope.Envelope.DeliveryState, envelopePath, envelopeDigest, "delivery-ready"},
+		{"package", pkg.Package.PackageState, packagePath, packageDigest, "package-ready"},
+		{"index", index.Index.IndexState, indexPath, indexDigest, "index-ready"},
+		{"attestation", attestation.Publication.PublicationState, attestationPath, attestationDigest, "publishable"},
+		{"decision", decision.Ledger.PublicationState, decisionPath, decisionDigest, "ready-to-publish"},
+		{"review", review.Gate.Outcome, reviewPath, reviewDigest, "passed"},
+	}
+	for _, check := range expectedStates {
+		if check.state != check.expected {
+			return failMismatch(
+				"YARA-RCV-003",
+				check.artifact,
+				check.path,
+				check.digest,
+				check.state,
+				fmt.Sprintf("artifact state %q does not match required %q for %s", check.state, check.expected, check.artifact),
+				"regenerate the blocked artifact and re-run verification",
+			)
+		}
+	}
+	continuity := recipientPackage.RecipientPackage.Continuity
+	response.Verification.Continuity = continuity
+	if continuity != packet.Packet.Continuity ||
+		continuity != bulletin.Bulletin.Continuity ||
+		continuity != docket.Docket.Continuity ||
+		continuity != ledger.Ledger.Continuity ||
+		continuity != certificate.Certificate.Continuity ||
+		continuity != acceptance.Acceptance.Continuity ||
+		continuity != delivery.Delivery.Continuity ||
+		continuity != summary.Summary.Continuity ||
+		continuity != acknowledgment.Acknowledgment.Continuity ||
+		continuity != handoff.Handoff.Continuity ||
+		continuity != envelope.Envelope.Continuity ||
+		continuity != pkg.Package.Continuity ||
+		continuity != index.Index.Continuity ||
+		continuity != attestation.Publication.Continuity ||
+		continuity != decision.Ledger.Continuity ||
+		continuity != closure.Package.Continuity ||
+		continuity != review.Gate.Continuity {
+		return fail("YARA-RCV-005", "recipient-package", "closure publication continuity chains are mismatched", "rebuild downstream artifacts from the latest consistent closure package")
+	}
+	if recipientPackage.RecipientPackage.ReleasePacket.Digest != packetDigest ||
+		recipientPackage.RecipientPackage.ReleaseBulletin.Digest != bulletinDigest ||
+		recipientPackage.RecipientPackage.HandoffDocket.Digest != docketDigest ||
+		recipientPackage.RecipientPackage.ArchivalLedger.Digest != ledgerDigest ||
+		recipientPackage.RecipientPackage.PublicationCertificate.Digest != certificateDigest ||
+		recipientPackage.RecipientPackage.AcceptanceReceipt.Digest != acceptanceDigest ||
+		recipientPackage.RecipientPackage.DeliveryRecord.Digest != deliveryDigest ||
+		recipientPackage.RecipientPackage.ClosureSummary.Digest != summaryDigest ||
+		recipientPackage.RecipientPackage.Acknowledgment.Digest != acknowledgmentDigest ||
+		recipientPackage.RecipientPackage.HandoffReceipt.Digest != handoffDigest ||
+		recipientPackage.RecipientPackage.ReleasePublicationEnvelope.Digest != envelopeDigest ||
+		recipientPackage.RecipientPackage.ReleasePublicationPackage.Digest != packageDigest ||
+		recipientPackage.RecipientPackage.ReleasePublicationIndex.Digest != indexDigest ||
+		recipientPackage.RecipientPackage.ReleasePublication.Digest != attestationDigest ||
+		recipientPackage.RecipientPackage.ReleaseDecision.Digest != decisionDigest ||
+		recipientPackage.RecipientPackage.ClosurePackage.Digest != closureDigest ||
+		recipientPackage.RecipientPackage.ReviewGate.Digest != reviewDigest {
+		return fail("YARA-RCV-004", "recipient-package", "recipient package digest bindings do not match the latest closure publication chain", "regenerate recipient package from the latest packet and closure publication chain")
+	}
+	if packet.Packet.ReleaseBulletin.Digest != bulletinDigest ||
+		packet.Packet.HandoffDocket.Digest != docketDigest ||
+		packet.Packet.ArchivalLedger.Digest != ledgerDigest ||
+		packet.Packet.PublicationCertificate.Digest != certificateDigest ||
+		packet.Packet.AcceptanceReceipt.Digest != acceptanceDigest ||
+		packet.Packet.DeliveryRecord.Digest != deliveryDigest ||
+		packet.Packet.ClosureSummary.Digest != summaryDigest ||
+		packet.Packet.Acknowledgment.Digest != acknowledgmentDigest ||
+		packet.Packet.HandoffReceipt.Digest != handoffDigest ||
+		packet.Packet.ReleasePublicationEnvelope.Digest != envelopeDigest ||
+		packet.Packet.ReleasePublicationPackage.Digest != packageDigest ||
+		packet.Packet.ReleasePublicationIndex.Digest != indexDigest ||
+		packet.Packet.ReleasePublication.Digest != attestationDigest ||
+		packet.Packet.ReleaseDecision.Digest != decisionDigest ||
+		packet.Packet.ClosurePackage.Digest != closureDigest ||
+		packet.Packet.ReviewGate.Digest != reviewDigest {
+		return fail("YARA-RCV-004", "packet", "packet digest bindings do not match the latest closure publication chain", "regenerate packet from the latest bulletin and closure publication chain")
+	}
+	response.Verification.Ready = true
+	response.Verification.VerificationState = "pass"
+	response.Verification.Diagnostics = []workflowCapsuleBlocker{}
+	return response
+}
+
 func workflowCoreArtifacts(workspacePath string) (map[string]string, []string, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -7664,6 +8047,25 @@ func discoverRolloutClosurePacketExports(workspacePath string) []string {
 		}
 		name := entry.Name()
 		if strings.HasSuffix(name, ".rollout-closure-packet.json") {
+			paths = append(paths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func discoverRolloutClosureRecipientPackageExports(workspacePath string) []string {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}
+	}
+	paths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".rollout-closure-recipient-package.json") {
 			paths = append(paths, filepath.Join(workspacePath, name))
 		}
 	}
