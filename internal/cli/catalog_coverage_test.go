@@ -60,6 +60,12 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 			Blocker         string `json:"blocker"`
 			SelectedReceipt string `json:"selectedReceipt"`
 		} `json:"artifactImportChain"`
+		RuntimeDriftPosture []struct {
+			Assertion      string `json:"assertion"`
+			Status         string `json:"status"`
+			Blocker        string `json:"blocker"`
+			SelectedSignal string `json:"selectedSignal"`
+		} `json:"runtimeDriftPosture"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -81,6 +87,9 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 	}
 	if len(response.ArtifactImportChain) == 0 || response.ArtifactImportChain[0].Status != "missing" {
 		t.Fatalf("expected artifact import-chain diagnostics in create response: %#v", response.ArtifactImportChain)
+	}
+	if len(response.RuntimeDriftPosture) == 0 || response.RuntimeDriftPosture[0].Status != "missing" {
+		t.Fatalf("expected runtime drift posture diagnostics in create response: %#v", response.RuntimeDriftPosture)
 	}
 	report, err := catalogcoverage.Load(outputPath)
 	if err != nil {
@@ -211,6 +220,12 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 			Blocker         string `json:"blocker"`
 			SelectedReceipt string `json:"selectedReceipt"`
 		} `json:"artifactImportChain"`
+		RuntimeDriftPosture []struct {
+			Assertion      string `json:"assertion"`
+			Status         string `json:"status"`
+			Blocker        string `json:"blocker"`
+			SelectedSignal string `json:"selectedSignal"`
+		} `json:"runtimeDriftPosture"`
 		Taxonomy []catalogcoverage.LifecyclePublicationBlockerDefinition `json:"taxonomy"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
@@ -248,6 +263,9 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 	}
 	if len(response.ArtifactImportChain) == 0 || response.ArtifactImportChain[0].Status != "missing" {
 		t.Fatalf("expected artifact import-chain diagnostics in policy response: %#v", response.ArtifactImportChain)
+	}
+	if len(response.RuntimeDriftPosture) == 0 || response.RuntimeDriftPosture[0].Status != "missing" {
+		t.Fatalf("expected runtime drift posture diagnostics in policy response: %#v", response.RuntimeDriftPosture)
 	}
 	events, err := audit.LoadJSONL(policyAuditPath)
 	if err != nil {

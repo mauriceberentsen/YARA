@@ -88,6 +88,13 @@ type artifactImportChainPosture struct {
 	SelectedReceipt string `json:"selectedReceipt,omitempty"`
 }
 
+type runtimeDriftPosture struct {
+	Assertion      string `json:"assertion"`
+	Status         string `json:"status"`
+	Blocker        string `json:"blocker,omitempty"`
+	SelectedSignal string `json:"selectedSignal,omitempty"`
+}
+
 func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 	options, ok := parseCatalogCoverageOptions(args, stderr)
 	if !ok {
@@ -146,6 +153,11 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 		_ = os.Remove(options.outputPath)
 		return writeCatalogCoverageFailure(stdout, options, []audit.Subject{catalogSubject, reportSubject}, "YARA-COV-500", err, ExitInternal)
 	}
+	runtimeDriftDiagnostics, err := runtimeDriftPostureFromReport(report)
+	if err != nil {
+		_ = os.Remove(options.outputPath)
+		return writeCatalogCoverageFailure(stdout, options, []audit.Subject{catalogSubject, reportSubject}, "YARA-COV-500", err, ExitInternal)
+	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(map[string]any{
@@ -158,6 +170,7 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 		"publicationChainRetention":             retentionDiagnostics,
 		"publicationChainRenewalReview":         renewalDiagnostics,
 		"artifactImportChain":                   importChainDiagnostics,
+		"runtimeDriftPosture":                   runtimeDriftDiagnostics,
 	}); err != nil {
 		return ExitInternal
 	}
@@ -203,11 +216,16 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 	if err != nil {
 		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
 	}
+	runtimeDriftDiagnostics, err := runtimeDriftPostureFromReport(report)
+	if err != nil {
+		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
+	}
 	blocked := []map[string]string{}
 	rehearsalDiagnostics := []publicationChainRehearsalDiagnostics{}
 	filteredRetentionDiagnostics := []publicationChainRetentionPosture{}
 	filteredRenewalDiagnostics := []publicationChainRenewalReviewPosture{}
 	filteredImportChainDiagnostics := []artifactImportChainPosture{}
+	filteredRuntimeDriftDiagnostics := []runtimeDriftPosture{}
 	for _, assertion := range filtered {
 		rehearsalGate, found := findAssertionGate(assertion, "publication-chain-rehearsal")
 		if !found {
@@ -236,6 +254,11 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 				return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-013", fmt.Errorf("assertion %s artifact import chain is not ready: %s", assertion.ID, importChainDiagnostic.Blocker), ExitInfeasible)
 			}
 		}
+		runtimeDriftDiagnostic, found := findRuntimeDriftDiagnostic(runtimeDriftDiagnostics, assertion.ID)
+		if !found {
+			return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", fmt.Errorf("assertion %s does not include runtime drift posture diagnostics", assertion.ID), ExitInternal)
+		}
+		filteredRuntimeDriftDiagnostics = append(filteredRuntimeDriftDiagnostics, runtimeDriftDiagnostic)
 		if options.assertion != "" && rehearsalGate.Status != "passed" {
 			return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-012", fmt.Errorf("assertion %s publication-chain rehearsal is not ready: %s", assertion.ID, rehearsalGate.Blocker), ExitInfeasible)
 		}
@@ -264,6 +287,9 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 	sort.Slice(filteredImportChainDiagnostics, func(i, j int) bool {
 		return filteredImportChainDiagnostics[i].Assertion < filteredImportChainDiagnostics[j].Assertion
 	})
+	sort.Slice(filteredRuntimeDriftDiagnostics, func(i, j int) bool {
+		return filteredRuntimeDriftDiagnostics[i].Assertion < filteredRuntimeDriftDiagnostics[j].Assertion
+	})
 	if err := persistOperationAudit(options.auditPath, "catalog.coverage.lifecycle-publication-policy", "completed", "success", []audit.Subject{subject}, nil); err != nil {
 		return writeLoadError(stdout, "YARA-AUD-005", err)
 	}
@@ -282,6 +308,7 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		"publicationChainRetention":             filteredRetentionDiagnostics,
 		"publicationChainRenewalReview":         filteredRenewalDiagnostics,
 		"artifactImportChain":                   filteredImportChainDiagnostics,
+		"runtimeDriftPosture":                   filteredRuntimeDriftDiagnostics,
 		"blockedAssertions":                     blocked,
 		"taxonomy":                              catalogcoverage.LifecyclePublicationBlockerTaxonomy(),
 		"auditOutput":                           options.auditPath,
@@ -877,6 +904,84 @@ func findArtifactImportChainDiagnostic(diagnostics []artifactImportChainPosture,
 		}
 	}
 	return artifactImportChainPosture{}, false
+}
+
+func runtimeDriftPostureFromReport(report catalogcoverage.Report) ([]runtimeDriftPosture, error) {
+	const prefix = "runtime-drift-posture:"
+	byAssertion := map[string]runtimeDriftPosture{}
+	for _, limitation := range report.Spec.Limitations {
+		if !strings.HasPrefix(limitation, prefix) {
+			continue
+		}
+		body := strings.TrimPrefix(limitation, prefix)
+		parts := strings.Split(body, ",")
+		if len(parts) != 4 {
+			return nil, errors.New("runtime drift posture limitation record is malformed")
+		}
+		values := map[string]string{}
+		for _, part := range parts {
+			keyValue := strings.SplitN(strings.TrimSpace(part), "=", 2)
+			if len(keyValue) != 2 {
+				return nil, errors.New("runtime drift posture limitation record contains invalid key-value pairs")
+			}
+			key := strings.TrimSpace(keyValue[0])
+			if _, exists := values[key]; exists {
+				return nil, errors.New("runtime drift posture limitation record contains duplicate keys")
+			}
+			values[key] = strings.TrimSpace(keyValue[1])
+		}
+		assertionID, ok := values["assertion"]
+		if !ok || assertionID == "" {
+			return nil, errors.New("runtime drift posture limitation record omits assertion")
+		}
+		status, ok := values["status"]
+		if !ok || (status != "missing" && status != "in-sync" && status != "drifted") {
+			return nil, errors.New("runtime drift posture limitation record has unsupported status")
+		}
+		selectedSignal, ok := values["selected-signal"]
+		if !ok || selectedSignal == "" {
+			return nil, errors.New("runtime drift posture limitation record omits selected-signal")
+		}
+		if selectedSignal != "none" && (!strings.HasPrefix(selectedSignal, "sha256:") || len(selectedSignal) != 71) {
+			return nil, errors.New("runtime drift posture limitation record contains invalid selected-signal identity")
+		}
+		blocker, ok := values["blocker"]
+		if !ok || blocker == "" {
+			return nil, errors.New("runtime drift posture limitation record omits blocker")
+		}
+		if _, exists := byAssertion[assertionID]; exists {
+			return nil, errors.New("catalog coverage report contains duplicate runtime drift posture limitation records for one assertion")
+		}
+		diagnostic := runtimeDriftPosture{Assertion: assertionID, Status: status}
+		if blocker != "none" {
+			diagnostic.Blocker = blocker
+		}
+		if selectedSignal != "none" {
+			diagnostic.SelectedSignal = selectedSignal
+		}
+		byAssertion[assertionID] = diagnostic
+	}
+	if len(byAssertion) != len(report.Spec.Assertions) {
+		return nil, errors.New("catalog coverage report does not include runtime drift posture limitation records for each assertion")
+	}
+	result := make([]runtimeDriftPosture, 0, len(report.Spec.Assertions))
+	for _, assertion := range report.Spec.Assertions {
+		diagnostic, ok := byAssertion[assertion.ID]
+		if !ok {
+			return nil, errors.New("catalog coverage report is missing runtime drift posture limitation for assertion")
+		}
+		result = append(result, diagnostic)
+	}
+	return result, nil
+}
+
+func findRuntimeDriftDiagnostic(diagnostics []runtimeDriftPosture, assertionID string) (runtimeDriftPosture, bool) {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Assertion == assertionID {
+			return diagnostic, true
+		}
+	}
+	return runtimeDriftPosture{}, false
 }
 
 func writeCatalogCoveragePolicyFailure(output io.Writer, auditPath string, subjects []audit.Subject, code string, err error, exitCode int) int {

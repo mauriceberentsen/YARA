@@ -147,6 +147,10 @@ func LoadPublicationChainRenewalReview(path string) (PublicationChainRenewalRevi
 	return loadResource[PublicationChainRenewalReview](path)
 }
 
+func LoadRuntimeDriftSignal(path string) (RuntimeDriftSignal, error) {
+	return loadResource[RuntimeDriftSignal](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

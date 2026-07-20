@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
+	"github.com/mauriceberentsen/YARA/internal/canonical"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/resources"
 	"gopkg.in/yaml.v3"
@@ -2032,5 +2033,130 @@ func writeArtifactScanAudit(t *testing.T, path string, receipt resources.Artifac
 	}
 	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
 		t.Fatalf("write artifact scan audit: %v", err)
+	}
+}
+
+func TestBuildEmitsRuntimeDriftPostureLimitations(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	directory := t.TempDir()
+	signal := resources.RuntimeDriftSignal{
+		APIVersion: resources.APIVersion,
+		Kind:       "RuntimeDriftSignal",
+		Metadata: resources.RuntimeDriftSignalMetadata{
+			Name: "gb10-runtime-drift",
+		},
+		Spec: resources.RuntimeDriftSignalSpec{
+			RecordedAt:          time.Now().UTC().Format(time.RFC3339Nano),
+			CatalogDigest:       catalogDigest,
+			AssertionRef:        "compat.vllm-qwen-coder-7b-awq-gb10",
+			RuntimeRef:          "core.vllm@0.25.1",
+			BundleID:            "sha256:" + strings.Repeat("a", 64),
+			PreflightResultID:   "sha256:" + strings.Repeat("b", 64),
+			PreflightObservedAt: time.Now().UTC().Add(-2 * time.Minute).Format(time.RFC3339Nano),
+			MaxPreflightAge:     "30m",
+			Observer:            resources.TargetPreflightObserver{Name: "kubectl-get", Version: "1.35.6", Mode: "read-only"},
+			Target:              resources.TargetIdentity{Type: "kubernetes", ReferenceDigest: "sha256:" + strings.Repeat("c", 64), ServerVersion: "v1.35.6"},
+			Status:              "drifted",
+			Checks: []resources.RuntimeDriftCheck{
+				{
+					ID:         "runtime.version",
+					Expected:   "core.vllm@0.25.1",
+					Observed:   "core.vllm@0.25.0",
+					Status:     "drifted",
+					ReasonCode: "YARA-RDS-201",
+				},
+			},
+			Limitations: []string{
+				"Runtime drift signal records bounded read-only observation facts only.",
+			},
+		},
+	}
+	evidenceDigest, err := canonical.Digest(struct {
+		ID       string
+		Expected string
+		Observed string
+		Status   string
+	}{
+		ID: signal.Spec.Checks[0].ID, Expected: signal.Spec.Checks[0].Expected,
+		Observed: signal.Spec.Checks[0].Observed, Status: signal.Spec.Checks[0].Status,
+	})
+	if err != nil {
+		t.Fatalf("digest runtime drift check: %v", err)
+	}
+	signal.Spec.Checks[0].EvidenceDigest = evidenceDigest
+	signal, err = signal.AssignSignalID()
+	if err != nil {
+		t.Fatalf("assign runtime drift signal id: %v", err)
+	}
+	writeYAML(t, filepath.Join(directory, "runtime-drift-signal.yaml"), signal)
+	writeRuntimeDriftSignalAudit(t, filepath.Join(directory, "runtime-drift-signal.audit.jsonl"), catalogDigest, signal)
+	report, err := Build("coverage", snapshot, directory)
+	if err != nil {
+		t.Fatalf("build coverage with runtime drift signal evidence: %v", err)
+	}
+	expected := "runtime-drift-posture:assertion=compat.vllm-qwen-coder-7b-awq-gb10,status=drifted,selected-signal=" + signal.Metadata.SignalID + ",blocker=selected-runtime-drift-detected"
+	if !contains(report.Spec.Limitations, expected) {
+		t.Fatalf("runtime drift posture limitation missing: expected %q in %#v", expected, report.Spec.Limitations)
+	}
+}
+
+func writeRuntimeDriftSignalAudit(t *testing.T, path, catalogDigest string, signal resources.RuntimeDriftSignal) {
+	t.Helper()
+	chain := audit.NewChain()
+	now := signal.Spec.RecordedAt
+	started, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "runtime-drift-signal-started", OccurredAt: now},
+		Spec: audit.Spec{
+			CorrelationID: "runtime-drift-signal",
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "runtime.drift-signal.record.started",
+			Subjects: []audit.Subject{
+				{Kind: "CatalogSnapshot", Digest: catalogDigest},
+				{Kind: "DeploymentBundle", Digest: signal.Spec.BundleID},
+				{Kind: "TargetPreflightResult", Digest: signal.Spec.PreflightResultID},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "kubernetes:" + signal.Spec.Target.ReferenceDigest,
+			Outcome: "started",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append started runtime drift signal audit: %v", err)
+	}
+	terminal, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "runtime-drift-signal-terminal", OccurredAt: now},
+		Spec: audit.Spec{
+			CorrelationID: "runtime-drift-signal",
+			CausationID:   started.Metadata.ID,
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "runtime.drift-signal.record.completed",
+			Subjects: []audit.Subject{
+				{Kind: "CatalogSnapshot", Digest: catalogDigest},
+				{Kind: "DeploymentBundle", Digest: signal.Spec.BundleID},
+				{Kind: "TargetPreflightResult", Digest: signal.Spec.PreflightResultID},
+				{Kind: "RuntimeDriftSignal", Digest: signal.Metadata.SignalID},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "kubernetes:" + signal.Spec.Target.ReferenceDigest,
+			Outcome: "success",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append terminal runtime drift signal audit: %v", err)
+	}
+	var buffer bytes.Buffer
+	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, terminal}); err != nil {
+		t.Fatalf("encode runtime drift signal audit: %v", err)
+	}
+	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
+		t.Fatalf("write runtime drift signal audit: %v", err)
 	}
 }

@@ -5,8 +5,8 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `3695a18`, `88a4f9b`, `0118b61`, `6c5fe38`, `d9b12f8`.
-- Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, and air-gap provenance contracts under `schemas/yara.dev/v1alpha1`.
+- Recent commits (newest first): `c96f21b`, `3695a18`, `88a4f9b`, `0118b61`, `6c5fe38`.
+- Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
 
@@ -18,6 +18,10 @@
   - publication-chain rehearsal;
   - publication-chain renewal review.
 - `catalog coverage create` and `catalog coverage lifecycle-publication-policy` expose deterministic assertion-scoped blocker/remediation diagnostics and fail-closed parity checks.
+- Runtime drift signaling is now implemented as a read-only evidence contract:
+  - `runtime drift-signal record` emits immutable `RuntimeDriftSignal` resources bound to catalog/assertion/runtime/bundle/preflight/target identities;
+  - `runtime-drift-signal validate` enforces schema + deterministic identity checks;
+  - catalog coverage responses now expose assertion-scoped `runtimeDriftPosture` diagnostics derived from deterministic limitation records.
 - Bootstrap + first-use path is implemented:
   - `deployment bootstrap kubernetes` (bounded namespace/PVC provisioning with `BootstrapReceipt`);
   - `deployment import kubernetes` (bounded single-model local staging into bootstrap PVC with `ArtifactImportReceipt`).
@@ -31,15 +35,17 @@
 - **Published release verification:** `v0.1.0-alpha.1` assets are downloadable and checksum-verifiable via `gh release download` and `shasum -a 256 -c checksums.txt`.
 - **Canonical release notes enforcement:** tag publish flow now applies repository-owned notes template to release body after GoReleaser upload.
 - **Pre-alpha docs clarity:** `README.md`, `docs/quickstart.md`, `docs/reference/commands.md`, and `docs/architecture/README.md` separate implemented behavior from deferred roadmap scope.
+- **Runtime drift contract verification:** new schema/resource/CLI/catalog-coverage wiring validates deterministic IDs, stale/foreign preflight rejection, audited target binding, and fail-closed malformed diagnostics parsing.
 
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
 - Tag: `v0.1.0-alpha.1` exists on origin and release workflow succeeded.
 - Working tree currently contains this slice changes:
-  - finalized `.github/release-notes/v0.1.0-alpha.1.md` with published digests;
-  - `.github/workflows/release.yml` updated to apply canonical release notes body;
-  - this handoff rewrite.
+  - new `RuntimeDriftSignal` resource + schema + validators/tests;
+  - new `runtime drift-signal record` command and `runtime-drift-signal validate` path;
+  - catalog coverage runtime drift posture diagnostics wiring and tests;
+  - command reference and handoff updates.
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## MVP milestone path
@@ -80,17 +86,17 @@
 
 ## Next implementation slice
 
-Implement **Post-MVP slice: runtime-manager drift signal contract (read-only)**:
+Implement **Post-MVP slice: runtime drift policy gate command (read-only fail-closed)**:
 
-- define a deterministic, non-mutating runtime drift signal resource + schema for observed-vs-expected runtime state;
-- add bounded CLI emission/validation path that cannot mutate targets and binds drift signal identity to existing target/preflight evidence;
-- add coverage diagnostics wiring so drift posture is visible without altering publication/apply authority.
+- add a dedicated policy command that evaluates `runtimeDriftPosture` from a coverage report for all assertions or one selected assertion;
+- fail closed when posture records are missing, malformed, duplicated, or inconsistent with assertion scope;
+- return deterministic remediation for drifted assertions without adding deployment/publication mutation authority.
 
 Acceptance criteria:
 
-- new drift signal schema validates with draft-2020-12 and Go validators;
-- CLI path emits content-addressed drift signal evidence with deterministic ordering/identity;
-- negative tests fail closed on stale/foreign target evidence and malformed drift payloads;
+- command emits deterministic assertion-scoped pass/fail policy diagnostics from coverage report only;
+- single-assertion mode fails with infeasible exit when selected assertion posture is `drifted` or `missing`;
+- malformed runtime drift limitation records fail closed as internal errors;
 - no mutation authority is added and no existing lifecycle/publication gates are weakened.
 
 ## Validation requirements

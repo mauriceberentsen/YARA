@@ -44,6 +44,7 @@ Source of truth:
 - `yara change-set validate <file>` - validate change-set resource; key flag: `--audit-output`.
 - `yara approval record` - record reviewed decision on change set; key flags: `--bundle`, `--preflight`, `--change-set`, `--decision`, `--reason-reference`, `--output`, `--audit-output`, `--valid-for`.
 - `yara approval validate <file>` - validate approval resource; key flag: `--audit-output`.
+- `yara runtime drift-signal record` - record read-only runtime drift posture bound to catalog+bundle+preflight evidence; key flags: `--catalog`, `--assertion`, `--bundle`, `--preflight`, `--confirm-target`, `--observer-name`, `--observer-version`, `--status`, `--check`, `--max-preflight-age`, `--name`, `--output`, `--audit-output`.
 
 ## Authorization and deployment execution
 
@@ -75,6 +76,7 @@ Source of truth:
 - `yara lifecycle-proof-approval validate <file>` - validate lifecycle proof approval; key flag: `--audit-output`.
 - `yara publication-chain-rehearsal validate <file>` - validate publication chain rehearsal; key flag: `--audit-output`.
 - `yara publication-chain-renewal-review validate <file>` - validate publication chain renewal review; key flag: `--audit-output`.
+- `yara runtime-drift-signal validate <file>` - validate runtime drift signal resource; key flag: `--audit-output`.
 - `yara integration-publication-attestation validate <file>` - validate integration publication attestation; key flag: `--audit-output`.
 - `yara integration validate <file>` - validate integration test result; key flag: `--audit-output`.
 

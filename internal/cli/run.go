@@ -175,6 +175,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 3 && args[0] == "publication" && args[1] == "chain" && args[2] == "renewal-review" {
 		return reviewPublicationChainRenewal(args[3:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "runtime" && args[1] == "drift-signal" && args[2] == "record" {
+		return recordRuntimeDriftSignal(args[3:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "integration" && args[1] == "component-smoke" {
 		return runIntegrationComponentSmoke(args[2:], stdout, stderr)
 	}
@@ -583,6 +586,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "PublicationChainRenewalReview", Digest: result.Metadata.ReviewID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "publication.chain.renewal-review.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "runtime-drift-signal":
+		result, err := resources.LoadRuntimeDriftSignal(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "runtime.drift-signal.validate", "RuntimeDriftSignal", options.inputPath, "YARA-RDS-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("RuntimeDriftSignal", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "RuntimeDriftSignal", Digest: result.Metadata.SignalID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "runtime.drift-signal.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	default:
 		writeUsage(stderr)
 		return ExitUnsupported
@@ -696,6 +713,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara publication chain rehearse --catalog <file> --assertion <id> --lifecycle-proof-approval <file> --confirm-lifecycle-proof-approval <sha256:id> --integration-publication-attestation <file> --confirm-integration-publication-attestation <sha256:id> --coverage-report <file> --confirm-coverage-report <sha256:id> --trust-policy <file> --confirm-trust-policy <sha256:id> --signing-boundary-audit <file> --authorization <file> [--authorization <file> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --max-evidence-age <duration> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara publication chain retention-diagnostics --catalog <file> --assertion <id> --current-rehearsal <file> [--current-rehearsal <file> ...] [--candidate-rehearsal <file>] --audit-output <file>")
 	fmt.Fprintln(output, "  yara publication chain renewal-review --catalog <file> --assertion <id> --publication-chain-rehearsal <file> --confirm-publication-chain-rehearsal <sha256:id> --publication-chain-retention-audit <file> --confirm-publication-chain-retention-audit <sha256:id> --promotion-review <file> --confirm-promotion-review <sha256:id> --lifecycle-proof-approval <file> --confirm-lifecycle-proof-approval <sha256:id> --integration-publication-attestation <file> --confirm-integration-publication-attestation <sha256:id> --evidence <sha256:id> [--evidence <sha256:id> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --max-evidence-age <duration> [--valid-for <duration>] --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara runtime drift-signal record --catalog <file> --assertion <id> --bundle <file> --preflight <file> --confirm-target <sha256:id> --observer-name <name> --observer-version <version> --status <in-sync|drifted> --check id=<id>,expected=<value>,observed=<value>,status=<matched|drifted>[,reason-code=<YARA-...>] [--check ...] --name <name> --output <file> --audit-output <file> [--max-preflight-age <duration>]")
 	fmt.Fprintln(output, "  yara airgap-provenance-gate-result validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-gate-trust-policy validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-gate-trust-policy-diff validate <file> [--audit-output <file>]")
@@ -704,6 +722,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara lifecycle-proof-approval validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara publication-chain-rehearsal validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara publication-chain-renewal-review validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara runtime-drift-signal validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara integration component-smoke --catalog <file> --target <local|user@host> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration topology-end-to-end --catalog <file> --target <local|user@host> --topology <id@version> --component <id@version> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration execute <component-smoke|topology-end-to-end> [mode-flags]")

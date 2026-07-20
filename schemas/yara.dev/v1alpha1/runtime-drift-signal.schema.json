@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yara.dev/schemas/v1alpha1/runtime-drift-signal.schema.json",
+  "title": "YARA RuntimeDriftSignal v1alpha1",
+  "description": "Content-addressed read-only runtime drift observation bound to exact catalog, bundle and preflight evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "yara.dev/v1alpha1" },
+    "kind": { "const": "RuntimeDriftSignal" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "signalId"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "signalId": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recordedAt",
+        "catalogDigest",
+        "assertionRef",
+        "runtimeRef",
+        "bundleId",
+        "preflightResultId",
+        "preflightObservedAt",
+        "maxPreflightAge",
+        "observer",
+        "target",
+        "status",
+        "checks",
+        "limitations"
+      ],
+      "properties": {
+        "recordedAt": { "type": "string", "format": "date-time" },
+        "catalogDigest": { "$ref": "#/$defs/digest" },
+        "assertionRef": { "type": "string", "minLength": 1 },
+        "runtimeRef": { "type": "string", "minLength": 1 },
+        "bundleId": { "$ref": "#/$defs/digest" },
+        "preflightResultId": { "$ref": "#/$defs/digest" },
+        "preflightObservedAt": { "type": "string", "format": "date-time" },
+        "maxPreflightAge": { "type": "string", "minLength": 1 },
+        "observer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version", "mode"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "mode": { "const": "read-only" }
+          }
+        },
+        "target": { "$ref": "#/$defs/target" },
+        "status": { "enum": ["in-sync", "drifted"] },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/check" }
+        },
+        "limitations": { "$ref": "#/$defs/limitations" }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "diagnosticCode": { "type": "string", "pattern": "^YARA-[A-Z]+-[0-9]{3}$" },
+    "name": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$" },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "referenceDigest", "serverVersion"],
+      "properties": {
+        "type": { "const": "kubernetes" },
+        "referenceDigest": { "$ref": "#/$defs/digest" },
+        "serverVersion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "expected", "observed", "status", "evidenceDigest"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "expected": { "type": "string", "minLength": 1 },
+        "observed": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["matched", "drifted"] },
+        "reasonCode": { "$ref": "#/$defs/diagnosticCode" },
+        "evidenceDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

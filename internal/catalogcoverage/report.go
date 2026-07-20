@@ -226,6 +226,12 @@ type acceptedArtifactScanReceipt struct {
 	OccurredAt string
 }
 
+type acceptedRuntimeDriftSignal struct {
+	Signal     resources.RuntimeDriftSignal
+	AuditHead  string
+	OccurredAt string
+}
+
 type evidenceIndex struct {
 	Contracts                      map[string][]acceptedEvidence
 	ComponentEvidence              map[string][]acceptedIntegrationEvidence
@@ -238,6 +244,7 @@ type evidenceIndex struct {
 	ArtifactImportReceipts         map[string][]acceptedArtifactImportReceipt
 	ArtifactTransferReceipts       map[string][]acceptedArtifactTransferReceipt
 	ArtifactScanReceipts           map[string][]acceptedArtifactScanReceipt
+	RuntimeDriftSignals            map[string][]acceptedRuntimeDriftSignal
 	AcceptedCount                  int
 	VerifiedAuditCount             int
 	IntegrationIdentityCount       int
@@ -298,6 +305,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 		}
 	}
 	report.Spec.Limitations = append(report.Spec.Limitations, artifactImportChainLimitations(report.Spec.Assertions)...)
+	report.Spec.Limitations = append(report.Spec.Limitations, runtimeDriftPostureLimitations(report.Spec.Assertions, evidence.RuntimeDriftSignals)...)
 	report.Spec.Limitations = append(report.Spec.Limitations, publicationChainRetentionLimitations(report.Spec.Assertions)...)
 	report.Spec.Limitations = append(report.Spec.Limitations, publicationChainRenewalReviewLimitations(report.Spec.Assertions)...)
 	slices.Sort(report.Spec.Limitations)
@@ -375,6 +383,32 @@ func artifactImportChainLimitations(assertions []AssertionCoverage) []string {
 			blocker = "none"
 		}
 		records = append(records, fmt.Sprintf("artifact-import-chain:assertion=%s,status=%s,selected-receipt=%s,blocker=%s", assertion.ID, importGate.Status, selected, blocker))
+	}
+	return records
+}
+
+func runtimeDriftPostureLimitations(assertions []AssertionCoverage, signalsByAssertion map[string][]acceptedRuntimeDriftSignal) []string {
+	records := make([]string, 0, len(assertions))
+	for _, assertion := range assertions {
+		signals := slices.Clone(signalsByAssertion[assertion.ID])
+		if len(signals) == 0 {
+			records = append(records, fmt.Sprintf("runtime-drift-posture:assertion=%s,status=missing,selected-signal=none,blocker=runtime-drift-signal-not-recorded", assertion.ID))
+			continue
+		}
+		slices.SortFunc(signals, func(left, right acceptedRuntimeDriftSignal) int {
+			if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+				return comparison
+			}
+			return strings.Compare(left.Signal.Metadata.SignalID, right.Signal.Metadata.SignalID)
+		})
+		selected := signals[len(signals)-1]
+		status := "in-sync"
+		blocker := "none"
+		if selected.Signal.Spec.Status == "drifted" {
+			status = "drifted"
+			blocker = "selected-runtime-drift-detected"
+		}
+		records = append(records, fmt.Sprintf("runtime-drift-posture:assertion=%s,status=%s,selected-signal=%s,blocker=%s", assertion.ID, status, selected.Signal.Metadata.SignalID, blocker))
 	}
 	return records
 }
@@ -1317,6 +1351,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		ArtifactImportReceipts:         make(map[string][]acceptedArtifactImportReceipt),
 		ArtifactTransferReceipts:       make(map[string][]acceptedArtifactTransferReceipt),
 		ArtifactScanReceipts:           make(map[string][]acceptedArtifactScanReceipt),
+		RuntimeDriftSignals:            make(map[string][]acceptedRuntimeDriftSignal),
 	}
 	assertions := make(map[string]catalog.AssertionDescriptor)
 	assertionModelRefs := make(map[string]string)
@@ -1345,6 +1380,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 	pendingArtifactImportReceiptPaths := []string{}
 	pendingArtifactTransferReceiptPaths := []string{}
 	pendingArtifactScanReceiptPaths := []string{}
+	pendingRuntimeDriftSignalPaths := []string{}
 	acceptedIntegrationByID := map[string]acceptedIntegrationEvidence{}
 	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -1433,6 +1469,10 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		}
 		if kind == "ArtifactScanReceipt" {
 			pendingArtifactScanReceiptPaths = append(pendingArtifactScanReceiptPaths, path)
+			return nil
+		}
+		if kind == "RuntimeDriftSignal" {
+			pendingRuntimeDriftSignalPaths = append(pendingRuntimeDriftSignalPaths, path)
 			return nil
 		}
 		if kind != "ContractTestResult" {
@@ -1597,6 +1637,42 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		for _, assertionID := range assertionIDs {
 			result.ArtifactScanReceipts[assertionID] = append(result.ArtifactScanReceipts[assertionID], accepted)
 		}
+		result.AcceptedCount++
+		result.VerifiedAuditCount++
+	}
+	for _, path := range pendingRuntimeDriftSignalPaths {
+		signal, err := resources.LoadRuntimeDriftSignal(path)
+		if err != nil {
+			return evidenceIndex{}, fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if report := signal.Validate(); !report.Valid || signal.Spec.CatalogDigest != catalogDigest {
+			return evidenceIndex{}, fmt.Errorf("evidence %s is invalid or not bound to this catalog", filepath.Base(path))
+		}
+		assertion, ok := assertions[signal.Spec.AssertionRef]
+		if !ok {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references an unknown assertion", filepath.Base(path))
+		}
+		target, ok := snapshot.ContractTarget(assertion.ID)
+		if !ok {
+			return evidenceIndex{}, fmt.Errorf("catalog assertion %s does not resolve to a contract target", assertion.ID)
+		}
+		if signal.Spec.RuntimeRef != target.RuntimeRef {
+			return evidenceIndex{}, fmt.Errorf("evidence %s runtime binding does not match the catalog assertion target runtime", filepath.Base(path))
+		}
+		auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
+		events, head, err := loadVerifiedAudit(auditPath)
+		if err != nil {
+			return evidenceIndex{}, err
+		}
+		if err := verifyRuntimeDriftSignalAudit(events, signal, catalogDigest); err != nil {
+			return evidenceIndex{}, fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
+		}
+		terminal := events[len(events)-1]
+		result.RuntimeDriftSignals[assertion.ID] = append(result.RuntimeDriftSignals[assertion.ID], acceptedRuntimeDriftSignal{
+			Signal:     signal,
+			AuditHead:  head,
+			OccurredAt: terminal.Metadata.OccurredAt,
+		})
 		result.AcceptedCount++
 		result.VerifiedAuditCount++
 	}
@@ -2064,6 +2140,24 @@ func verifyArtifactScanReceiptAudit(events []audit.Event, receipt resources.Arti
 	}
 	if !hasSubject(terminal.Spec.Subjects, "ArtifactScanReceipt", receipt.Metadata.ScanReceiptID) {
 		return errors.New("terminal event does not bind artifact scan receipt identity")
+	}
+	return nil
+}
+
+func verifyRuntimeDriftSignalAudit(events []audit.Event, signal resources.RuntimeDriftSignal, catalogDigest string) error {
+	if len(events) != 2 {
+		return fmt.Errorf("expected two events, found %d", len(events))
+	}
+	terminal := events[len(events)-1]
+	expectedTarget := "kubernetes:" + signal.Spec.Target.ReferenceDigest
+	if terminal.Spec.Action != "runtime.drift-signal.record.completed" || terminal.Spec.Outcome != "success" || terminal.Spec.Target != expectedTarget {
+		return errors.New("terminal action, outcome or target does not match runtime drift signal")
+	}
+	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) ||
+		!hasSubject(terminal.Spec.Subjects, "DeploymentBundle", signal.Spec.BundleID) ||
+		!hasSubject(terminal.Spec.Subjects, "TargetPreflightResult", signal.Spec.PreflightResultID) ||
+		!hasSubject(terminal.Spec.Subjects, "RuntimeDriftSignal", signal.Metadata.SignalID) {
+		return errors.New("terminal event does not bind runtime drift signal evidence identities")
 	}
 	return nil
 }
