@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `1c0d65d`, `a16f6e2`, `7d0528d`, `8bba86a`, `534f10e`.
+- Recent commits (newest first): `18af3da`, `1c0d65d`, `a16f6e2`, `7d0528d`, `8bba86a`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
