@@ -15,6 +15,8 @@ const driftStatusRemediation = {
   drifted: "resolve-runtime-drift-and-rerecord-signal",
 };
 
+const lifecycleStatuses = ["passed", "missing", "blocked", "failed"];
+
 function useEndpoint(endpoint, decoder = identityDecoder) {
   const [state, setState] = useState({ loading: true, payload: null, error: "" });
   useEffect(() => {
@@ -107,6 +109,97 @@ function DriftView({ driftAssertion, setDriftAssertion, payload, assertions }) {
   );
 }
 
+function decodeLifecyclePayload(payload) {
+  if (!payload || payload.valid !== true || !Array.isArray(payload.lifecyclePosture) || !Array.isArray(payload.taxonomy)) {
+    throw new Error("Malformed lifecycle publication payload.");
+  }
+  const seen = new Set();
+  const posture = payload.lifecyclePosture.map((item) => {
+    if (!item || typeof item.assertion !== "string" || typeof item.ready !== "boolean") {
+      throw new Error("Malformed lifecycle posture record.");
+    }
+    if (seen.has(item.assertion)) {
+      throw new Error("Duplicate lifecycle posture assertion.");
+    }
+    seen.add(item.assertion);
+    const pillars = [item.lifecycleProof, item.integrationAttestation, item.publicationRehearsal, item.renewalReview];
+    for (const pillar of pillars) {
+      if (typeof pillar !== "string" || !lifecycleStatuses.includes(pillar)) {
+        throw new Error("Malformed lifecycle gate status.");
+      }
+    }
+    return {
+      assertion: item.assertion,
+      ready: item.ready,
+      lifecycleProof: item.lifecycleProof,
+      integrationAttestation: item.integrationAttestation,
+      publicationRehearsal: item.publicationRehearsal,
+      renewalReview: item.renewalReview,
+      code: item.code || "none",
+      remediation: item.remediation || "none",
+    };
+  });
+  posture.sort((left, right) => left.assertion.localeCompare(right.assertion));
+  return {
+    ...payload,
+    lifecyclePosture: posture,
+  };
+}
+
+function LifecycleView({ lifecycleAssertion, setLifecycleAssertion, payload, assertions }) {
+  const posture = payload.lifecyclePosture || [];
+  return (
+    <>
+      <div className="filterRow">
+        <label htmlFor="lifecycle-assertion">Assertion filter</label>
+        <select id="lifecycle-assertion" value={lifecycleAssertion} onChange={(event) => setLifecycleAssertion(event.target.value)}>
+          <option value="">All assertions</option>
+          {assertions.map((assertion) => (
+            <option key={assertion} value={assertion}>
+              {assertion}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p>
+        Policy scope: {payload.assertionScope?.mode || "unknown"} | Taxonomy entries: {Array.isArray(payload.taxonomy) ? payload.taxonomy.length : 0}
+      </p>
+      {posture.length === 0 ? (
+        <p className="empty">No lifecycle posture records.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Assertion</th>
+              <th>Ready</th>
+              <th>Lifecycle proof</th>
+              <th>Integration</th>
+              <th>Rehearsal</th>
+              <th>Renewal</th>
+              <th>Blocker code</th>
+              <th>Remediation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {posture.map((row) => (
+              <tr key={row.assertion}>
+                <td>{row.assertion}</td>
+                <td>{String(row.ready)}</td>
+                <td>{row.lifecycleProof}</td>
+                <td>{row.integrationAttestation}</td>
+                <td>{row.publicationRehearsal}</td>
+                <td>{row.renewalReview}</td>
+                <td>{row.code}</td>
+                <td>{row.remediation}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
 function renderView(viewID, payload, extra = {}) {
   if (viewID === "catalog") {
     return (
@@ -132,38 +225,19 @@ function renderView(viewID, payload, extra = {}) {
   if (viewID === "drift") {
     return <DriftView driftAssertion={extra.driftAssertion} setDriftAssertion={extra.setDriftAssertion} payload={payload} assertions={extra.assertions || []} />;
   }
-  const blocked = payload.blockedAssertions || [];
-  return (
-    <>
-      <p>Policy passed: {String(Boolean(payload.lifecyclePublicationPolicy?.policyPassed))}</p>
-      {blocked.length === 0 ? (
-        <p className="empty">No blocked lifecycle assertions.</p>
-      ) : (
-        <table>
-          <thead>
-            <tr><th>Assertion</th><th>Code</th><th>Remediation</th></tr>
-          </thead>
-          <tbody>
-            {blocked.map((row) => (
-              <tr key={row.assertion}>
-                <td>{row.assertion}</td><td>{row.code || "n/a"}</td><td>{row.remediation || "n/a"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </>
-  );
+  return <LifecycleView lifecycleAssertion={extra.lifecycleAssertion} setLifecycleAssertion={extra.setLifecycleAssertion} payload={payload} assertions={extra.assertions || []} />;
 }
 
 export function App() {
   const [activeViewID, setActiveViewID] = useState(views[0].id);
   const [driftAssertion, setDriftAssertion] = useState("");
+  const [lifecycleAssertion, setLifecycleAssertion] = useState("");
   const assertionEndpoint = "/api/v1/assertions";
   const driftEndpoint = driftAssertion ? `/api/v1/drift-posture?assertion=${encodeURIComponent(driftAssertion)}` : "/api/v1/drift-posture";
+  const lifecycleEndpoint = lifecycleAssertion ? `/api/v1/lifecycle-policy?assertion=${encodeURIComponent(lifecycleAssertion)}` : "/api/v1/lifecycle-policy";
   const activeView = useMemo(() => views.find((view) => view.id === activeViewID) || views[0], [activeViewID]);
-  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.endpoint;
-  const decoder = activeView.id === "drift" ? decodeDriftPayload : undefined;
+  const endpoint = activeView.id === "drift" ? driftEndpoint : activeView.id === "lifecycle" ? lifecycleEndpoint : activeView.endpoint;
+  const decoder = activeView.id === "drift" ? decodeDriftPayload : activeView.id === "lifecycle" ? decodeLifecyclePayload : undefined;
   const { loading, payload, error } = useEndpoint(endpoint, decoder);
   const assertionsResponse = useEndpoint(assertionEndpoint);
   const assertionIDs = useMemo(() => {
@@ -196,6 +270,8 @@ export function App() {
           renderView(activeView.id, payload, {
             driftAssertion,
             setDriftAssertion,
+            lifecycleAssertion,
+            setLifecycleAssertion,
             assertions: assertionIDs,
           })}
       </section>

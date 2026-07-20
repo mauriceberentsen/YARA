@@ -35,6 +35,18 @@ type lifecyclePolicyAssertion struct {
 	Remediation string `json:"remediation,omitempty"`
 }
 
+type lifecyclePostureAssertion struct {
+	Assertion            string `json:"assertion"`
+	Ready                bool   `json:"ready"`
+	LifecycleProof       string `json:"lifecycleProof"`
+	IntegrationAttest    string `json:"integrationAttestation"`
+	PublicationRehearsal string `json:"publicationRehearsal"`
+	RenewalReview        string `json:"renewalReview"`
+	Blocker              string `json:"blocker,omitempty"`
+	Code                 string `json:"code,omitempty"`
+	Remediation          string `json:"remediation,omitempty"`
+}
+
 func serveAPI(args []string, stdout, stderr io.Writer) int {
 	options, ok := parseServeOptions(args, stderr)
 	if !ok {
@@ -214,15 +226,26 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 			writeServeNotFound(writer)
 			return
 		}
-		lifecyclePolicy, err := lifecyclePolicyFromReport(report)
+		assertion := strings.TrimSpace(request.URL.Query().Get("assertion"))
+		lifecyclePolicy, lifecyclePosture, err := lifecyclePolicyFromReport(report, assertion)
 		if err != nil {
 			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", err.Error())
 			return
 		}
+		if assertion != "" && len(lifecyclePosture) == 0 {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-008", "assertion is not present in lifecycle policy posture")
+			return
+		}
 		sort.Slice(lifecyclePolicy, func(i, j int) bool { return lifecyclePolicy[i].Assertion < lifecyclePolicy[j].Assertion })
+		sort.Slice(lifecyclePosture, func(i, j int) bool { return lifecyclePosture[i].Assertion < lifecyclePosture[j].Assertion })
 		writeServeJSON(writer, http.StatusOK, map[string]any{
-			"valid":                      true,
+			"valid": true,
+			"assertionScope": map[string]string{
+				"mode":      assertionScopeMode(assertion),
+				"assertion": mapValueOrDefault(assertion, "all"),
+			},
 			"lifecyclePublicationPolicy": map[string]any{"policyPassed": len(lifecyclePolicy) == 0},
+			"lifecyclePosture":           lifecyclePosture,
 			"blockedAssertions":          lifecyclePolicy,
 			"taxonomy":                   catalogcoverage.LifecyclePublicationBlockerTaxonomy(),
 		})
@@ -281,24 +304,66 @@ func serveUIIndex(writer http.ResponseWriter, uiFileSystem fs.FS) {
 	_, _ = writer.Write(indexHTML)
 }
 
-func lifecyclePolicyFromReport(report catalogcoverage.Report) ([]lifecyclePolicyAssertion, error) {
+func lifecyclePolicyFromReport(report catalogcoverage.Report, assertionFilter string) ([]lifecyclePolicyAssertion, []lifecyclePostureAssertion, error) {
 	blocked := make([]lifecyclePolicyAssertion, 0, len(report.Spec.Assertions))
+	posture := make([]lifecyclePostureAssertion, 0, len(report.Spec.Assertions))
 	for _, assertion := range report.Spec.Assertions {
+		if assertionFilter != "" && assertion.ID != assertionFilter {
+			continue
+		}
+		lifecycleProof, ok := serveGateStatus(assertion.Gates, "lifecycle-proof-publication-approval")
+		if !ok {
+			return nil, nil, fmt.Errorf("assertion %s omits lifecycle proof publication gate", assertion.ID)
+		}
+		integrationAttestation, ok := serveGateStatus(assertion.Gates, "integration-publication-attestation")
+		if !ok {
+			return nil, nil, fmt.Errorf("assertion %s omits integration publication gate", assertion.ID)
+		}
+		publicationRehearsal, ok := serveGateStatus(assertion.Gates, "publication-chain-rehearsal")
+		if !ok {
+			return nil, nil, fmt.Errorf("assertion %s omits publication rehearsal gate", assertion.ID)
+		}
+		renewalReview, ok := serveGateStatus(assertion.Gates, "publication-chain-renewal-review")
+		if !ok {
+			return nil, nil, fmt.Errorf("assertion %s omits renewal review gate", assertion.ID)
+		}
+		row := lifecyclePostureAssertion{
+			Assertion:            assertion.ID,
+			Ready:                assertion.LifecyclePublicationReady,
+			LifecycleProof:       lifecycleProof,
+			IntegrationAttest:    integrationAttestation,
+			PublicationRehearsal: publicationRehearsal,
+			RenewalReview:        renewalReview,
+		}
 		if assertion.LifecyclePublicationReady {
+			posture = append(posture, row)
 			continue
 		}
 		if assertion.LifecyclePublicationBlocker == "" {
-			return nil, fmt.Errorf("assertion %s omits lifecycle publication blocker", assertion.ID)
+			return nil, nil, fmt.Errorf("assertion %s omits lifecycle publication blocker", assertion.ID)
 		}
 		parsed, err := catalogcoverage.ParseLifecyclePublicationBlocker(assertion.LifecyclePublicationBlocker)
 		if err != nil {
-			return nil, fmt.Errorf("assertion %s has malformed lifecycle publication blocker: %w", assertion.ID, err)
+			return nil, nil, fmt.Errorf("assertion %s has malformed lifecycle publication blocker: %w", assertion.ID, err)
 		}
+		row.Blocker = assertion.LifecyclePublicationBlocker
+		row.Code = parsed.Code
+		row.Remediation = parsed.Remediation
+		posture = append(posture, row)
 		blocked = append(blocked, lifecyclePolicyAssertion{
 			Assertion: assertion.ID, Status: "blocked", Blocker: assertion.LifecyclePublicationBlocker, Code: parsed.Code, Remediation: parsed.Remediation,
 		})
 	}
-	return blocked, nil
+	return blocked, posture, nil
+}
+
+func serveGateStatus(gates []catalogcoverage.GateCoverage, gateID string) (string, bool) {
+	for _, gate := range gates {
+		if gate.ID == gateID {
+			return gate.Status, true
+		}
+	}
+	return "", false
 }
 
 func allRuntimeDriftInSync(posture []runtimeDriftPosture) bool {

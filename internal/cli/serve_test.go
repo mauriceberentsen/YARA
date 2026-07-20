@@ -86,6 +86,41 @@ func TestServeDriftPostureRejectsUnknownAssertionFilter(t *testing.T) {
 	}
 }
 
+func TestServeLifecyclePolicySupportsAssertionFilter(t *testing.T) {
+	handler := serveHandlerFixture(t, false)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/lifecycle-policy?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for assertion-scoped lifecycle policy, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode assertion-scoped lifecycle response: %v", err)
+	}
+	rows, ok := payload["lifecyclePosture"].([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("unexpected lifecycle posture rows: %#v", payload["lifecyclePosture"])
+	}
+	row, _ := rows[0].(map[string]any)
+	if row["assertion"] != "compat.vllm-qwen-coder-7b-awq-gb10" {
+		t.Fatalf("unexpected lifecycle posture assertion: %#v", row)
+	}
+}
+
+func TestServeLifecyclePolicyRejectsUnknownAssertionFilter(t *testing.T) {
+	handler := serveHandlerFixture(t, false)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/lifecycle-policy?assertion=compat.unknown", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown lifecycle assertion filter, got %d", recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-SRV-008") {
+		t.Fatalf("expected structured lifecycle filter error, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeRejectsUnknownRoute(t *testing.T) {
 	handler := serveHandlerFixture(t, false)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/unknown", nil)

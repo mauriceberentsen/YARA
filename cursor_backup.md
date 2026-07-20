@@ -5,7 +5,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `3438071`, `2c15d1d`, `b1c3ef0`, `204b6ba`, `0359114`.
+- Recent commits (newest first): `eb0be72`, `3438071`, `2c15d1d`, `b1c3ef0`, `204b6ba`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 
 ## Current product boundary
@@ -38,6 +38,10 @@
   - assertion-scoped filtering is supported via `/api/v1/drift-posture?assertion=<id>`;
   - drift posture cards render deterministic status, blocker, remediation, selected signal, and audit reference fields;
   - malformed/unsupported posture payloads fail closed in UI with non-destructive error rendering.
+- Lifecycle publication readiness view (W4) is now implemented as a dedicated read-only lifecycle interface:
+  - assertion-scoped filtering is supported via `/api/v1/lifecycle-policy?assertion=<id>`;
+  - lifecycle rows render deterministic four-pillar statuses (proof, integration, rehearsal, renewal) plus blocker code/remediation;
+  - malformed/inconsistent lifecycle payloads fail closed in UI with non-destructive error rendering.
 - Bootstrap + first-use path is implemented:
   - `deployment bootstrap kubernetes` (bounded namespace/PVC provisioning with `BootstrapReceipt`);
   - `deployment import kubernetes` (bounded single-model local staging into bootstrap PVC with `ArtifactImportReceipt`).
@@ -52,17 +56,17 @@
 - **Runtime drift contract verification:** new schema/resource/CLI/catalog-coverage wiring validates deterministic IDs, stale/foreign preflight rejection, audited target binding, and fail-closed malformed diagnostics parsing.
 - **Runtime drift policy gate verification:** dedicated policy command emits deterministic blocker/remediation output, produces auditable pass/fail responses, and enforces assertion-scoped infeasible exits for non-`in-sync` posture.
 - **Web UI API verification (simulated/local):** endpoint tests validate deterministic read responses from real catalog/coverage fixtures and fail-closed handling for unknown routes and non-read methods.
-- **Web UI shell verification (simulated/local):** `npm run check --prefix internal/cli/webui` runs Vitest + Vite build, embedded assets are served by `yara serve --ui`, and handler tests validate shell route behavior.
 - **Web UI drift posture verification (simulated/local):** tests cover assertion-scoped filter success/failure, payload validation failures, deterministic rendering order, and status-to-remediation mapping.
+- **Web UI lifecycle readiness verification (simulated/local):** tests cover lifecycle assertion filtering, deterministic four-pillar rendering, taxonomy/scope metadata display, and malformed payload fail-closed behavior.
 
 ## Current branch and working tree
 
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - assertion-filtered drift API response (`/api/v1/drift-posture?assertion=...`) with fail-closed invalid assertion handling;
-  - drift cards in the UI now show status/blocker/remediation/selected-signal/audit-reference with deterministic sorting;
-  - strict fail-closed UI payload validation for malformed drift posture records;
-  - extended frontend and backend tests for drift filtering, malformed payload handling, and non-regression paths.
+  - assertion-filtered lifecycle API response (`/api/v1/lifecycle-policy?assertion=...`) with fail-closed invalid assertion handling;
+  - lifecycle table now shows four-pillar gate statuses and deterministic blocker/remediation details per assertion;
+  - strict fail-closed UI payload validation for malformed lifecycle posture records;
+  - extended frontend and backend tests for lifecycle filtering, payload validation, and non-regression paths.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`, `git diff --check`, `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check`, and `GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...`.
 - Working tree should be clean after committing this slice.
@@ -103,9 +107,8 @@ Goal: a minimal browser-based operator interface that surfaces existing CLI capa
 
 ### W4 — Lifecycle publication readiness view
 
-- Implement the Lifecycle view with per-assertion four-pillar status indicators.
-- Display blocker codes and remediation hints from `lifecycle-publication-policy` output.
-- Exit criteria: Lifecycle view correctly displays blocked/unblocked state per assertion; state updates on coverage report reload.
+- Lifecycle table + assertion-scoped filtering + fail-closed payload handling.
+- Status: completed.
 
 ### W5 — Web UI release and public documentation
 
@@ -116,19 +119,16 @@ Goal: a minimal browser-based operator interface that surfaces existing CLI capa
 
 ## Next implementation slice
 
-Implement **W4 — Lifecycle publication readiness view**:
+Implement **W5 — Web UI release and public documentation**:
 
-- extend the Lifecycle view to present per-assertion four-pillar readiness status (lifecycle proof, integration attestation, publication rehearsal, renewal review);
-- show blocker code and remediation guidance in a deterministic card/table view with assertion filtering;
-- include deterministic policy scope metadata and taxonomy references from lifecycle policy endpoint;
-- keep behavior read-only and fail closed when lifecycle blocker encoding is malformed or inconsistent.
+- finalize embedded web UI packaging for release and verify `yara serve --ui` behavior from built binaries;
+- update `README.md`, `docs/quickstart.md`, and `docs/reference/commands.md` with web UI startup, scope, and explicit pre-alpha limitations;
+- prepare honest `v0.2.0-alpha.1` release notes covering implemented W1-W4 behavior and deferred features;
 
 Acceptance criteria:
 
-- Lifecycle view renders assertion-scoped ready/blocked posture with deterministic ordering and stable blocker/remediation mapping;
-- assertion filter mode maps directly to lifecycle policy endpoint semantics without mutating backend policy logic;
-- malformed lifecycle blocker payloads fail closed in UI rendering with non-destructive error state;
-- no mutation authority is added and no existing CLI gates are weakened;
+- release assets include embedded UI and `yara serve --ui` works from downloaded binary with no extra runtime build step;
+- top-level docs accurately describe web UI startup path, implemented views, and deferred scope (team API, auth, mutations);
 - backend and frontend checks both pass in `make check` and `go test -race ./...` (frontend checks classified simulated/local).
 
 ## Validation requirements
