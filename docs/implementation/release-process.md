@@ -9,6 +9,7 @@ Keep release publication deterministic and auditable by requiring one repository
 - First public pre-alpha tag: `v0.1.0-alpha.1`.
 - Canonical template path: `.github/release-notes/v0.1.0-alpha.1.md`.
 - Release workflow source of truth: `.github/workflows/release.yml` sets `RELEASE_NOTES_TEMPLATE` and passes it to GoReleaser via `--release-notes`.
+- Manual `workflow_dispatch` runs a snapshot dry-run (`--snapshot --skip=publish`) for validation; only tag pushes publish release artifacts.
 - Release publication must fail if the configured template file is missing.
 
 ## Authoring requirements
