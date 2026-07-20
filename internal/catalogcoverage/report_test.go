@@ -528,6 +528,106 @@ func TestBuildRejectsLifecycleProofApprovalWithLedgerSubjectDrift(t *testing.T) 
 	}
 }
 
+func TestBuildBindsIntegrationPublicationAttestationGate(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	directory := t.TempDir()
+	result := deterministicIntegrationResultForAssertion(t, catalogDigest, "core.vllm@0.25.1")
+	writeYAML(t, filepath.Join(directory, "integration.yaml"), result)
+	writeIntegrationExecutionAudit(t, filepath.Join(directory, "integration.audit.jsonl"), catalogDigest, result.Metadata.ResultID, result.Spec.Environment.ReferenceDigest, "2026-07-20T12:15:00Z")
+	attestation := resources.IntegrationPublicationAttestation{
+		APIVersion: resources.APIVersion,
+		Kind:       "IntegrationPublicationAttestation",
+		Metadata: resources.IntegrationPublicationAttestationMeta{
+			Name: "integration-publication-attestation",
+		},
+		Spec: resources.IntegrationPublicationAttestationSpec{
+			ReviewedAt:       time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano),
+			ExpiresAt:        time.Now().UTC().Add(6 * time.Hour).Format(time.RFC3339Nano),
+			CatalogDigest:    catalogDigest,
+			AssertionRef:     "compat.vllm-qwen-coder-7b-awq-gb10",
+			SelectedEvidence: []string{result.Metadata.ResultID},
+			Reviewer:         resources.ReviewerRecord{Identity: "local:reviewer", Role: "release-manager", Assurance: "self-asserted-local"},
+			Decision:         resources.PromotionDecisionApproved,
+			ReasonReference:  "ticket-integration-publication-123",
+			MaxEvidenceAge:   "720h",
+			Limitations: []string{
+				"Integration publication attestation binds one assertion to immutable integration evidence identities only.",
+				"Integration publication attestation records reviewer intent without mutating catalog manifests.",
+			},
+		},
+	}
+	attestation, err = attestation.AssignAttestationID()
+	if err != nil {
+		t.Fatalf("assign integration publication attestation id: %v", err)
+	}
+	writeYAML(t, filepath.Join(directory, "integration-publication-attestation.yaml"), attestation)
+	writeIntegrationPublicationAttestationAudit(t, filepath.Join(directory, "integration-publication-attestation.audit.jsonl"), catalogDigest, attestation.Metadata.AttestationID, attestation.Spec.SelectedEvidence)
+	report, err := Build("coverage", snapshot, directory)
+	if err != nil {
+		t.Fatalf("build coverage with integration publication attestation: %v", err)
+	}
+	assertion := findAssertion(t, report, "compat.vllm-qwen-coder-7b-awq-gb10")
+	gate := findGate(t, assertion, "integration-publication-attestation")
+	if gate.Status != "passed" || gate.SelectedResult != attestation.Metadata.AttestationID {
+		t.Fatalf("integration publication attestation gate was not bound: %#v", gate)
+	}
+}
+
+func TestBuildRejectsIntegrationPublicationAttestationWithMalformedAuditAction(t *testing.T) {
+	root := filepath.Join("..", "..")
+	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	catalogDigest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	directory := t.TempDir()
+	result := deterministicIntegrationResultForAssertion(t, catalogDigest, "core.vllm@0.25.1")
+	writeYAML(t, filepath.Join(directory, "integration.yaml"), result)
+	writeIntegrationExecutionAudit(t, filepath.Join(directory, "integration.audit.jsonl"), catalogDigest, result.Metadata.ResultID, result.Spec.Environment.ReferenceDigest, "2026-07-20T12:15:00Z")
+	attestation := resources.IntegrationPublicationAttestation{
+		APIVersion: resources.APIVersion,
+		Kind:       "IntegrationPublicationAttestation",
+		Metadata: resources.IntegrationPublicationAttestationMeta{
+			Name: "integration-publication-attestation-malformed",
+		},
+		Spec: resources.IntegrationPublicationAttestationSpec{
+			ReviewedAt:       time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano),
+			ExpiresAt:        time.Now().UTC().Add(6 * time.Hour).Format(time.RFC3339Nano),
+			CatalogDigest:    catalogDigest,
+			AssertionRef:     "compat.vllm-qwen-coder-7b-awq-gb10",
+			SelectedEvidence: []string{result.Metadata.ResultID},
+			Reviewer:         resources.ReviewerRecord{Identity: "local:reviewer", Role: "release-manager", Assurance: "self-asserted-local"},
+			Decision:         resources.PromotionDecisionApproved,
+			ReasonReference:  "ticket-integration-publication-malformed",
+			MaxEvidenceAge:   "720h",
+			Limitations: []string{
+				"Integration publication attestation binds one assertion to immutable integration evidence identities only.",
+				"Integration publication attestation records reviewer intent without mutating catalog manifests.",
+			},
+		},
+	}
+	attestation, err = attestation.AssignAttestationID()
+	if err != nil {
+		t.Fatalf("assign integration publication attestation id: %v", err)
+	}
+	writeYAML(t, filepath.Join(directory, "integration-publication-attestation.yaml"), attestation)
+	writeIntegrationPublicationAttestationAuditCustom(t, filepath.Join(directory, "integration-publication-attestation.audit.jsonl"), catalogDigest, attestation.Metadata.AttestationID, attestation.Spec.SelectedEvidence, "integration.publish.attestation.validate")
+	if _, err := Build("coverage", snapshot, directory); err == nil {
+		t.Fatal("malformed integration publication attestation audit action was accepted")
+	}
+}
+
 func TestCatalogCoverageValidationRejectsMalformedLifecyclePublicationBlockerEncoding(t *testing.T) {
 	root := filepath.Join("..", "..")
 	snapshot, err := catalog.Load(filepath.Join(root, "catalog", "v0.2", "snapshot.yaml"))
@@ -672,6 +772,17 @@ func deterministicIntegrationResultFixture(t *testing.T, catalogDigest string) r
 	return result
 }
 
+func deterministicIntegrationResultForAssertion(t *testing.T, catalogDigest, componentRef string) resources.IntegrationTestResult {
+	t.Helper()
+	result := deterministicIntegrationResultFixture(t, catalogDigest)
+	result.Spec.ComponentRefs = []string{componentRef}
+	assigned, err := result.AssignResultID()
+	if err != nil {
+		t.Fatalf("assign integration fixture for assertion: %v", err)
+	}
+	return assigned
+}
+
 func writeYAML(t *testing.T, path string, value any) {
 	t.Helper()
 	data, err := yaml.Marshal(value)
@@ -783,6 +894,67 @@ func writeLifecycleProofApprovalAuditCustom(t *testing.T, path, catalogDigest, l
 	}
 	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
 		t.Fatalf("write lifecycle-proof approval audit: %v", err)
+	}
+}
+
+func writeIntegrationPublicationAttestationAudit(t *testing.T, path, catalogDigest, attestationID string, selectedEvidence []string) {
+	writeIntegrationPublicationAttestationAuditCustom(t, path, catalogDigest, attestationID, selectedEvidence, "integration.publish.attestation.completed")
+}
+
+func writeIntegrationPublicationAttestationAuditCustom(t *testing.T, path, catalogDigest, attestationID string, selectedEvidence []string, terminalAction string) {
+	t.Helper()
+	chain := audit.NewChain()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	started, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "integration-publication-attestation-started", OccurredAt: now},
+		Spec: audit.Spec{
+			CorrelationID: "integration-publication-attestation",
+			Actor:         audit.Actor{ID: "local:reviewer", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "integration.publish.attestation.started",
+			Subjects:      []audit.Subject{{Kind: "CatalogSnapshot", Digest: catalogDigest}},
+			Reason:        audit.Reason{Type: "user-request", Reference: "test"},
+			Target:        "catalog:" + catalogDigest,
+			Outcome:       "started",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append started integration publication attestation audit: %v", err)
+	}
+	subjects := []audit.Subject{
+		{Kind: "CatalogSnapshot", Digest: catalogDigest},
+		{Kind: "IntegrationPublicationAttestation", Digest: attestationID},
+	}
+	for _, selected := range selectedEvidence {
+		subjects = append(subjects, audit.Subject{Kind: "IntegrationTestResult", Digest: selected})
+	}
+	slices.SortFunc(subjects, func(left, right audit.Subject) int {
+		if cmp := strings.Compare(left.Kind, right.Kind); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(left.Digest, right.Digest)
+	})
+	terminal, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "integration-publication-attestation-terminal", OccurredAt: now},
+		Spec: audit.Spec{
+			CorrelationID: "integration-publication-attestation",
+			CausationID:   started.Metadata.ID,
+			Actor:         audit.Actor{ID: "local:reviewer", Type: "user", Assurance: "self-asserted-local"},
+			Action:        terminalAction,
+			Subjects:      subjects,
+			Reason:        audit.Reason{Type: "user-request", Reference: "test"},
+			Target:        "catalog:" + catalogDigest,
+			Outcome:       "success",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append terminal integration publication attestation audit: %v", err)
+	}
+	var buffer bytes.Buffer
+	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, terminal}); err != nil {
+		t.Fatalf("encode integration publication attestation audit: %v", err)
+	}
+	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
+		t.Fatalf("write integration publication attestation audit: %v", err)
 	}
 }
 

@@ -166,6 +166,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 2 && args[0] == "integration" && args[1] == "execute" {
 		return runIntegrationExecute(args[2:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "integration" && args[1] == "publish" && args[2] == "attest" {
+		return attestIntegrationPublication(args[3:], stdout, stderr)
+	}
 	if len(args) >= 3 && args[0] == "catalog" && args[1] == "coverage" && args[2] == "create" {
 		return catalogCoverage(args[3:], stdout, stderr)
 	}
@@ -265,6 +268,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "IntegrationTestResult", Digest: result.Metadata.ResultID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "integration.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "integration-publication-attestation":
+		result, err := resources.LoadIntegrationPublicationAttestation(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "integration.publish.attestation.validate", "IntegrationPublicationAttestation", options.inputPath, "YARA-IPA-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("IntegrationPublicationAttestation", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "IntegrationPublicationAttestation", Digest: result.Metadata.AttestationID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "integration.publish.attestation.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	case "bundle":
 		bundle, err := resources.LoadDeploymentBundle(options.inputPath)
 		if err != nil {
@@ -617,6 +634,8 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara integration component-smoke --catalog <file> --target <local|user@host> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration topology-end-to-end --catalog <file> --target <local|user@host> --topology <id@version> --component <id@version> --component <id@version> [--component <id@version> ...] --confirm-catalog-digest <sha256:id> --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara integration execute <component-smoke|topology-end-to-end> [mode-flags]")
+	fmt.Fprintln(output, "  yara integration publish attest --catalog <file> --evidence-dir <directory> --assertion <id> --evidence <sha256:id> [--evidence <sha256:id> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --max-evidence-age <duration> [--valid-for <duration>] --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara integration-publication-attestation validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara integration validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara audit verify <file>")
 }

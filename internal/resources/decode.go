@@ -131,6 +131,10 @@ func LoadLifecycleProofApproval(path string) (LifecycleProofApproval, error) {
 	return loadResource[LifecycleProofApproval](path)
 }
 
+func LoadIntegrationPublicationAttestation(path string) (IntegrationPublicationAttestation, error) {
+	return loadResource[IntegrationPublicationAttestation](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

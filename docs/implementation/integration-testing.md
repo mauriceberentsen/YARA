@@ -91,6 +91,30 @@ Catalog coverage convergence rules for direct and generic integration evidence:
 - reused result identities must bind the same verified audit-chain head, otherwise coverage fails closed;
 - mixed direct-mode and `integration execute` evidence cannot inflate accepted evidence counts.
 
+Publication diagnostics now require independent integration publication attestation evidence for assertions that require integration execution evidence. Record immutable attestation evidence with explicit selected integration result IDs:
+
+```bash
+go run ./cmd/yara integration publish attest \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --evidence-dir catalog/v0.2/evidence \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --evidence sha256:<integration-result-id> \
+  --reviewer-role release-manager \
+  --decision approved \
+  --reason-reference ticket-integration-publication-123 \
+  --max-evidence-age 720h \
+  --name qwen-coder-integration-publication \
+  --output qwen-coder.integration-publication-attestation.yaml \
+  --audit-output qwen-coder.integration-publication-attestation.audit.jsonl
+```
+
+The attestation path is fail-closed:
+
+- selected integration evidence must already be accepted execution evidence bound to the same catalog and assertion runtime;
+- each selected evidence ID must remain within `--max-evidence-age`;
+- the generated attestation remains immutable and content-addressed;
+- audit subjects bind the catalog digest, attestation ID, and selected integration evidence IDs.
+
 ## Coverage semantics
 
 A component can be partially covered by compatibility-contract evidence or an observed integration attempt. Complete integration coverage requires the selected component-smoke and topology-end-to-end observations to pass. Related compatibility assertions must also be promotion-eligible before the component can be reported complete.
@@ -131,5 +155,13 @@ Canonical lifecycle publication blocker taxonomy:
 - `selected-approval-does-not-bind-lifecycle-evidence` -> `reissue-approval-with-lifecycle-evidence`
 - `selected-approval-expiry-invalid` -> `reissue-approval-with-valid-expiry`
 - `selected-approval-expired-for-lifecycle-evidence` -> `renew-lifecycle-proof-approval`
+- `integration-publication-attestation-not-recorded` -> `record-integration-publication-attestation`
+- `no-accepted-integration-evidence` -> `run-integration-execute`
+- `selected-integration-attestation-catalog-mismatch` -> `reissue-integration-attestation-for-catalog`
+- `selected-integration-attestation-decision-abstained` -> `collect-explicit-integration-attestation-decision`
+- `selected-integration-attestation-decision-changes-required` -> `address-integration-review-feedback-and-reattest`
+- `selected-integration-attestation-does-not-bind-integration-evidence` -> `reissue-integration-attestation-with-bound-evidence`
+- `selected-integration-attestation-expiry-invalid` -> `reissue-integration-attestation-with-valid-expiry`
+- `selected-integration-attestation-expired-for-integration-evidence` -> `renew-integration-publication-attestation`
 
 `catalog coverage lifecycle-publication-policy` fails closed when blockers use unknown codes, mismatched remediation text, or ambiguous remediation encoding.

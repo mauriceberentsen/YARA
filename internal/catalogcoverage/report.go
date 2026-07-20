@@ -42,14 +42,22 @@ var (
 )
 
 var lifecyclePublicationBlockerRemediations = map[string]string{
-	"lifecycle-proof-approval-not-recorded":              "record-lifecycle-proof-approval",
-	"no-accepted-lifecycle-contract-evidence":            "run-lifecycle-contract",
-	"selected-approval-catalog-mismatch":                 "reissue-approval-for-catalog",
-	"selected-approval-decision-abstained":               "collect-explicit-approval-decision",
-	"selected-approval-decision-changes-required":        "address-review-feedback-and-reapprove",
-	"selected-approval-does-not-bind-lifecycle-evidence": "reissue-approval-with-lifecycle-evidence",
-	"selected-approval-expiry-invalid":                   "reissue-approval-with-valid-expiry",
-	"selected-approval-expired-for-lifecycle-evidence":   "renew-lifecycle-proof-approval",
+	"lifecycle-proof-approval-not-recorded":                               "record-lifecycle-proof-approval",
+	"no-accepted-lifecycle-contract-evidence":                             "run-lifecycle-contract",
+	"selected-approval-catalog-mismatch":                                  "reissue-approval-for-catalog",
+	"selected-approval-decision-abstained":                                "collect-explicit-approval-decision",
+	"selected-approval-decision-changes-required":                         "address-review-feedback-and-reapprove",
+	"selected-approval-does-not-bind-lifecycle-evidence":                  "reissue-approval-with-lifecycle-evidence",
+	"selected-approval-expiry-invalid":                                    "reissue-approval-with-valid-expiry",
+	"selected-approval-expired-for-lifecycle-evidence":                    "renew-lifecycle-proof-approval",
+	"integration-publication-attestation-not-recorded":                    "record-integration-publication-attestation",
+	"no-accepted-integration-evidence":                                    "run-integration-execute",
+	"selected-integration-attestation-catalog-mismatch":                   "reissue-integration-attestation-for-catalog",
+	"selected-integration-attestation-decision-abstained":                 "collect-explicit-integration-attestation-decision",
+	"selected-integration-attestation-decision-changes-required":          "address-integration-review-feedback-and-reattest",
+	"selected-integration-attestation-does-not-bind-integration-evidence": "reissue-integration-attestation-with-bound-evidence",
+	"selected-integration-attestation-expiry-invalid":                     "reissue-integration-attestation-with-valid-expiry",
+	"selected-integration-attestation-expired-for-integration-evidence":   "renew-integration-publication-attestation",
 }
 
 type LifecyclePublicationBlockerDefinition struct {
@@ -159,12 +167,19 @@ type acceptedLifecycleProofApproval struct {
 	OccurredAt string
 }
 
+type acceptedIntegrationPublicationAttestation struct {
+	Attestation resources.IntegrationPublicationAttestation
+	AuditHead   string
+	OccurredAt  string
+}
+
 type evidenceIndex struct {
 	Contracts                    map[string][]acceptedEvidence
 	ComponentEvidence            map[string][]acceptedIntegrationEvidence
 	TopologyEvidence             map[string][]acceptedIntegrationEvidence
 	PromotionReviews             map[string][]acceptedPromotionReview
 	LifecycleProofApprovals      map[string][]acceptedLifecycleProofApproval
+	IntegrationAttestations      map[string][]acceptedIntegrationPublicationAttestation
 	AcceptedCount                int
 	VerifiedAuditCount           int
 	IntegrationIdentityCount     int
@@ -199,7 +214,15 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 	}
 	slices.Sort(report.Spec.Limitations)
 	for _, assertion := range inventory.Compatibility {
-		coverage := assertionCoverage(assertion, evidence.Contracts[assertion.ID], evidence.PromotionReviews[assertion.ID], evidence.LifecycleProofApprovals[assertion.ID], catalogDigest)
+		coverage := assertionCoverage(
+			assertion,
+			evidence.Contracts[assertion.ID],
+			integrationEvidenceForAssertion(assertion, evidence.ComponentEvidence),
+			evidence.PromotionReviews[assertion.ID],
+			evidence.LifecycleProofApprovals[assertion.ID],
+			evidence.IntegrationAttestations[assertion.ID],
+			catalogDigest,
+		)
 		report.Spec.Assertions = append(report.Spec.Assertions, coverage)
 		if coverage.PromotionEligible {
 			report.Spec.Summary.PromotionEligibleAssertions++
@@ -228,7 +251,15 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 	return report.AssignReportID()
 }
 
-func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []acceptedEvidence, reviews []acceptedPromotionReview, approvals []acceptedLifecycleProofApproval, catalogDigest string) AssertionCoverage {
+func assertionCoverage(
+	assertion catalog.AssertionDescriptor,
+	evidence []acceptedEvidence,
+	integrationEvidence []acceptedIntegrationEvidence,
+	reviews []acceptedPromotionReview,
+	approvals []acceptedLifecycleProofApproval,
+	attestations []acceptedIntegrationPublicationAttestation,
+	catalogDigest string,
+) AssertionCoverage {
 	coverage := AssertionCoverage{
 		ID: assertion.ID, Status: assertion.Status, RuntimeRef: assertion.RuntimeRef, ModelRef: assertion.ModelRef,
 		HardwareProfileRef: assertion.HardwareProfileRef,
@@ -246,6 +277,8 @@ func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []accepte
 	coverage.Gates = append(coverage.Gates, promotionReviewGate(reviews))
 	lifecycleGate := lifecycleProofApprovalGate(evidence, approvals, catalogDigest)
 	coverage.Gates = append(coverage.Gates, lifecycleGate)
+	integrationGate := integrationPublicationAttestationGate(integrationEvidence, attestations, catalogDigest)
+	coverage.Gates = append(coverage.Gates, integrationGate)
 	slices.SortFunc(coverage.Gates, func(left, right GateCoverage) int { return strings.Compare(left.ID, right.ID) })
 	for _, gate := range coverage.Gates {
 		if gate.Status != "passed" {
@@ -257,9 +290,37 @@ func assertionCoverage(assertion catalog.AssertionDescriptor, evidence []accepte
 	}
 	slices.Sort(coverage.Blockers)
 	coverage.PromotionEligible = slices.Contains([]string{"known", "experimental", "supported"}, assertion.Status) && assertion.Compatibility == "supported" && len(coverage.Blockers) == 0
-	coverage.LifecyclePublicationReady = lifecycleGate.Status == "passed"
-	coverage.LifecyclePublicationBlocker = lifecycleGate.Blocker
+	coverage.LifecyclePublicationReady = lifecycleGate.Status == "passed" && integrationGate.Status == "passed"
+	if lifecycleGate.Status != "passed" {
+		coverage.LifecyclePublicationBlocker = lifecycleGate.Blocker
+	} else if integrationGate.Status != "passed" {
+		coverage.LifecyclePublicationBlocker = lifecyclePublicationBlocker(integrationGate.Blocker)
+	}
 	return coverage
+}
+
+func integrationEvidenceForAssertion(assertion catalog.AssertionDescriptor, evidenceByComponent map[string][]acceptedIntegrationEvidence) []acceptedIntegrationEvidence {
+	byID := map[string]acceptedIntegrationEvidence{}
+	prefix := assertion.RuntimeRef + "@"
+	for componentRef, evidence := range evidenceByComponent {
+		if !strings.HasPrefix(componentRef, prefix) {
+			continue
+		}
+		for _, item := range evidence {
+			byID[item.Result.Metadata.ResultID] = item
+		}
+	}
+	result := make([]acceptedIntegrationEvidence, 0, len(byID))
+	for _, item := range byID {
+		result = append(result, item)
+	}
+	slices.SortFunc(result, func(left, right acceptedIntegrationEvidence) int {
+		if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Result.Metadata.ResultID, right.Result.Metadata.ResultID)
+	})
+	return result
 }
 
 func promotionReviewGate(reviews []acceptedPromotionReview) GateCoverage {
@@ -397,6 +458,95 @@ func lifecycleProofApprovalGate(lifecycleEvidence []acceptedEvidence, approvals 
 	if err != nil || !expiresAt.After(latestLifecycleTime) {
 		gate.Status = "failed"
 		gate.Blocker = lifecyclePublicationBlocker("selected-approval-expired-for-lifecycle-evidence")
+		return gate
+	}
+	gate.Status = "passed"
+	gate.Blocker = ""
+	return gate
+}
+
+func integrationPublicationAttestationGate(integrationEvidence []acceptedIntegrationEvidence, attestations []acceptedIntegrationPublicationAttestation, catalogDigest string) GateCoverage {
+	gate := GateCoverage{
+		ID:               "integration-publication-attestation",
+		Status:           "missing",
+		ObservedEvidence: []EvidenceBinding{},
+		Blocker:          "integration-publication-attestation-not-recorded",
+	}
+	if len(integrationEvidence) == 0 {
+		gate.Blocker = "no-accepted-integration-evidence"
+		return gate
+	}
+	if len(attestations) == 0 {
+		return gate
+	}
+	sorted := slices.Clone(attestations)
+	slices.SortFunc(sorted, func(left, right acceptedIntegrationPublicationAttestation) int {
+		if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Attestation.Metadata.AttestationID, right.Attestation.Metadata.AttestationID)
+	})
+	integrationEvidenceByID := map[string]acceptedIntegrationEvidence{}
+	latestIntegrationOccurredAt := ""
+	for _, item := range integrationEvidence {
+		integrationEvidenceByID[item.Result.Metadata.ResultID] = item
+		if strings.Compare(item.OccurredAt, latestIntegrationOccurredAt) > 0 {
+			latestIntegrationOccurredAt = item.OccurredAt
+		}
+	}
+	for _, item := range sorted {
+		outcome := "failed"
+		if item.Attestation.Spec.Decision == resources.PromotionDecisionApproved {
+			outcome = "passed"
+		} else if item.Attestation.Spec.Decision == resources.PromotionDecisionAbstained {
+			outcome = "blocked"
+		}
+		gate.ObservedEvidence = append(gate.ObservedEvidence, EvidenceBinding{
+			ResultID:  item.Attestation.Metadata.AttestationID,
+			Outcome:   outcome,
+			AuditHead: item.AuditHead,
+		})
+	}
+	selected := sorted[len(sorted)-1]
+	gate.SelectedResult = selected.Attestation.Metadata.AttestationID
+	gate.SelectedAuditHead = selected.AuditHead
+	if selected.Attestation.Spec.CatalogDigest != catalogDigest {
+		gate.Status = "failed"
+		gate.Blocker = "selected-integration-attestation-catalog-mismatch"
+		return gate
+	}
+	if selected.Attestation.Spec.Decision != resources.PromotionDecisionApproved {
+		if selected.Attestation.Spec.Decision == resources.PromotionDecisionAbstained {
+			gate.Status = "blocked"
+			gate.Blocker = "selected-integration-attestation-decision-abstained"
+		} else {
+			gate.Status = "failed"
+			gate.Blocker = "selected-integration-attestation-decision-changes-required"
+		}
+		return gate
+	}
+	bindsIntegrationEvidence := false
+	for _, digest := range selected.Attestation.Spec.SelectedEvidence {
+		if _, ok := integrationEvidenceByID[digest]; ok {
+			bindsIntegrationEvidence = true
+			break
+		}
+	}
+	if !bindsIntegrationEvidence {
+		gate.Status = "failed"
+		gate.Blocker = "selected-integration-attestation-does-not-bind-integration-evidence"
+		return gate
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, selected.Attestation.Spec.ExpiresAt)
+	if err != nil {
+		gate.Status = "failed"
+		gate.Blocker = "selected-integration-attestation-expiry-invalid"
+		return gate
+	}
+	latestIntegrationTime, err := time.Parse(time.RFC3339Nano, latestIntegrationOccurredAt)
+	if err != nil || !expiresAt.After(latestIntegrationTime) {
+		gate.Status = "failed"
+		gate.Blocker = "selected-integration-attestation-expired-for-integration-evidence"
 		return gate
 	}
 	gate.Status = "passed"
@@ -661,6 +811,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		TopologyEvidence:        make(map[string][]acceptedIntegrationEvidence),
 		PromotionReviews:        make(map[string][]acceptedPromotionReview),
 		LifecycleProofApprovals: make(map[string][]acceptedLifecycleProofApproval),
+		IntegrationAttestations: make(map[string][]acceptedIntegrationPublicationAttestation),
 	}
 	assertions := make(map[string]catalog.AssertionDescriptor)
 	inventory := snapshot.ManifestInventory()
@@ -677,6 +828,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 	}
 	pendingPromotionReviewPaths := []string{}
 	pendingLifecycleProofApprovalPaths := []string{}
+	pendingIntegrationAttestationPaths := []string{}
 	acceptedIntegrationByID := map[string]acceptedIntegrationEvidence{}
 	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -741,6 +893,10 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		}
 		if kind == "LifecycleProofApproval" {
 			pendingLifecycleProofApprovalPaths = append(pendingLifecycleProofApprovalPaths, path)
+			return nil
+		}
+		if kind == "IntegrationPublicationAttestation" {
+			pendingIntegrationAttestationPaths = append(pendingIntegrationAttestationPaths, path)
 			return nil
 		}
 		if kind != "ContractTestResult" {
@@ -863,6 +1019,44 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		result.AcceptedCount++
 		result.VerifiedAuditCount++
 	}
+	for _, path := range pendingIntegrationAttestationPaths {
+		attestation, err := resources.LoadIntegrationPublicationAttestation(path)
+		if err != nil {
+			return evidenceIndex{}, fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if report := attestation.Validate(); !report.Valid || attestation.Spec.CatalogDigest != catalogDigest {
+			return evidenceIndex{}, fmt.Errorf("evidence %s is invalid or not bound to this catalog", filepath.Base(path))
+		}
+		assertion, ok := assertions[attestation.Spec.AssertionRef]
+		if !ok {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references an unknown assertion", filepath.Base(path))
+		}
+		acceptedEvidenceIDs := map[string]struct{}{}
+		for _, item := range integrationEvidenceForAssertion(assertion, result.ComponentEvidence) {
+			acceptedEvidenceIDs[item.Result.Metadata.ResultID] = struct{}{}
+		}
+		for _, selected := range attestation.Spec.SelectedEvidence {
+			if _, ok := acceptedEvidenceIDs[selected]; !ok {
+				return evidenceIndex{}, fmt.Errorf("evidence %s selects unknown or unbound evidence %s", filepath.Base(path), selected)
+			}
+		}
+		auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
+		events, head, err := loadVerifiedAudit(auditPath)
+		if err != nil {
+			return evidenceIndex{}, err
+		}
+		if err := verifyIntegrationPublicationAttestationAudit(events, attestation, catalogDigest); err != nil {
+			return evidenceIndex{}, fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
+		}
+		terminal := events[len(events)-1]
+		result.IntegrationAttestations[attestation.Spec.AssertionRef] = append(result.IntegrationAttestations[attestation.Spec.AssertionRef], acceptedIntegrationPublicationAttestation{
+			Attestation: attestation,
+			AuditHead:   head,
+			OccurredAt:  terminal.Metadata.OccurredAt,
+		})
+		result.AcceptedCount++
+		result.VerifiedAuditCount++
+	}
 	result.IntegrationIdentityCount = len(acceptedIntegrationByID)
 	return result, nil
 }
@@ -980,6 +1174,25 @@ func verifyLifecycleProofApprovalAudit(events []audit.Event, approval resources.
 	}
 	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) || !hasSubject(terminal.Spec.Subjects, "LifecycleProofApproval", approval.Metadata.ApprovalID) || !hasSubject(terminal.Spec.Subjects, "LifecycleProofLedger", approval.Spec.LedgerID) {
 		return errors.New("terminal event does not bind catalog, lifecycle-proof ledger and lifecycle-proof approval identities")
+	}
+	return nil
+}
+
+func verifyIntegrationPublicationAttestationAudit(events []audit.Event, attestation resources.IntegrationPublicationAttestation, catalogDigest string) error {
+	if len(events) != 2 {
+		return fmt.Errorf("expected two events, found %d", len(events))
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "integration.publish.attestation.completed" || terminal.Spec.Outcome != "success" || terminal.Spec.Target != "catalog:"+catalogDigest {
+		return errors.New("terminal action, outcome or target does not match integration publication attestation")
+	}
+	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) || !hasSubject(terminal.Spec.Subjects, "IntegrationPublicationAttestation", attestation.Metadata.AttestationID) {
+		return errors.New("terminal event does not bind catalog and integration publication attestation identities")
+	}
+	for _, selected := range attestation.Spec.SelectedEvidence {
+		if !hasSubject(terminal.Spec.Subjects, "IntegrationTestResult", selected) {
+			return errors.New("terminal event does not bind selected integration evidence identities")
+		}
 	}
 	return nil
 }

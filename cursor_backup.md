@@ -13,7 +13,8 @@
   - `AirgapGateTrustPolicy` (`schemas/yara.dev/v1alpha1/airgap-gate-trust-policy.schema.json`);
   - `AirgapGateTransitionReview` (`schemas/yara.dev/v1alpha1/airgap-gate-transition-review.schema.json`);
   - `LifecycleProofLedger` (`schemas/yara.dev/v1alpha1/lifecycle-proof-ledger.schema.json`);
-  - `LifecycleProofApproval` (`schemas/yara.dev/v1alpha1/lifecycle-proof-approval.schema.json`).
+  - `LifecycleProofApproval` (`schemas/yara.dev/v1alpha1/lifecycle-proof-approval.schema.json`);
+  - `IntegrationPublicationAttestation` (`schemas/yara.dev/v1alpha1/integration-publication-attestation.schema.json`).
 - Latest archived catalog coverage artifact remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`.
 
 ## Current product boundary
@@ -52,6 +53,9 @@
   - `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now surface converged integration evidence diagnostics (`integrationEvidenceConvergence.identityCount`, `deduplicatedCount`, `deduplicationApplied`) without changing durable resource schemas;
   - publication-facing convergence diagnostics now fail closed when report convergence limitation records are malformed or ambiguous;
   - mixed direct/generic integration evidence publication diagnostics are now covered by deterministic CLI tests proving deduplication-state stability.
+  - `integration publish attest` now emits immutable `IntegrationPublicationAttestation` evidence that binds one catalog assertion to selected converged integration evidence IDs, reviewer decision, bounded validity, and deterministic fail-closed freshness checks;
+  - catalog coverage now gates publication diagnostics on accepted integration publication attestation evidence for assertions requiring integration execution evidence;
+  - integration publication attestation audits are now fail-closed on malformed action/subject bindings and require explicit selected integration evidence subject linkage.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -86,6 +90,10 @@
   - integration execute diagnostics now include deterministic remediation guidance for unsupported mode and stale binding/role drift, and generic execution output includes explicit mode-path explainability metadata;
   - catalog coverage now enforces identity-equivalent integration evidence convergence for mixed direct/generic execution artifacts and rejects audit-binding drift for reused result identities;
   - publication-facing coverage diagnostics now expose integration convergence state deterministically for both create and lifecycle-policy command paths;
+  - integration publication attestations are content-addressed (`attestationId`), bind exact catalog/assertion/selected integration evidence IDs with bounded freshness policy, and remain independently auditable;
+  - `integration publish attest` now enforces fail-closed selected-evidence binding to accepted integration execution evidence (catalog-bound, runtime-bound, audit-verified) before writing immutable attestation output;
+  - catalog publication diagnostics now require accepted integration publication attestation evidence in addition to lifecycle publication approval evidence for assertions requiring integration execution evidence;
+  - lifecycle publication blocker taxonomy now includes deterministic remediation-coded integration attestation blocker classes;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -122,13 +130,13 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by six commits before this uncommitted work).
-- Recent commits before this slice (newest first): `07b8dba`, `f3ddebb`, `f737bfe`, `9da6239`, `ae1c94a`.
-- This slice closes publication-facing diagnostics parity for converged integration evidence across create and lifecycle-policy CLI outputs.
-- Phase 3 milestone slice plan now tracks three ordered slices:
-  - slice 1 completed: generic integration executor policy and audit parity closure;
-  - slice 2 completed in this run: coverage identity convergence and fail-closed audit-binding drift enforcement;
-  - slice 3 completed in this run: publication-facing diagnostics and gate explainability parity for converged integration evidence.
+- Branch: `main` tracking `origin/main` (local ahead by seven commits before this uncommitted work).
+- Recent commits before this slice (newest first): `86c7a32`, `07b8dba`, `f3ddebb`, `f737bfe`, `9da6239`.
+- This slice starts Phase 4 major milestone execution by closing audited integration publication attestation kickoff (resource + CLI + publication gating).
+- Phase 4 milestone plan now tracks three ordered slices:
+  - slice 1 completed in this run: audited integration publication attestation closure for required publication diagnostics;
+  - slice 2 pending: enforce independent signing-authority boundary diagnostics between gate-evaluation keys and deployment-authorization keys;
+  - slice 3 pending: converge publication policy explainability and report-limitation diagnostics for the full lifecycle+integration attestation chain.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -141,18 +149,17 @@
 
 ## Next implementation slice
 
-Implement **Phase 4 milestone kickoff: audited integration publication attestation closure**:
+Implement **Phase 4 milestone continuation: independent signing-authority boundary diagnostics closure**:
 
-- introduce an immutable integration publication attestation resource binding one catalog assertion to selected converged integration evidence identities plus reviewer decision and bounded validity;
-- add a bounded CLI command to record integration publication attestations with deterministic audit chains and explicit fail-closed binding checks;
-- gate catalog publication diagnostics on accepted integration publication attestation evidence for assertions where integration execution is required;
-- keep gate-evaluation signing authority independent from deployment authorization keys while preserving deterministic, content-addressed evidence;
-- preserve non-secret durable evidence boundaries (no raw scanner logs, payloads, secrets, kubeconfig, or host addresses).
+- enforce deterministic, fail-closed diagnostics proving gate-evaluation signing authority remains independent from deployment-authorization key material;
+- add bounded validation/CLI pathways that reject any attested policy chain attempting signer-identity overlap or ambiguous key-role reuse;
+- surface publication diagnostics that explicitly report signing-authority boundary state without storing secret material;
+- preserve immutable content-addressed evidence and existing non-secret durable evidence boundaries.
 
 Acceptance criteria:
 
-- integration publication attestation evidence is immutable, content-addressed, and independently auditable;
-- publication diagnostics fail closed when required integration attestation evidence is missing, stale, foreign, or unbound to selected converged evidence identities;
+- signing-authority boundary diagnostics fail closed when gate-evaluation signer identities overlap deployment-authorization key identities or role ownership is ambiguous;
+- publication diagnostics expose deterministic boundary-state outcomes without introducing secret-bearing evidence;
 - lifecycle and integration publication diagnostics remain deterministic and non-secret with no mutation authority added;
 - lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
