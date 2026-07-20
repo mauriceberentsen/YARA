@@ -1170,9 +1170,68 @@ function RunbookView({ payload }) {
   const evidence = runbook.evidence || {};
   const checkpoints = Array.isArray(runbook.failClosedCheckpoints) ? runbook.failClosedCheckpoints : [];
   const steps = Array.isArray(runbook.steps) ? runbook.steps : [];
+  const workspacePath = runbook.workspacePath || "";
+  const [form, setForm] = useState(() => ({
+    markdownPath: workspacePath ? `${workspacePath}/workflow.runbook.md` : "",
+    jsonPath: workspacePath ? `${workspacePath}/workflow.runbook.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.runbook.export.audit.jsonl` : "",
+  }));
+  const [submitState, setSubmitState] = useState({ loading: false, error: "", result: null });
+
+  useEffect(() => {
+    if (!workspacePath) {
+      return;
+    }
+    setForm((previous) => {
+      const next = { ...previous };
+      let changed = false;
+      if (!previous.markdownPath) {
+        next.markdownPath = `${workspacePath}/workflow.runbook.md`;
+        changed = true;
+      }
+      if (!previous.jsonPath) {
+        next.jsonPath = `${workspacePath}/workflow.runbook.json`;
+        changed = true;
+      }
+      if (!previous.auditPath) {
+        next.auditPath = `${workspacePath}/workflow.runbook.export.audit.jsonl`;
+        changed = true;
+      }
+      return changed ? next : previous;
+    });
+  }, [workspacePath]);
+
+  const update = (key) => (event) => {
+    setForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+
+  const canExport = form.markdownPath !== "" && form.jsonPath !== "" && form.auditPath !== "" && form.markdownPath !== form.jsonPath && form.markdownPath !== form.auditPath && form.jsonPath !== form.auditPath;
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!canExport) {
+      return;
+    }
+    setSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/runbook/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Runbook export failed");
+      }
+      setSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setSubmitState({ loading: false, error: error.message || "Runbook export failed", result: null });
+    }
+  };
+
   return (
     <>
-      <p>Workspace: {runbook.workspacePath || "unknown"}</p>
+      <p>Workspace: {workspacePath || "unknown"}</p>
       <h3>Evidence chain</h3>
       <dl className="grid">
         <div><dt>Plan ID</dt><dd>{evidence.planId || "n/a"}</dd></div>
@@ -1207,6 +1266,34 @@ function RunbookView({ payload }) {
       ))}
       <h3>Copy-ready runbook</h3>
       <textarea readOnly value={runbook.markdown || ""} rows={14} />
+      <h3>Export runbook artifacts</h3>
+      <form onSubmit={submit}>
+        <div className="formRow">
+          <label htmlFor="runbook-markdown-path">Markdown output path</label>
+          <input id="runbook-markdown-path" value={form.markdownPath} onChange={update("markdownPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="runbook-json-path">JSON output path</label>
+          <input id="runbook-json-path" value={form.jsonPath} onChange={update("jsonPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="runbook-audit-path">Audit output path</label>
+          <input id="runbook-audit-path" value={form.auditPath} onChange={update("auditPath")} />
+        </div>
+        <button type="submit" disabled={submitState.loading || !canExport}>
+          {submitState.loading ? "Exporting runbook..." : "Export runbook"}
+        </button>
+      </form>
+      {!canExport && <p className="error">Runbook markdown/json/audit paths are required and must all be different.</p>}
+      {submitState.error && <p className="error">Error: {submitState.error}</p>}
+      {submitState.result && (
+        <dl className="grid">
+          <div><dt>Markdown path</dt><dd>{submitState.result.markdownPath || "n/a"}</dd></div>
+          <div><dt>JSON path</dt><dd>{submitState.result.jsonPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{submitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Step count</dt><dd>{String(submitState.result.stepCount ?? 0)}</dd></div>
+        </dl>
+      )}
     </>
   );
 }

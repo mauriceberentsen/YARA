@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/canonical"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/catalogcoverage"
@@ -981,6 +982,91 @@ func TestServeWorkflowRunbookRejectsMalformedWorkspaceArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "YARA-SRV-024") {
 		t.Fatalf("expected structured malformed runbook error, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowRunbookExportWritesArtifactsAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, _ := writeExecutionInputs(t, sourcePath, now)
+	planPath, _ := writeV02Plan(t, sourcePath)
+	copyIntoWorkspace := func(path string) {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		target := filepath.Join(workspacePath, filepath.Base(path))
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			t.Fatalf("write %s: %v", target, err)
+		}
+	}
+	copyIntoWorkspace(planPath)
+	for _, flag := range []string{"--bundle", "--preflight", "--change-set", "--approval", "--authorization"} {
+		copyIntoWorkspace(valueForFlag(paths, flag))
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	markdownPath := filepath.Join(workspacePath, "workflow.runbook.md")
+	jsonPath := filepath.Join(workspacePath, "workflow.runbook.json")
+	auditPath := filepath.Join(workspacePath, "workflow.runbook.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"markdownPath":"%s","jsonPath":"%s","auditPath":"%s"}`, markdownPath, jsonPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/runbook/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected runbook export success, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := os.Stat(markdownPath); err != nil {
+		t.Fatalf("expected markdown export file, got %v", err)
+	}
+	if _, err := os.Stat(jsonPath); err != nil {
+		t.Fatalf("expected json export file, got %v", err)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load export audit: %v", err)
+	}
+	if _, err := audit.Verify(events); err != nil {
+		t.Fatalf("verify export audit: %v", err)
+	}
+}
+
+func TestServeWorkflowRunbookExportRejectsDuplicatePaths(t *testing.T) {
+	workspacePath := t.TempDir()
+	handler := serveHandlerFixture(t, false, workspacePath)
+	path := filepath.Join(workspacePath, "same-path")
+	requestBody := fmt.Sprintf(`{"markdownPath":"%s","jsonPath":"%s","auditPath":"%s"}`, path, path, filepath.Join(workspacePath, "audit.jsonl"))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/runbook/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for duplicate runbook export paths, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-SRV-025") {
+		t.Fatalf("expected structured duplicate-path error, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowRunbookExportRejectsOutOfWorkspacePath(t *testing.T) {
+	workspacePath := t.TempDir()
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"markdownPath":"%s","jsonPath":"%s","auditPath":"%s"}`,
+		filepath.Join("..", "outside.md"),
+		filepath.Join(workspacePath, "inside.json"),
+		filepath.Join(workspacePath, "inside.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/runbook/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for out-of-workspace export path, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-SRV-025") {
+		t.Fatalf("expected structured out-of-workspace export path error, got %s", recorder.Body.String())
 	}
 }
 

@@ -166,6 +166,24 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/runbook/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        if (requestPayload.markdownPath === requestPayload.jsonPath) {
+          return Promise.resolve(new Response(JSON.stringify({
+            valid: false,
+            diagnostics: [{ code: "YARA-SRV-025", message: "markdownPath, jsonPath and auditPath must be different files", severity: "error" }],
+          }), { status: 400 }));
+        }
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            markdownPath: requestPayload.markdownPath,
+            jsonPath: requestPayload.jsonPath,
+            auditPath: requestPayload.auditPath,
+            stepCount: 3,
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -385,6 +403,8 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Runbook" }));
     await waitFor(() => expect(screen.getByText("Copy-ready runbook")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("Review immutable evidence chain")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Export runbook" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.runbook.md")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());

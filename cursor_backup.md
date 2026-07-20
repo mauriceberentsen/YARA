@@ -1,9 +1,8 @@
 # Cursor handoff
 ## Current repository state
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
-- Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `2dffa71`, `041903c`, `840e289`, `ee70422`, `e2c01ae`.
+- Recent commits (newest first): `8d628dd`, `2dffa71`, `041903c`, `840e289`, `ee70422`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
@@ -22,7 +21,7 @@
   - `catalog coverage runtime-drift-policy` evaluates `runtimeDriftPosture` for all assertions or one selected assertion;
   - assertion-scoped checks fail with infeasible exit when posture is `missing` or `drifted`;
   - malformed/incomplete posture records fail closed before policy output.
-- Web UI (MVP-2, W1–W5) is fully implemented as a local-only, read-only embedded React/Vite SPA served by `yara serve --ui`; see MVP-2 milestone path below for detail; `v0.2.0-alpha.1` release notes and docs are aligned.
+- Web UI (MVP-2, W1–W5) is fully implemented as a local-only, read-only embedded React/Vite SPA served by `yara serve --ui`.
 - Interactive workflow cockpit I1 is implemented:
   - `yara serve --workspace <dir>` and `GET /api/v1/workspace` provide deterministic stage discovery (plan/bundle/preflight/change-set/approval/authorization/receipt);
   - Pipeline view now renders stage status and artifact paths using fail-closed workspace payload validation.
@@ -54,6 +53,10 @@
   - `GET /api/v1/workflow/runbook` now emits deterministic, redact-safe execution guidance bound to workspace artifacts and evidence IDs;
   - runbook output includes explicit fail-closed checkpoints for authorization confirmation and optional air-gap gate policy/review confirmations;
   - Web UI runbook panel now renders copy-ready steps, evidence chain summary, and operator-facing guardrails for controlled execution sessions.
+- Interactive workflow cockpit I9 is implemented:
+  - `POST /api/v1/workflow/runbook/export` now persists runbook markdown/json artifacts and mandatory audit output to workspace-bounded paths;
+  - export flow is fail-closed for duplicate output paths, out-of-workspace paths, and pre-existing files (no overwrite behavior);
+  - Runbook UI now supports explicit export paths and deterministic export result rendering.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -61,14 +64,13 @@
 ## Verified capabilities
 - **Local/simulated verification:** Go/unit/CLI/schema tests prove deterministic IDs, fail-closed stale/foreign/mismatch paths, and bounded mutation authority.
 - **Pre-alpha docs clarity:** `README.md`, `docs/quickstart.md`, `docs/reference/commands.md`, and `docs/architecture/README.md` separate implemented behavior from deferred roadmap scope.
-- **Runtime drift policy gate verification:** dedicated policy command emits deterministic blocker/remediation output, produces auditable pass/fail responses, and enforces assertion-scoped infeasible exits for non-`in-sync` posture.
 - **Web UI verification (simulated/local):** endpoint tests cover read endpoints (including workspace pipeline discovery), assertion-scoped drift/lifecycle filtering, payload validation failures, and fail-closed handling.
 ## Current branch and working tree
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `GET /api/v1/workflow/runbook` endpoint implemented with deterministic workspace artifact validation and redact-safe command/checkpoint output;
-  - runbook endpoint enforces fail-closed prerequisites for plan/bundle/preflight/change-set/approval/authorization artifacts and rejects malformed/missing workspace evidence;
-  - Web UI adds `Runbook` panel with evidence IDs, artifact paths, fail-closed checklist, step commands, and copy-ready markdown output.
+  - `POST /api/v1/workflow/runbook/export` endpoint implemented with strict request decoding, workspace path bounding, duplicate-path rejection, and exclusive (no-overwrite) file creation;
+  - export writes both markdown and json runbook artifacts plus mandatory audit output with deterministic runbook + evidence subjects;
+  - Runbook UI now includes export form inputs, fail-closed path validation, and a deterministic export result panel.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui`;
@@ -79,10 +81,8 @@
 ## Open limitations and unproven claims
 - No live cluster validation was executed in this run; run validated release publication and artifacts only.
 - Air-gap external trust chain remains outside YARA proof boundary.
-- Bootstrap remains intentionally narrow (single YARA-owned namespace + model PVC).
 - Web UI remains local-only in this stage (no auth, no multi-user/session); private-key signing still runs outside the server boundary.
 ## MVP-2 milestone path — Web UI
-- W1 Backend HTTP API, W2 Dashboard shell, W3 Drift posture view, W4 Lifecycle readiness view, W5 Release/docs — all completed.
 - Running the UI: `yara serve --catalog catalog/v0.2/snapshot.yaml --coverage-report .yara/catalog-v0.2-coverage.yaml --ui --port 7474` then open `http://127.0.0.1:7474`.
 ## MVP-3 milestone path — Interactive Workflow Cockpit
 Goal: a browser-based operator cockpit where the complete plan-to-apply rollout workflow can be driven through the UI, with all existing audit, approval, and fail-closed gates preserved. The server remains local-only. Private keys are never sent to the server; the authorization signing step shows the exact CLI command for the operator to run or executes it only after explicit UI confirmation.
@@ -105,7 +105,6 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 - for authorization, the UI generates and displays the exact `yara authorization issue` CLI command with all workspace-resolved paths — the private key is never sent to the server;
 - once the authorization file appears in the workspace (operator runs the command externally), the UI detects it via `GET /api/v1/workspace` polling and advances to the apply stage;
 - new `POST /api/v1/workflow/apply` endpoint invokes `deployment apply kubernetes` only after the operator confirms via an explicit UI dialog that shows the full evidence chain (plan → bundle → preflight → change-set → approval → authorization digests) and requires typing the confirm-authorization hash;
-- apply result shows receipt summary and audit chain link.
 - Status: completed.
 ### I7 — Air-gap gate and provenance controls in apply cockpit
 - extend `POST /api/v1/workflow/apply` request/response coverage and UI to drive optional air-gap gate inputs (`airgapGateResultPath`, trust-policy confirmation, policy-diff/transition-review confirmations) with explicit fail-closed diagnostics;
@@ -121,16 +120,22 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 - add `POST /api/v1/workflow/runbook/export` to persist the generated runbook markdown/JSON into workspace-bounded files with immutable naming conventions and audit output;
 - add UI action to export the active runbook and show resulting artifact/audit paths;
 - enforce fail-closed behavior for overwrite attempts and out-of-workspace export paths.
+- Status: completed.
+
+### I10 — End-to-end cockpit execution capsule
+- add `GET /api/v1/workflow/capsule` that bundles workspace stage status, runbook export references, and apply readiness signals into one deterministic, redact-safe JSON payload;
+- include explicit blocker taxonomy for missing/expired/mismatched evidence and actionable remediation strings;
+- add UI capsule view to summarize operator readiness and link to plan/runbook/apply artifacts without mutating state.
 ## Next implementation slice
-Implement **I9 — Runbook artifact persistence**:
-- add `POST /api/v1/workflow/runbook/export` producing workspace-bounded runbook markdown/json outputs and mandatory audit output;
-- preserve redact-safe runbook constraints in exported artifacts and reject overwrite/duplicate output paths fail closed;
-- add UI export action with explicit output/audit path inputs and deterministic result panel;
-- add backend/frontend tests for successful export, duplicate-path rejection, and out-of-workspace path rejection.
+Implement **I10 — End-to-end cockpit execution capsule**:
+- add `GET /api/v1/workflow/capsule` producing a single deterministic readiness payload spanning stage status, evidence IDs, runbook export references, and apply gating signals;
+- preserve redact-safe boundaries (no secret material, no kubeconfig contents) while surfacing explicit blocker/remediation fields;
+- add UI capsule view with summary cards and blocker table so operators can validate rollout readiness quickly;
+- add backend/frontend tests for ready-path and fail-closed blocked-path responses.
 Acceptance criteria:
-- runbook export writes deterministic markdown/json + audit artifacts to workspace-managed paths only;
-- export fails closed for duplicate/out-of-workspace paths and does not overwrite existing runbooks;
-- UI export flow surfaces artifact paths and diagnostics without exposing secret-bearing fields;
+- capsule endpoint emits deterministic readiness output with explicit blockers/remediations and stage/evidence bindings;
+- UI capsule panel updates from live workspace state and clearly marks blocked vs ready states;
+- missing/malformed prerequisite artifacts produce structured fail-closed diagnostics and never emit ambiguous readiness;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 ## Validation requirements
 Run at minimum for each slice:
