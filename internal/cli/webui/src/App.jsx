@@ -8,6 +8,7 @@ const views = [
   { id: "changeset", label: "Change-set", endpoint: "/api/v1/workspace" },
   { id: "approval", label: "Approval", endpoint: "/api/v1/workspace" },
   { id: "apply", label: "Authorization + apply", endpoint: "/api/v1/workspace" },
+  { id: "runbook", label: "Runbook", endpoint: "/api/v1/workflow/runbook" },
   { id: "catalog", label: "Catalog", endpoint: "/api/v1/catalog" },
   { id: "coverage", label: "Coverage", endpoint: "/api/v1/coverage" },
   { id: "drift", label: "Drift", endpoint: "/api/v1/drift-posture" },
@@ -1163,6 +1164,53 @@ function AuthorizationApplyView({ workspacePayload, onApplyCreated }) {
   );
 }
 
+function RunbookView({ payload }) {
+  const runbook = payload?.runbook || {};
+  const artifacts = runbook.artifacts || {};
+  const evidence = runbook.evidence || {};
+  const checkpoints = Array.isArray(runbook.failClosedCheckpoints) ? runbook.failClosedCheckpoints : [];
+  const steps = Array.isArray(runbook.steps) ? runbook.steps : [];
+  return (
+    <>
+      <p>Workspace: {runbook.workspacePath || "unknown"}</p>
+      <h3>Evidence chain</h3>
+      <dl className="grid">
+        <div><dt>Plan ID</dt><dd>{evidence.planId || "n/a"}</dd></div>
+        <div><dt>Bundle ID</dt><dd>{evidence.bundleId || "n/a"}</dd></div>
+        <div><dt>Preflight ID</dt><dd>{evidence.preflightResultId || "n/a"}</dd></div>
+        <div><dt>Change-set ID</dt><dd>{evidence.changeSetId || "n/a"}</dd></div>
+        <div><dt>Approval ID</dt><dd>{evidence.approvalId || "n/a"}</dd></div>
+        <div><dt>Authorization ID</dt><dd>{evidence.authorizationId || "n/a"}</dd></div>
+      </dl>
+      <h3>Artifact paths</h3>
+      <ul>
+        <li>Plan: {artifacts.planPath || "none"}</li>
+        <li>Bundle: {artifacts.bundlePath || "none"}</li>
+        <li>Preflight: {artifacts.preflightPath || "none"}</li>
+        <li>Change-set: {artifacts.changeSetPath || "none"}</li>
+        <li>Approval: {artifacts.approvalPath || "none"}</li>
+        <li>Authorization: {artifacts.authorizationPath || "none"}</li>
+      </ul>
+      <h3>Fail-closed checkpoints</h3>
+      <ul>
+        {checkpoints.map((checkpoint) => (
+          <li key={checkpoint}>{checkpoint}</li>
+        ))}
+      </ul>
+      <h3>Execution steps</h3>
+      {steps.map((step) => (
+        <article key={step.id}>
+          <h4>{step.title || step.id}</h4>
+          <p>{step.description || ""}</p>
+          {step.command && <pre>{step.command}</pre>}
+        </article>
+      ))}
+      <h3>Copy-ready runbook</h3>
+      <textarea readOnly value={runbook.markdown || ""} rows={14} />
+    </>
+  );
+}
+
 function renderView(viewID, payload, extra = {}) {
   if (viewID === "pipeline") {
     return <PipelineView payload={payload} />;
@@ -1184,6 +1232,9 @@ function renderView(viewID, payload, extra = {}) {
   }
   if (viewID === "apply") {
     return <AuthorizationApplyView workspacePayload={payload} onApplyCreated={extra.onApplyCreated || (() => {})} />;
+  }
+  if (viewID === "runbook") {
+    return <RunbookView payload={payload} />;
   }
   if (viewID === "catalog") {
     return (

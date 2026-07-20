@@ -3,7 +3,7 @@
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
 - Scope baseline remains ADRs `0001`-`0011`; bounded direct Kubernetes executor remains ADR-0011.
 - First pre-alpha tag is published: `v0.1.0-alpha.1`.
-- Recent commits (newest first): `840e289`, `ee70422`, `e2c01ae`, `1df715e`, `1dfac12`.
+- Recent commits (newest first): `041903c`, `840e289`, `ee70422`, `e2c01ae`, `1df715e`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
@@ -50,13 +50,15 @@
   - apply API/UI now support optional air-gap gate bindings (`airgapGateResultPath`, trust-policy confirmation, policy-diff confirmation, transition-review confirmation) with fail-closed guardrails;
   - apply responses now include provenance and gate identifiers (transfer/scan receipt IDs and gate policy/review IDs) for deterministic operator verification;
   - fail-closed apply checks are covered for trust-policy mismatch, destructive diff without transition review, and incomplete transfer/scan chain.
+- Interactive workflow cockpit I8 is implemented:
+  - `GET /api/v1/workflow/runbook` now emits deterministic, redact-safe execution guidance bound to workspace artifacts and evidence IDs;
+  - runbook output includes explicit fail-closed checkpoints for authorization confirmation and optional air-gap gate policy/review confirmations;
+  - Web UI runbook panel now renders copy-ready steps, evidence chain summary, and operator-facing guardrails for controlled execution sessions.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
   - release builds `linux/amd64`, `linux/arm64`, `darwin/arm64` binaries, publishes `checksums.txt`, and attaches deterministic `yara-schemas-v1alpha1.tar.gz`.
-
 ## Verified capabilities
-
 - **Local/simulated verification:** Go/unit/CLI/schema tests prove deterministic IDs, fail-closed stale/foreign/mismatch paths, and bounded mutation authority.
 - **Pre-alpha docs clarity:** `README.md`, `docs/quickstart.md`, `docs/reference/commands.md`, and `docs/architecture/README.md` separate implemented behavior from deferred roadmap scope.
 - **Runtime drift policy gate verification:** dedicated policy command emits deterministic blocker/remediation output, produces auditable pass/fail responses, and enforces assertion-scoped infeasible exits for non-`in-sync` posture.
@@ -64,9 +66,9 @@
 ## Current branch and working tree
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `POST /api/v1/workflow/apply` request decoding now enforces air-gap gate field-pair requirements before execution (`airgapGateResultPath` requires trust policy + confirmation; diff/review IDs require paired paths);
-  - apply API response now includes transfer/scan receipt IDs and optional air-gap gate policy/diff/review IDs from generated receipt metadata;
-  - `Authorization + apply` cockpit view now includes explicit air-gap gate fields and pre-submit guardrails for gate and receipt-chain combinations, with targeted UI fail-closed messaging.
+  - `GET /api/v1/workflow/runbook` endpoint implemented with deterministic workspace artifact validation and redact-safe command/checkpoint output;
+  - runbook endpoint enforces fail-closed prerequisites for plan/bundle/preflight/change-set/approval/authorization artifacts and rejects malformed/missing workspace evidence;
+  - Web UI adds `Runbook` panel with evidence IDs, artifact paths, fail-closed checklist, step commands, and copy-ready markdown output.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui`;
@@ -110,43 +112,39 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 - expose deterministic transfer + scan receipt chain assistant fields in the UI with pre-submit validation and clear blocker remediation;
 - add end-to-end API/UI tests for optional gate paths (including destructive trust-policy transition review requirement) so cockpit behavior matches CLI policy gates exactly.
 - Status: completed.
-
 ### I8 — Workflow execution runbook export
 - add `GET /api/v1/workflow/runbook` that emits a deterministic, redact-safe step list for plan→render→preflight→change-set→approval→authorization→apply using current workspace artifact paths and IDs;
 - include explicit fail-closed reminders for private-key handling, digest confirmation, and air-gap gate decision points;
 - extend UI with a runbook panel that operators can copy as a single artifact for review and controlled execution sessions.
-
+- Status: completed.
+### I9 — Runbook artifact persistence
+- add `POST /api/v1/workflow/runbook/export` to persist the generated runbook markdown/JSON into workspace-bounded files with immutable naming conventions and audit output;
+- add UI action to export the active runbook and show resulting artifact/audit paths;
+- enforce fail-closed behavior for overwrite attempts and out-of-workspace export paths.
 ## Next implementation slice
-Implement **I8 — Workflow execution runbook export**:
-- add `GET /api/v1/workflow/runbook` producing deterministic JSON/markdown-safe steps using current workspace stage artifacts and known evidence IDs;
-- keep output redact-safe (no private key material, no kubeconfig contents, no secrets), while clearly marking operator-supplied sensitive arguments;
-- add UI panel to render/copy the runbook and highlight fail-closed checkpoints (authorization confirmation digest, gate policy confirmations, transition review requirement);
-- add backend and frontend tests for stage-missing, malformed-workspace, and happy-path runbook generation.
-
+Implement **I9 — Runbook artifact persistence**:
+- add `POST /api/v1/workflow/runbook/export` producing workspace-bounded runbook markdown/json outputs and mandatory audit output;
+- preserve redact-safe runbook constraints in exported artifacts and reject overwrite/duplicate output paths fail closed;
+- add UI export action with explicit output/audit path inputs and deterministic result panel;
+- add backend/frontend tests for successful export, duplicate-path rejection, and out-of-workspace path rejection.
 Acceptance criteria:
-- runbook endpoint emits deterministic, workspace-bound execution guidance without secret-bearing fields;
-- UI runbook panel exposes all fail-closed checkpoints and updates when workspace artifacts change;
-- missing prerequisite artifacts return structured diagnostics and never emit partial/ambiguous execution guidance;
+- runbook export writes deterministic markdown/json + audit artifacts to workspace-managed paths only;
+- export fails closed for duplicate/out-of-workspace paths and does not overwrite existing runbooks;
+- UI export flow surfaces artifact paths and diagnostics without exposing secret-bearing fields;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
-
 ## Validation requirements
 Run at minimum for each slice:
-
 ```bash
 gofmt -w <changed-go-files>
 git diff --check
 GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache make check
 GOCACHE=/tmp/yara-go-cache GOMODCACHE=/tmp/yara-go-mod-cache go test -race ./...
 ```
-
 Classification rules:
-
 - mark unit/CLI/fake-runner/schema/doc checks as **simulated/local**;
 - mark as **live** only when actual cluster execution occurs in-session;
 - do not promote simulated/local checks to live claims.
-
 ## Publishing requirements
-
 - Keep `.yara/`, generated release output directories, and machine-local artifacts unstaged.
 - Do not commit secrets/private keys/kubeconfig/raw target addresses/prompts/completions/env vars/raw logs/raw object bodies.
 - Keep docs, schemas, CLI behavior, and Go validation in sync.

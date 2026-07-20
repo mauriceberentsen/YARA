@@ -906,6 +906,84 @@ func TestServeWorkflowApplyRejectsIncompleteTransferScanChain(t *testing.T) {
 	}
 }
 
+func TestServeWorkflowRunbookReturnsDeterministicSteps(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourcePath := t.TempDir()
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, sourcePath, now)
+	planPath, _ := writeV02Plan(t, sourcePath)
+	copyIntoWorkspace := func(path string) {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		target := filepath.Join(workspacePath, filepath.Base(path))
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			t.Fatalf("write %s: %v", target, err)
+		}
+	}
+	copyIntoWorkspace(planPath)
+	for _, flag := range []string{"--bundle", "--preflight", "--change-set", "--approval", "--authorization"} {
+		copyIntoWorkspace(valueForFlag(paths, flag))
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/workflow/runbook", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for workflow runbook, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode runbook response: %v", err)
+	}
+	runbook, _ := payload["runbook"].(map[string]any)
+	steps, _ := runbook["steps"].([]any)
+	if len(steps) == 0 {
+		t.Fatalf("runbook omitted steps: %#v", runbook)
+	}
+	evidence, _ := runbook["evidence"].(map[string]any)
+	if evidence["authorizationId"] != authorization.Metadata.AuthorizationID {
+		t.Fatalf("runbook authorization ID mismatch: %#v", evidence)
+	}
+	markdown, _ := runbook["markdown"].(string)
+	if !strings.Contains(markdown, authorization.Metadata.AuthorizationID) || strings.Contains(markdown, "BEGIN PRIVATE KEY") {
+		t.Fatalf("runbook markdown missing expected digest or leaked secrets: %q", markdown)
+	}
+}
+
+func TestServeWorkflowRunbookRejectsMissingPrerequisites(t *testing.T) {
+	workspacePath := t.TempDir()
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/workflow/runbook", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing runbook prerequisites, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-SRV-024") {
+		t.Fatalf("expected structured runbook prerequisite error, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowRunbookRejectsMalformedWorkspaceArtifacts(t *testing.T) {
+	workspacePath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspacePath, "plan.yaml"), []byte("apiVersion: yara.dev/v1alpha1\nkind: PlatformPlan\nmetadata:\n  name: malformed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/workflow/runbook", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for malformed workspace artifact, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-SRV-024") {
+		t.Fatalf("expected structured malformed runbook error, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)

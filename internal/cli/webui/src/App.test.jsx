@@ -132,6 +132,40 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/runbook" && (init.method || "GET").toUpperCase() === "GET") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          runbook: {
+            workspacePath: ".yara/workspaces/default",
+            artifacts: {
+              planPath: ".yara/workspaces/default/reference-stack.plan.yaml",
+              bundlePath: ".yara/workspaces/default/reference-stack.kubernetes.bundle.yaml",
+              preflightPath: ".yara/workspaces/default/reference-preflight.yaml",
+              changeSetPath: ".yara/workspaces/default/reference-change-set.yaml",
+              approvalPath: ".yara/workspaces/default/reference-approval.yaml",
+              authorizationPath: ".yara/workspaces/default/reference-authorization.yaml",
+            },
+            evidence: {
+              planId: "sha256:plan",
+              bundleId: "sha256:bundle",
+              preflightResultId: "sha256:preflight",
+              changeSetId: "sha256:changeset",
+              approvalId: "sha256:approval",
+              authorizationId: "sha256:authorization",
+              targetReferenceDigest: "sha256:target",
+            },
+            failClosedCheckpoints: [
+              "Never send private key material to the API; run authorization signing locally.",
+              "Before apply, --confirm-authorization must equal the authorization ID and typed confirmation digest.",
+            ],
+            steps: [
+              { id: "review-evidence", title: "Review immutable evidence chain", description: "Verify artifact and digest bindings." },
+              { id: "deployment-apply", title: "Execute bounded apply", description: "Run apply with explicit confirmation.", command: "yara deployment apply kubernetes ..." },
+            ],
+            markdown: "# YARA workflow runbook\n\n## Evidence chain\n- Authorization ID: sha256:authorization",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -347,6 +381,10 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Type confirmation digest"), { target: { value: "sha256:authorization" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm and apply" }));
     await waitFor(() => expect(screen.getByText("sha256:receipt")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Runbook" }));
+    await waitFor(() => expect(screen.getByText("Copy-ready runbook")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Review immutable evidence chain")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());

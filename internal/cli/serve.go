@@ -972,6 +972,140 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Apply.AirgapReviewID = receipt.Spec.AirgapGateTransitionReviewID
 		writeServeJSON(writer, workflowApplyStatus(exitCode), response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/runbook", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow runbook requires --workspace")
+			return
+		}
+		stageLookup, err := workspaceStageArtifacts(workspacePath)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-024", err.Error())
+			return
+		}
+		planPath, hasPlan := stageLookup["plan"]
+		bundlePath, hasBundle := stageLookup["bundle"]
+		preflightPath, hasPreflight := stageLookup["preflight"]
+		changeSetPath, hasChangeSet := stageLookup["changeset"]
+		approvalPath, hasApproval := stageLookup["approval"]
+		authorizationPath, hasAuthorization := stageLookup["authorization"]
+		if !hasPlan || !hasBundle || !hasPreflight || !hasChangeSet || !hasApproval || !hasAuthorization {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-024", "runbook requires plan, bundle, preflight, change-set, approval, and authorization artifacts in workspace")
+			return
+		}
+		plan, err := resources.LoadPlatformPlan(planPath)
+		if err != nil || !plan.Validate().Valid {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-024", "workspace plan artifact is invalid")
+			return
+		}
+		bundle, err := resources.LoadDeploymentBundle(bundlePath)
+		if err != nil || !bundle.Validate().Valid {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-024", "workspace bundle artifact is invalid")
+			return
+		}
+		preflight, err := resources.LoadTargetPreflightResult(preflightPath)
+		if err != nil || !preflight.Validate().Valid {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-024", "workspace preflight artifact is invalid")
+			return
+		}
+		changeSet, err := resources.LoadKubernetesChangeSet(changeSetPath)
+		if err != nil || !changeSet.Validate().Valid {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-024", "workspace change-set artifact is invalid")
+			return
+		}
+		approval, err := resources.LoadDeploymentApproval(approvalPath)
+		if err != nil || !approval.Validate().Valid {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-024", "workspace approval artifact is invalid")
+			return
+		}
+		authorization, err := resources.LoadExecutionAuthorization(authorizationPath)
+		if err != nil || !authorization.Validate().Valid {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-024", "workspace authorization artifact is invalid")
+			return
+		}
+		runbook := workflowRunbookResponse{Valid: true}
+		runbook.Runbook.WorkspacePath = workspacePath
+		runbook.Runbook.Artifacts.PlanPath = planPath
+		runbook.Runbook.Artifacts.BundlePath = bundlePath
+		runbook.Runbook.Artifacts.PreflightPath = preflightPath
+		runbook.Runbook.Artifacts.ChangeSetPath = changeSetPath
+		runbook.Runbook.Artifacts.ApprovalPath = approvalPath
+		runbook.Runbook.Artifacts.AuthorizationPath = authorizationPath
+		runbook.Runbook.Evidence.PlanID = plan.Metadata.PlanID
+		runbook.Runbook.Evidence.BundleID = bundle.Metadata.BundleID
+		runbook.Runbook.Evidence.PreflightResultID = preflight.Metadata.ResultID
+		runbook.Runbook.Evidence.ChangeSetID = changeSet.Metadata.ChangeSetID
+		runbook.Runbook.Evidence.ApprovalID = approval.Metadata.ApprovalID
+		runbook.Runbook.Evidence.AuthorizationID = authorization.Metadata.AuthorizationID
+		runbook.Runbook.Evidence.TargetReferenceDigest = authorization.Spec.Target.ReferenceDigest
+		runbook.Runbook.FailClosedCheckpoints = []string{
+			"Never send private key material to the API; run authorization signing locally.",
+			"Before apply, --confirm-authorization must equal the authorization ID and typed confirmation digest.",
+			"When using --airgap-gate-result, require trust-policy path and explicit trust-policy ID confirmation.",
+			"When using a destructive trust-policy diff, require a reviewed transition artifact and explicit review ID confirmation.",
+		}
+		runbook.Runbook.Steps = []workflowRunbookStep{
+			{
+				ID:          "review-evidence",
+				Title:       "Review immutable evidence chain",
+				Description: "Verify plan, bundle, preflight, change-set, approval, and authorization IDs before execution.",
+			},
+			{
+				ID:          "authorization-verify",
+				Title:       "Verify signed authorization",
+				Description: "Verify the signed authorization against a trusted public key before apply.",
+				Command: strings.Join([]string{
+					"yara", "authorization", "verify",
+					"--authorization", shellQuote(authorizationPath),
+					"--public-key", shellQuote("<public-key-path>"),
+				}, " "),
+			},
+			{
+				ID:          "deployment-apply",
+				Title:       "Execute bounded apply",
+				Description: "Run apply with explicit confirmation. Add optional air-gap flags only when gate artifacts exist.",
+				Command: strings.Join([]string{
+					"yara", "deployment", "apply", "kubernetes",
+					"--bundle", shellQuote(bundlePath),
+					"--preflight", shellQuote(preflightPath),
+					"--change-set", shellQuote(changeSetPath),
+					"--approval", shellQuote(approvalPath),
+					"--import-receipt", shellQuote("<import-receipt-path>"),
+					"--authorization", shellQuote(authorizationPath),
+					"--public-key", shellQuote("<public-key-path>"),
+					"--confirm-authorization", shellQuote(authorization.Metadata.AuthorizationID),
+					"--name", shellQuote("reference-receipt"),
+					"--receipt-output", shellQuote(filepath.Join(workspacePath, "reference-receipt.yaml")),
+					"--audit-output", shellQuote(filepath.Join(workspacePath, "reference-apply.audit.jsonl")),
+					"[--transfer-receipt <path> --scan-receipt <path> ...]",
+					"[--airgap-gate-result <path> --airgap-gate-trust-policy <path> --confirm-airgap-gate-trust-policy <sha256:id>]",
+					"[--airgap-gate-policy-diff <path> --confirm-airgap-gate-policy-diff <sha256:id>]",
+					"[--airgap-gate-transition-review <path> --confirm-airgap-gate-transition-review <sha256:id>]",
+				}, " "),
+			},
+		}
+		runbook.Runbook.Markdown = strings.Join([]string{
+			"# YARA workflow runbook",
+			"",
+			"## Evidence chain",
+			"- Plan ID: " + runbook.Runbook.Evidence.PlanID,
+			"- Bundle ID: " + runbook.Runbook.Evidence.BundleID,
+			"- Preflight result ID: " + runbook.Runbook.Evidence.PreflightResultID,
+			"- Change-set ID: " + runbook.Runbook.Evidence.ChangeSetID,
+			"- Approval ID: " + runbook.Runbook.Evidence.ApprovalID,
+			"- Authorization ID: " + runbook.Runbook.Evidence.AuthorizationID,
+			"- Target digest: " + runbook.Runbook.Evidence.TargetReferenceDigest,
+			"",
+			"## Fail-closed checkpoints",
+			"- Never send private key material to the API.",
+			"- Confirmation digest must match authorization ID before apply.",
+			"- Gate trust-policy and transition-review confirmations are required when applicable.",
+		}, "\n")
+		writeServeJSON(writer, http.StatusOK, runbook)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -1216,6 +1350,40 @@ type workflowApplyResponse struct {
 		AirgapPolicyDiffID    string   `json:"airgapPolicyDiffId,omitempty"`
 		AirgapReviewID        string   `json:"airgapReviewId,omitempty"`
 	} `json:"apply"`
+}
+
+type workflowRunbookStep struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Command     string `json:"command,omitempty"`
+}
+
+type workflowRunbookResponse struct {
+	Valid   bool `json:"valid"`
+	Runbook struct {
+		WorkspacePath string `json:"workspacePath"`
+		Artifacts     struct {
+			PlanPath          string `json:"planPath"`
+			BundlePath        string `json:"bundlePath"`
+			PreflightPath     string `json:"preflightPath"`
+			ChangeSetPath     string `json:"changeSetPath"`
+			ApprovalPath      string `json:"approvalPath"`
+			AuthorizationPath string `json:"authorizationPath"`
+		} `json:"artifacts"`
+		Evidence struct {
+			PlanID                string `json:"planId"`
+			BundleID              string `json:"bundleId"`
+			PreflightResultID     string `json:"preflightResultId"`
+			ChangeSetID           string `json:"changeSetId"`
+			ApprovalID            string `json:"approvalId"`
+			AuthorizationID       string `json:"authorizationId"`
+			TargetReferenceDigest string `json:"targetReferenceDigest"`
+		} `json:"evidence"`
+		FailClosedCheckpoints []string              `json:"failClosedCheckpoints"`
+		Steps                 []workflowRunbookStep `json:"steps"`
+		Markdown              string                `json:"markdown"`
+	} `json:"runbook"`
 }
 
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
