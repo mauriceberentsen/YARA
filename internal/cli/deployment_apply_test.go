@@ -207,6 +207,52 @@ func TestDeploymentApplyRejectsTransferReceiptWithoutImportLink(t *testing.T) {
 	}
 }
 
+func TestDeploymentApplyRejectsMissingScanReceiptForAirGappedBundle(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, directory, now)
+	paths = removeFlag(paths, "--scan-receipt")
+	originalFactory := newKubernetesExecutor
+	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
+	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
+		t.Fatal("executor reached without scan receipt chain")
+		return nil, nil
+	}
+	args := append(paths, "--confirm-authorization", authorization.Metadata.AuthorizationID, "--name", "receipt", "--receipt-output", filepath.Join(directory, "receipt.yaml"), "--audit-output", filepath.Join(directory, "apply.audit.jsonl"))
+	var stdout, stderr bytes.Buffer
+	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitInfeasible {
+		t.Fatalf("missing scan receipt exit=%d stdout=%s", exit, stdout.String())
+	}
+}
+
+func TestDeploymentApplyRejectsScanReceiptWithoutTransferLink(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	paths, authorization := writeExecutionInputs(t, directory, now)
+	scanPath := valueForFlag(paths, "--scan-receipt")
+	scanReceipt, err := resources.LoadArtifactScanReceipt(scanPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanReceipt.Spec.PriorReceiptIDs = []string{testCLIDigest('f')}
+	scanReceipt, err = scanReceipt.AssignScanReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeYAMLFixture(t, scanPath, scanReceipt)
+	originalFactory := newKubernetesExecutor
+	t.Cleanup(func() { newKubernetesExecutor = originalFactory })
+	newKubernetesExecutor = func(string, string) (kubernetesExecutor, error) {
+		t.Fatal("executor reached with invalid scan receipt chain")
+		return nil, nil
+	}
+	args := append(paths, "--confirm-authorization", authorization.Metadata.AuthorizationID, "--name", "receipt", "--receipt-output", filepath.Join(directory, "receipt.yaml"), "--audit-output", filepath.Join(directory, "apply.audit.jsonl"))
+	var stdout, stderr bytes.Buffer
+	if exit := applyKubernetesDeploymentAt(args, &stdout, &stderr, func() time.Time { return now.Add(3 * time.Minute) }); exit != ExitInfeasible {
+		t.Fatalf("broken scan chain exit=%d stdout=%s", exit, stdout.String())
+	}
+}
+
 func writeExecutionInputs(t *testing.T, directory string, now time.Time) ([]string, resources.ExecutionAuthorization) {
 	t.Helper()
 	bundlePath := writeKubernetesBundle(t, directory)
@@ -293,7 +339,33 @@ func writeExecutionInputs(t *testing.T, directory string, now time.Time) ([]stri
 	}
 	transferPath := filepath.Join(directory, "transfer-receipt.yaml")
 	writeYAMLFixture(t, transferPath, transferReceipt)
-	return []string{"--bundle", bundlePath, "--preflight", preflightPath, "--change-set", changeSetPath, "--approval", approvalPath, "--import-receipt", importPath, "--transfer-receipt", transferPath, "--authorization", authorizationPath, "--public-key", publicPath}, authorization
+	scanReceipt := resources.ArtifactScanReceipt{
+		APIVersion: resources.APIVersion,
+		Kind:       "ArtifactScanReceipt",
+		Metadata: resources.ArtifactScanReceiptMetadata{
+			Name: "reference-scan",
+		},
+		Spec: resources.ArtifactScanReceiptSpec{
+			RecordedAt:      now.Add(100 * time.Second).Format(time.RFC3339Nano),
+			PlanID:          bundle.Spec.PlanID,
+			BundleID:        bundle.Metadata.BundleID,
+			CatalogDigest:   bundle.Spec.CatalogDigest,
+			Target:          target,
+			Scanner:         resources.ScanToolIdentity{Name: "trivy", Version: "0.53.0", Profile: "offline-policy-default", PolicyDigest: testCLIDigest('9')},
+			Verdict:         "passed",
+			ReasonReference: "ticket-scan",
+			PriorReceiptIDs: []string{transferReceipt.Metadata.TransferReceiptID},
+			ModelArtifacts:  importReceipt.Spec.ModelArtifacts,
+			Limitations:     []string{"Scan evidence excludes raw scanner output and findings payloads."},
+		},
+	}
+	scanReceipt, err = scanReceipt.AssignScanReceiptID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanPath := filepath.Join(directory, "scan-receipt.yaml")
+	writeYAMLFixture(t, scanPath, scanReceipt)
+	return []string{"--bundle", bundlePath, "--preflight", preflightPath, "--change-set", changeSetPath, "--approval", approvalPath, "--import-receipt", importPath, "--transfer-receipt", transferPath, "--scan-receipt", scanPath, "--authorization", authorizationPath, "--public-key", publicPath}, authorization
 }
 
 func testModelArtifact(t *testing.T, bundle resources.DeploymentBundle) resources.BundleArtifact {

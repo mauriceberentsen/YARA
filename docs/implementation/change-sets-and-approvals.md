@@ -159,6 +159,31 @@ go run ./cmd/yara artifact-transfer-receipt validate reference-stack.transfer-re
 
 For bundles whose embedded offline-acquisition policy marks air-gapped execution (`networkRequiredDuringAcquisition: true` and `networkAllowedDuringExecution: false`), `deployment apply kubernetes` now requires at least one transfer receipt that binds the same plan/bundle/catalog/target, exactly matches required model artifacts and forms a prior-receipt chain back to the `ArtifactImportReceipt`.
 
+`ArtifactScanReceipt` is a separate immutable scanner-verdict contract for exact transferred artifacts. Record it through:
+
+```bash
+go run ./cmd/yara artifact scan record \
+  --bundle reference-stack.kubernetes.bundle.yaml \
+  --transfer-receipt reference-stack.transfer-receipt.yaml \
+  --scanner-name trivy \
+  --scanner-version 0.53.0 \
+  --scanner-profile offline-policy-default \
+  --policy-digest sha256:<policy-id> \
+  --verdict passed \
+  --reason-reference ticket-scan-123 \
+  --name reference-stack-scan \
+  --output reference-stack.scan-receipt.yaml \
+  --audit-output reference-stack.scan-receipt.audit.jsonl
+```
+
+Validate it through:
+
+```bash
+go run ./cmd/yara artifact-scan-receipt validate reference-stack.scan-receipt.yaml
+```
+
+For air-gapped policy bundles, apply now additionally requires at least one passed scan receipt bound to the same plan/bundle/catalog/target, exact model artifact identities, and a prior-receipt chain that references accepted transfer receipts.
+
 ## Separate authorized retirement
 
 Retirement is a separate delete-only path and never extends ordinary apply with prune behavior:
@@ -230,7 +255,7 @@ Change-set generation and approval recording require audit output and remove gen
 ## Remaining lifecycle work after initial apply
 
 - short-lived Kubernetes credential issuance remains operator-managed;
-- acquisition/import execution remains out of scope; apply consumes separate import and transfer receipts and re-verifies model-PVC file digests;
+- acquisition/import/scanning execution remains out of scope; apply consumes separate import, transfer and scan receipts and re-verifies model-PVC file digests;
 - verifier-label admission governance remains an explicit limitation;
 - safe owned rollback and retirement are implemented as separate authorization and executor paths;
 - clean-cluster namespace, storage and model provisioning remain outside the first executor.

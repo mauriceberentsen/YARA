@@ -103,6 +103,10 @@ func LoadArtifactTransferReceipt(path string) (ArtifactTransferReceipt, error) {
 	return loadResource[ArtifactTransferReceipt](path)
 }
 
+func LoadArtifactScanReceipt(path string) (ArtifactScanReceipt, error) {
+	return loadResource[ArtifactScanReceipt](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)
