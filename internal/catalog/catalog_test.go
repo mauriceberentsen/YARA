@@ -110,6 +110,32 @@ func TestContractTargetResolvesBoundedArtifactsAndReturnsCopies(t *testing.T) {
 	}
 }
 
+func TestDeploymentTopologyResolvesExactReferenceAndReturnsCopies(t *testing.T) {
+	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"))
+	if err != nil {
+		t.Fatalf("load curated catalog: %v", err)
+	}
+	topology, ok := snapshot.DeploymentTopology("core.local-chat-coding-vllm@1.0.0")
+	if !ok {
+		t.Fatal("expected deployment topology")
+	}
+	if topology.Ref != "core.local-chat-coding-vllm@1.0.0" || len(topology.Roles) < 2 || len(topology.Connections) == 0 {
+		t.Fatalf("unexpected topology projection: %#v", topology)
+	}
+	topology.Roles[0].Role = "mutated"
+	topology.Connections[0].Contract = "mutated"
+	again, ok := snapshot.DeploymentTopology("core.local-chat-coding-vllm@1.0.0")
+	if !ok {
+		t.Fatal("expected deployment topology on second fetch")
+	}
+	if again.Roles[0].Role == "mutated" || again.Connections[0].Contract == "mutated" {
+		t.Fatal("deployment topology projection returned shared mutable slices")
+	}
+	if _, ok := snapshot.DeploymentTopology("topology.private-chat-coding@latest"); ok {
+		t.Fatal("non-exact topology reference unexpectedly resolved")
+	}
+}
+
 func TestDeploymentProjectionsRequireExactVersionsAndReturnCopies(t *testing.T) {
 	snapshot, err := Load(filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml"))
 	if err != nil {

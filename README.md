@@ -324,6 +324,7 @@ Currently implemented:
 - open-world compatibility governance where explicit negative evidence overrides positive claims and conflicts are quarantined;
 - a deterministic, content-addressed catalog coverage report that accepts only exact-catalog contract results with verified adjacent audit chains and exposes every missing promotion gate;
 - a strict component/topology integration result contract whose validation audit cannot be mistaken for execution evidence;
+- bounded integration execution commands for `component-smoke` and `topology-end-to-end` that emit content-addressed evidence with dedicated execution audit actions;
 - a pure versioned Docker Compose renderer for the exact LiteLLM/vLLM topology, producing pinned files, artifact/license inventory, checks, limitations and a fail-closed render audit;
 - a pure Kubernetes/GitOps renderer for the same exact topology plus content-addressed read-only target preflight and object-level change-set observation;
 - review-only deployment approvals, short-lived signed execution authorization and a fail-closed direct Kubernetes executor producing deployment receipts;

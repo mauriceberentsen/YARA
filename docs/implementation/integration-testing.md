@@ -35,7 +35,31 @@ Coverage accepts an integration result only when an adjacent audit chain:
 4. ends in the matching `integration.component-smoke.*` or `integration.topology-end-to-end.*` execution action;
 5. records an outcome consistent with the result checks.
 
-The execution command that produces this evidence is the next implementation boundary. Until it exists, catalog entries may be expanded as `known` knowledge, but component and topology coverage correctly remains missing.
+Generate bounded execution evidence with explicit immutable catalog confirmation:
+
+```bash
+go run ./cmd/yara integration component-smoke \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --target local \
+  --component core.litellm@1.93.0 \
+  --confirm-catalog-digest sha256:<catalog-digest> \
+  --name litellm-smoke \
+  --output litellm-smoke.integration.yaml \
+  --audit-output litellm-smoke.integration.audit.jsonl
+
+go run ./cmd/yara integration topology-end-to-end \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --target local \
+  --topology core.local-chat-coding-vllm@1.0.0 \
+  --component core.litellm@1.93.0 \
+  --component core.vllm@0.8.5-post1 \
+  --confirm-catalog-digest sha256:<catalog-digest> \
+  --name private-chat-coding-e2e \
+  --output private-chat-coding.e2e.integration.yaml \
+  --audit-output private-chat-coding.e2e.integration.audit.jsonl
+```
+
+The execution path remains bounded: it validates exact catalog references, records pseudonymized local/SSH target facts, emits sorted content-addressed checks, and fails closed on audit persistence errors.
 
 ## Coverage semantics
 
