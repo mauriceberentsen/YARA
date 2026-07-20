@@ -166,7 +166,7 @@ The boundary command fails closed when:
 - it surfaces `publicationChainRehearsal` diagnostics in policy output for each inspected assertion;
 - it fails closed for assertion-scoped diagnostics when rehearsal evidence for that assertion is missing, stale, foreign, or unbound.
 
-When recording promotion reviews for assertions that require integration publication evidence, bind both the reviewed publication-chain rehearsal identity and the reviewed retention-diagnostics audit identity explicitly:
+When recording promotion reviews for assertions that require integration publication evidence, bind the reviewed publication-chain rehearsal identity, retention-diagnostics audit identity, and renewal-review identity explicitly:
 
 ```bash
 go run ./cmd/yara promotion review record \
@@ -180,6 +180,9 @@ go run ./cmd/yara promotion review record \
   --publication-chain-retention-audit publication-chain.retention.audit.jsonl \
   --confirm-publication-chain-retention-audit sha256:<publication-chain-retention-audit-head> \
   --max-retention-audit-age 720h \
+  --publication-chain-renewal-review publication-chain-renewal-review.yaml \
+  --confirm-publication-chain-renewal-review sha256:<publication-chain-renewal-review-id> \
+  --max-renewal-review-age 720h \
   --reviewer-role release-manager \
   --decision approved \
   --reason-reference ticket-promotion-review-123 \

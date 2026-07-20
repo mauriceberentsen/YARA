@@ -23,6 +23,8 @@ type promotionReviewOptions struct {
 	publicationChainRehearsalPath, confirmPublicationChainRehearsalID, maxRehearsalAge string
 	publicationChainRetentionAuditPath, confirmPublicationChainRetentionAuditHead      string
 	maxRetentionAuditAge                                                               string
+	publicationChainRenewalReviewPath, confirmPublicationChainRenewalReviewID          string
+	maxRenewalReviewAge                                                                string
 	selectedEvidence                                                                   csvFlag
 }
 
@@ -141,6 +143,41 @@ func recordPromotionReview(args []string, stdout, stderr io.Writer) int {
 		if !slices.Contains(selected, retentionHead) {
 			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-121", errors.New("selected evidence must include the bound publication-chain retention diagnostics audit identity"), ExitInfeasible)
 		}
+		if options.publicationChainRenewalReviewPath == "" || options.confirmPublicationChainRenewalReviewID == "" || options.maxRenewalReviewAge == "" {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-122", errors.New("assertions requiring integration publication evidence must provide --publication-chain-renewal-review --confirm-publication-chain-renewal-review and --max-renewal-review-age"), ExitInvalidInput)
+		}
+		renewalReview, err := resources.LoadPublicationChainRenewalReview(options.publicationChainRenewalReviewPath)
+		if err != nil || !renewalReview.Validate().Valid {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-123", errors.New("publication-chain renewal review evidence is invalid"), ExitInvalidInput)
+		}
+		subjects = append(subjects, audit.Subject{Kind: "PublicationChainRenewalReview", Digest: renewalReview.Metadata.ReviewID})
+		if renewalReview.Metadata.ReviewID != options.confirmPublicationChainRenewalReviewID {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-124", errors.New("explicit publication-chain renewal review confirmation mismatch"), ExitInfeasible)
+		}
+		if renewalReview.Spec.CatalogDigest != catalogDigest || renewalReview.Spec.AssertionRef != options.assertionRef {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-125", errors.New("publication-chain renewal review evidence is foreign to selected assertion scope"), ExitInfeasible)
+		}
+		if renewalReview.Spec.Decision != resources.PromotionDecisionApproved {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-126", errors.New("publication-chain renewal review evidence must be approved"), ExitInfeasible)
+		}
+		if renewalReview.Spec.PublicationChainRehearsalID != rehearsal.Metadata.RehearsalID || renewalReview.Spec.PublicationChainRetentionAuditHead != retentionHead {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-127", errors.New("publication-chain renewal review is not bound to selected rehearsal and retention identities"), ExitInfeasible)
+		}
+		maxRenewalReviewAge, err := time.ParseDuration(options.maxRenewalReviewAge)
+		if err != nil || maxRenewalReviewAge <= 0 {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-128", errors.New("max-renewal-review-age must be a positive duration"), ExitInvalidInput)
+		}
+		renewalReviewedAt, err := time.Parse(time.RFC3339Nano, renewalReview.Spec.ReviewedAt)
+		if err != nil {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-123", errors.New("publication-chain renewal review timestamp is invalid"), ExitInvalidInput)
+		}
+		now = time.Now().UTC()
+		if renewalReviewedAt.After(now) || now.Sub(renewalReviewedAt) > maxRenewalReviewAge {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-129", errors.New("publication-chain renewal review evidence is stale for promotion review"), ExitInfeasible)
+		}
+		if !slices.Contains(selected, renewalReview.Metadata.ReviewID) {
+			return writePromotionFailure(stdout, options.auditPath, target, subjects, "YARA-PRM-130", errors.New("selected evidence must include the bound publication-chain renewal review identity"), ExitInfeasible)
+		}
 	}
 	actorID, assurance := localActor()
 	review := resources.PromotionReview{
@@ -215,6 +252,9 @@ func parsePromotionReviewOptions(args []string, stderr io.Writer) (promotionRevi
 	flags.StringVar(&options.publicationChainRetentionAuditPath, "publication-chain-retention-audit", "", "Validated publication-chain retention diagnostics audit JSONL file")
 	flags.StringVar(&options.confirmPublicationChainRetentionAuditHead, "confirm-publication-chain-retention-audit", "", "Exact publication-chain retention diagnostics audit head digest")
 	flags.StringVar(&options.maxRetentionAuditAge, "max-retention-audit-age", "", "Maximum age allowed for publication-chain retention diagnostics audit evidence")
+	flags.StringVar(&options.publicationChainRenewalReviewPath, "publication-chain-renewal-review", "", "Validated PublicationChainRenewalReview file")
+	flags.StringVar(&options.confirmPublicationChainRenewalReviewID, "confirm-publication-chain-renewal-review", "", "Exact publication-chain renewal review ID confirmation")
+	flags.StringVar(&options.maxRenewalReviewAge, "max-renewal-review-age", "", "Maximum age allowed for publication-chain renewal review evidence")
 	flags.StringVar(&options.reviewerRole, "reviewer-role", "", "Independent reviewer role")
 	flags.StringVar(&options.decision, "decision", "", "Review decision: approved|changes-required|abstained")
 	flags.StringVar(&options.reasonReference, "reason-reference", "", "Non-secret review reason reference")

@@ -19,6 +19,9 @@ func TestPromotionReviewRecordWritesReviewAndAudit(t *testing.T) {
 	rehearsalPath := filepath.Join(directory, "publication-chain-rehearsal.yaml")
 	writeYAMLFixture(t, rehearsalPath, rehearsal)
 	retentionAuditPath, retentionHead := publicationChainRetentionAuditFixture(t, catalogPath, "compat.vllm-qwen-coder-7b-awq-gb10", rehearsalPath, directory)
+	renewalReview := publicationChainRenewalReviewFixture(t, catalogDigest, "compat.vllm-qwen-coder-7b-awq-gb10", rehearsal.Metadata.RehearsalID, retentionHead)
+	renewalReviewPath := filepath.Join(directory, "publication-chain-renewal-review.yaml")
+	writeYAMLFixture(t, renewalReviewPath, renewalReview)
 	outputPath := filepath.Join(directory, "promotion-review.yaml")
 	auditPath := filepath.Join(directory, "promotion-review.audit.jsonl")
 	args := []string{
@@ -28,12 +31,16 @@ func TestPromotionReviewRecordWritesReviewAndAudit(t *testing.T) {
 		"--evidence", testCLIDigest('a'),
 		"--evidence", rehearsal.Metadata.RehearsalID,
 		"--evidence", retentionHead,
+		"--evidence", renewalReview.Metadata.ReviewID,
 		"--publication-chain-rehearsal", rehearsalPath,
 		"--confirm-publication-chain-rehearsal", rehearsal.Metadata.RehearsalID,
 		"--max-rehearsal-age", "720h",
 		"--publication-chain-retention-audit", retentionAuditPath,
 		"--confirm-publication-chain-retention-audit", retentionHead,
 		"--max-retention-audit-age", "720h",
+		"--publication-chain-renewal-review", renewalReviewPath,
+		"--confirm-publication-chain-renewal-review", renewalReview.Metadata.ReviewID,
+		"--max-renewal-review-age", "720h",
 		"--reviewer-role", "release-manager",
 		"--decision", "approved",
 		"--reason-reference", "ticket-promotion-1",
@@ -160,7 +167,48 @@ func TestPromotionReviewRecordRejectsStaleRetentionAuditBinding(t *testing.T) {
 	rehearsalPath := filepath.Join(directory, "publication-chain-rehearsal.yaml")
 	writeYAMLFixture(t, rehearsalPath, rehearsal)
 	retentionAuditPath, retentionHead := publicationChainRetentionAuditFixture(t, catalogPath, "compat.vllm-qwen-coder-7b-awq-gb10", rehearsalPath, directory)
+	renewalReview := publicationChainRenewalReviewFixture(t, catalogDigest, "compat.vllm-qwen-coder-7b-awq-gb10", rehearsal.Metadata.RehearsalID, retentionHead)
+	renewalReviewPath := filepath.Join(directory, "publication-chain-renewal-review.yaml")
+	writeYAMLFixture(t, renewalReviewPath, renewalReview)
 	time.Sleep(10 * time.Millisecond)
+	auditPath := filepath.Join(directory, "promotion-review.audit.jsonl")
+	args := []string{
+		"promotion", "review", "record",
+		"--catalog", catalogPath,
+		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
+		"--evidence", rehearsal.Metadata.RehearsalID,
+		"--evidence", retentionHead,
+		"--evidence", renewalReview.Metadata.ReviewID,
+		"--publication-chain-rehearsal", rehearsalPath,
+		"--confirm-publication-chain-rehearsal", rehearsal.Metadata.RehearsalID,
+		"--max-rehearsal-age", "720h",
+		"--publication-chain-retention-audit", retentionAuditPath,
+		"--confirm-publication-chain-retention-audit", retentionHead,
+		"--max-retention-audit-age", "1ns",
+		"--publication-chain-renewal-review", renewalReviewPath,
+		"--confirm-publication-chain-renewal-review", renewalReview.Metadata.ReviewID,
+		"--max-renewal-review-age", "720h",
+		"--reviewer-role", "release-manager",
+		"--decision", "approved",
+		"--reason-reference", "ticket-promotion-retention-stale",
+		"--name", "stale-retention-binding",
+		"--output", filepath.Join(directory, "promotion-review.yaml"),
+		"--audit-output", auditPath,
+	}
+	var stdout, stderr bytes.Buffer
+	if exit := Run(args, &stdout, &stderr); exit != ExitInfeasible {
+		t.Fatalf("stale retention audit binding should fail infeasible: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestPromotionReviewRecordRejectsMissingRenewalReviewBinding(t *testing.T) {
+	directory := t.TempDir()
+	catalogPath := filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml")
+	catalogDigest := "sha256:0f7062b289e322a1c676cc52282cb9b0c816894bb3452535b790290e94ca0241"
+	rehearsal := publicationChainRehearsalFixture(t, catalogDigest, "compat.vllm-qwen-coder-7b-awq-gb10", time.Now().UTC().Add(-30*time.Minute).Format(time.RFC3339Nano), resources.PromotionDecisionApproved)
+	rehearsalPath := filepath.Join(directory, "publication-chain-rehearsal.yaml")
+	writeYAMLFixture(t, rehearsalPath, rehearsal)
+	retentionAuditPath, retentionHead := publicationChainRetentionAuditFixture(t, catalogPath, "compat.vllm-qwen-coder-7b-awq-gb10", rehearsalPath, directory)
 	auditPath := filepath.Join(directory, "promotion-review.audit.jsonl")
 	args := []string{
 		"promotion", "review", "record",
@@ -173,17 +221,17 @@ func TestPromotionReviewRecordRejectsStaleRetentionAuditBinding(t *testing.T) {
 		"--max-rehearsal-age", "720h",
 		"--publication-chain-retention-audit", retentionAuditPath,
 		"--confirm-publication-chain-retention-audit", retentionHead,
-		"--max-retention-audit-age", "1ns",
+		"--max-retention-audit-age", "720h",
 		"--reviewer-role", "release-manager",
 		"--decision", "approved",
-		"--reason-reference", "ticket-promotion-retention-stale",
-		"--name", "stale-retention-binding",
+		"--reason-reference", "ticket-promotion-renewal-missing",
+		"--name", "missing-renewal-binding",
 		"--output", filepath.Join(directory, "promotion-review.yaml"),
 		"--audit-output", auditPath,
 	}
 	var stdout, stderr bytes.Buffer
-	if exit := Run(args, &stdout, &stderr); exit != ExitInfeasible {
-		t.Fatalf("stale retention audit binding should fail infeasible: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	if exit := Run(args, &stdout, &stderr); exit != ExitInvalidInput {
+		t.Fatalf("missing renewal review binding should fail invalid input: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }
 
@@ -246,6 +294,47 @@ func publicationChainRehearsalFixture(t *testing.T, catalogDigest, assertionRef,
 	assigned, err := rehearsal.AssignRehearsalID()
 	if err != nil {
 		t.Fatalf("assign promotion rehearsal id: %v", err)
+	}
+	return assigned
+}
+
+func publicationChainRenewalReviewFixture(t *testing.T, catalogDigest, assertionRef, rehearsalID, retentionAuditHead string) resources.PublicationChainRenewalReview {
+	t.Helper()
+	review := resources.PublicationChainRenewalReview{
+		APIVersion: resources.APIVersion,
+		Kind:       "PublicationChainRenewalReview",
+		Metadata: resources.PublicationChainRenewalReviewMeta{
+			Name: "promotion-renewal-review-fixture",
+		},
+		Spec: resources.PublicationChainRenewalReviewSpec{
+			ReviewedAt:                          time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339Nano),
+			ExpiresAt:                           time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano),
+			CatalogDigest:                       catalogDigest,
+			AssertionRef:                        assertionRef,
+			PublicationChainRehearsalID:         rehearsalID,
+			PublicationChainRetentionAuditHead:  retentionAuditHead,
+			PromotionReviewID:                   testCLIDigest('7'),
+			LifecycleProofApprovalID:            testCLIDigest('8'),
+			IntegrationPublicationAttestationID: testCLIDigest('9'),
+			SelectedEvidence:                    []string{rehearsalID, retentionAuditHead, testCLIDigest('7'), testCLIDigest('8'), testCLIDigest('9')},
+			Reviewer: resources.ReviewerRecord{
+				Identity:  "local:reviewer",
+				Role:      "release-manager",
+				Assurance: "self-asserted-local",
+			},
+			Decision:        resources.PromotionDecisionApproved,
+			ReasonReference: "ticket-renewal-review-fixture-123",
+			MaxEvidenceAge:  "720h",
+			Limitations: []string{
+				"Promotion review renewal fixture is non-mutating.",
+			},
+		},
+	}
+	slices.Sort(review.Spec.SelectedEvidence)
+	slices.Sort(review.Spec.Limitations)
+	assigned, err := review.AssignReviewID()
+	if err != nil {
+		t.Fatalf("assign renewal review fixture id: %v", err)
 	}
 	return assigned
 }
