@@ -37,6 +37,12 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 			DeduplicatedCount    int  `json:"deduplicatedCount"`
 			DeduplicationApplied bool `json:"deduplicationApplied"`
 		} `json:"integrationEvidenceConvergence"`
+		SigningAuthorityBoundary struct {
+			Status         string `json:"status"`
+			OverlapCount   int    `json:"overlapCount"`
+			AmbiguityCount int    `json:"ambiguityCount"`
+			Evaluated      bool   `json:"evaluated"`
+		} `json:"signingAuthorityBoundary"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -46,6 +52,9 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 	}
 	if response.IntegrationEvidenceConvergence.IdentityCount != 0 || response.IntegrationEvidenceConvergence.DeduplicatedCount != 0 || response.IntegrationEvidenceConvergence.DeduplicationApplied {
 		t.Fatalf("unexpected integration convergence diagnostics for v0.2 fixtures: %#v", response.IntegrationEvidenceConvergence)
+	}
+	if response.SigningAuthorityBoundary.Status != "not-evaluated" || response.SigningAuthorityBoundary.OverlapCount != 0 || response.SigningAuthorityBoundary.AmbiguityCount != 0 || response.SigningAuthorityBoundary.Evaluated {
+		t.Fatalf("unexpected signing authority boundary diagnostics for v0.2 fixtures: %#v", response.SigningAuthorityBoundary)
 	}
 	report, err := catalogcoverage.Load(outputPath)
 	if err != nil {
@@ -148,6 +157,12 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 			DeduplicatedCount    int  `json:"deduplicatedCount"`
 			DeduplicationApplied bool `json:"deduplicationApplied"`
 		} `json:"integrationEvidenceConvergence"`
+		SigningAuthorityBoundary struct {
+			Status         string `json:"status"`
+			OverlapCount   int    `json:"overlapCount"`
+			AmbiguityCount int    `json:"ambiguityCount"`
+			Evaluated      bool   `json:"evaluated"`
+		} `json:"signingAuthorityBoundary"`
 		Taxonomy []catalogcoverage.LifecyclePublicationBlockerDefinition `json:"taxonomy"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
@@ -170,6 +185,9 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 	}
 	if response.IntegrationEvidenceConvergence.IdentityCount != 0 || response.IntegrationEvidenceConvergence.DeduplicatedCount != 0 || response.IntegrationEvidenceConvergence.DeduplicationApplied {
 		t.Fatalf("unexpected integration convergence diagnostics for v0.2 policy response: %#v", response.IntegrationEvidenceConvergence)
+	}
+	if response.SigningAuthorityBoundary.Status != "not-evaluated" || response.SigningAuthorityBoundary.OverlapCount != 0 || response.SigningAuthorityBoundary.AmbiguityCount != 0 || response.SigningAuthorityBoundary.Evaluated {
+		t.Fatalf("unexpected signing authority boundary diagnostics for v0.2 policy response: %#v", response.SigningAuthorityBoundary)
 	}
 	events, err := audit.LoadJSONL(policyAuditPath)
 	if err != nil {
@@ -266,6 +284,77 @@ func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnMalformedConverge
 	var stdout, stderr bytes.Buffer
 	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
 		t.Fatalf("expected internal error for malformed convergence limitation record, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnMalformedSigningAuthorityBoundaryLimitation(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	report, err := catalogcoverage.Load(outputPath)
+	if err != nil {
+		t.Fatalf("load report: %v", err)
+	}
+	filtered := make([]string, 0, len(report.Spec.Limitations))
+	for _, limitation := range report.Spec.Limitations {
+		if strings.HasPrefix(limitation, "signing-authority-boundary:") {
+			filtered = append(filtered, "signing-authority-boundary:status=overlap,overlap-count=0,ambiguity-count=0")
+			continue
+		}
+		filtered = append(filtered, limitation)
+	}
+	report.Spec.Limitations = filtered
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	reportData, err := yaml.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(outputPath, reportData, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
+		t.Fatalf("expected internal error for malformed signing-authority boundary limitation record, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnDuplicateSigningAuthorityBoundaryLimitations(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	report, err := catalogcoverage.Load(outputPath)
+	if err != nil {
+		t.Fatalf("load report: %v", err)
+	}
+	report.Spec.Limitations = append(report.Spec.Limitations, "signing-authority-boundary:status=not-evaluated,overlap-count=0,ambiguity-count=0")
+	slices.Sort(report.Spec.Limitations)
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	reportData, err := yaml.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(outputPath, reportData, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
+		t.Fatalf("expected internal error for duplicate signing-authority boundary limitation record, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
 	}
 }
 

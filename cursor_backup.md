@@ -59,6 +59,9 @@
   - `catalog coverage signing-authority-boundary` now emits bounded publication diagnostics proving gate-evaluation signer authority is independent from deployment-authorization issuers;
   - signing-authority boundary diagnostics now fail closed on key-material overlap (`publicKeyDigest`) between active gate signers and authorization issuers;
   - signing-authority boundary diagnostics now fail closed on ambiguous key-role reuse (same key ID with different digests or same digest with different key IDs across role evidence) without exposing secret key material.
+  - catalog coverage report limitations now encode deterministic signing-authority boundary state (`signing-authority-boundary:status=...,overlap-count=...,ambiguity-count=...`);
+  - `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now emit one shared explainability surface covering lifecycle readiness, integration convergence, and signing-authority boundary limitation state;
+  - policy diagnostics now fail closed when signing-authority boundary limitation records are missing, duplicated, malformed, or internally inconsistent.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -99,6 +102,7 @@
   - lifecycle publication blocker taxonomy now includes deterministic remediation-coded integration attestation blocker classes;
   - publication-facing signing-authority boundary diagnostics are now available through a bounded audited CLI path requiring immutable coverage report, trust-policy, and execution-authorization evidence;
   - signing-authority boundary diagnostics remain deterministic and non-secret while rejecting overlapping or ambiguous signer/issuer role bindings;
+  - publication diagnostics now preserve deterministic parity between create and lifecycle-policy outputs for lifecycle, integration convergence, and signing-authority boundary explainability fields;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -135,13 +139,13 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by eight commits before this uncommitted work).
-- Recent commits before this slice (newest first): `10de4ec`, `86c7a32`, `07b8dba`, `f3ddebb`, `f737bfe`.
-- This slice closes Phase 4 signing-authority boundary diagnostics between gate-evaluation signers and deployment authorization issuers.
+- Branch: `main` tracking `origin/main` (local ahead by nine commits before this uncommitted work).
+- Recent commits before this slice (newest first): `3ff1b5d`, `10de4ec`, `86c7a32`, `07b8dba`, `f3ddebb`.
+- This slice closes Phase 4 publication policy explainability and report-limitation diagnostics convergence.
 - Phase 4 milestone plan now tracks three ordered slices:
   - slice 1 completed: audited integration publication attestation closure for required publication diagnostics;
-  - slice 2 completed in this run: independent signing-authority boundary diagnostics closure with fail-closed overlap/ambiguity rejection;
-  - slice 3 pending: converge publication policy explainability and report-limitation diagnostics for the full lifecycle+integration attestation chain.
+  - slice 2 completed: independent signing-authority boundary diagnostics closure with fail-closed overlap/ambiguity rejection;
+  - slice 3 completed in this run: publication policy explainability and report-limitation diagnostics convergence.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -154,16 +158,16 @@
 
 ## Next implementation slice
 
-Implement **Phase 4 milestone completion: publication policy explainability and report-limitation diagnostics convergence**:
+Implement **Phase 5 milestone kickoff: publication-chain active verification rehearsal closure**:
 
-- extend publication-policy diagnostics so lifecycle, integration convergence, and signing-authority boundary evidence are emitted in one deterministic explainability surface;
-- add deterministic report-limitation encoding and fail-closed parsing for signing-authority boundary state so `create` and policy-diagnostics outputs remain parity-safe;
-- preserve immutable content-addressed evidence bindings and non-secret durable evidence boundaries while keeping mutation authority unchanged.
+- add a bounded rehearsal command that verifies one complete publication chain identity set (lifecycle proof approval + integration publication attestation + signing-authority boundary evidence) without mutation authority;
+- emit immutable rehearsal evidence with deterministic fail-closed checks for stale, foreign, or inconsistent publication-chain bindings;
+- surface concise publication-chain readiness diagnostics suitable for pre-live promotion review while preserving non-secret durable evidence boundaries.
 
 Acceptance criteria:
 
-- publication diagnostics expose deterministic combined lifecycle+integration+signing-authority boundary state without introducing secret-bearing evidence;
-- report limitation encoding and policy diagnostic parsing fail closed on malformed, duplicate, or ambiguous signing-authority boundary records;
+- publication-chain rehearsal fails closed when lifecycle, integration, or signer-boundary evidence is stale, foreign, or unbound to one catalog assertion scope;
+- publication diagnostics remain deterministic and non-secret while exposing bounded publication-chain readiness state for review;
 - lifecycle and integration publication diagnostics remain deterministic and non-secret with no mutation authority added;
 - lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;

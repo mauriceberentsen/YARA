@@ -45,6 +45,13 @@ type integrationEvidenceConvergence struct {
 	DeduplicationApplied bool `json:"deduplicationApplied"`
 }
 
+type signingAuthorityBoundaryConvergence struct {
+	Status         string `json:"status"`
+	OverlapCount   int    `json:"overlapCount"`
+	AmbiguityCount int    `json:"ambiguityCount"`
+	Evaluated      bool   `json:"evaluated"`
+}
+
 type signingAuthorityBoundary struct {
 	Status                   string   `json:"status"`
 	GateSignerCount          int      `json:"gateSignerCount"`
@@ -91,6 +98,11 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 		_ = os.Remove(options.outputPath)
 		return writeCatalogCoverageFailure(stdout, options, []audit.Subject{catalogSubject, reportSubject}, "YARA-COV-500", err, ExitInternal)
 	}
+	signingBoundary, err := signingAuthorityBoundaryFromReport(report)
+	if err != nil {
+		_ = os.Remove(options.outputPath)
+		return writeCatalogCoverageFailure(stdout, options, []audit.Subject{catalogSubject, reportSubject}, "YARA-COV-500", err, ExitInternal)
+	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(map[string]any{
@@ -99,6 +111,7 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 		"lifecyclePublicationReadyAssertions":   report.Spec.Summary.LifecyclePublicationReadyAssertions,
 		"lifecyclePublicationBlockedAssertions": report.Spec.Summary.LifecyclePublicationBlockedAssertions,
 		"integrationEvidenceConvergence":        convergence,
+		"signingAuthorityBoundary":              signingBoundary,
 	}); err != nil {
 		return ExitInternal
 	}
@@ -125,6 +138,10 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-007", errors.New("assertion is not present in catalog coverage report"), ExitInvalidInput)
 	}
 	convergence, err := integrationEvidenceConvergenceFromReport(report)
+	if err != nil {
+		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
+	}
+	signingBoundary, err := signingAuthorityBoundaryFromReport(report)
 	if err != nil {
 		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
 	}
@@ -158,6 +175,7 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		"lifecyclePublicationReadyAssertions":   report.Spec.Summary.LifecyclePublicationReadyAssertions,
 		"lifecyclePublicationBlockedAssertions": report.Spec.Summary.LifecyclePublicationBlockedAssertions,
 		"integrationEvidenceConvergence":        convergence,
+		"signingAuthorityBoundary":              signingBoundary,
 		"blockedAssertions":                     blocked,
 		"taxonomy":                              catalogcoverage.LifecyclePublicationBlockerTaxonomy(),
 		"auditOutput":                           options.auditPath,
@@ -319,6 +337,82 @@ func integrationEvidenceConvergenceFromReport(report catalogcoverage.Report) (in
 		IdentityCount:        identityCount,
 		DeduplicatedCount:    deduplicatedCount,
 		DeduplicationApplied: deduplicatedCount > 0,
+	}, nil
+}
+
+func signingAuthorityBoundaryFromReport(report catalogcoverage.Report) (signingAuthorityBoundaryConvergence, error) {
+	const prefix = "signing-authority-boundary:"
+	found := ""
+	for _, limitation := range report.Spec.Limitations {
+		if strings.HasPrefix(limitation, prefix) {
+			if found != "" {
+				return signingAuthorityBoundaryConvergence{}, errors.New("catalog coverage report contains multiple signing-authority boundary limitation records")
+			}
+			found = limitation
+		}
+	}
+	if found == "" {
+		return signingAuthorityBoundaryConvergence{}, errors.New("catalog coverage report does not include signing-authority boundary limitation record")
+	}
+	body := strings.TrimPrefix(found, prefix)
+	parts := strings.Split(body, ",")
+	if len(parts) != 3 {
+		return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record is malformed")
+	}
+	values := map[string]string{}
+	for _, part := range parts {
+		keyValue := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(keyValue) != 2 {
+			return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record contains invalid key-value pairs")
+		}
+		key := strings.TrimSpace(keyValue[0])
+		if _, exists := values[key]; exists {
+			return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record contains duplicate keys")
+		}
+		values[key] = strings.TrimSpace(keyValue[1])
+	}
+	status, ok := values["status"]
+	if !ok {
+		return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record omits status")
+	}
+	if status != "not-evaluated" && status != "independent" && status != "overlap" && status != "ambiguous" {
+		return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record has unsupported status")
+	}
+	overlapValue, ok := values["overlap-count"]
+	if !ok {
+		return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record omits overlap-count")
+	}
+	overlapCount, err := strconv.Atoi(overlapValue)
+	if err != nil || overlapCount < 0 {
+		return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record has invalid overlap-count")
+	}
+	ambiguityValue, ok := values["ambiguity-count"]
+	if !ok {
+		return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record omits ambiguity-count")
+	}
+	ambiguityCount, err := strconv.Atoi(ambiguityValue)
+	if err != nil || ambiguityCount < 0 {
+		return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record has invalid ambiguity-count")
+	}
+	switch status {
+	case "not-evaluated", "independent":
+		if overlapCount != 0 || ambiguityCount != 0 {
+			return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record has inconsistent counts for status")
+		}
+	case "overlap":
+		if overlapCount == 0 || ambiguityCount != 0 {
+			return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record has inconsistent overlap status counts")
+		}
+	case "ambiguous":
+		if ambiguityCount == 0 {
+			return signingAuthorityBoundaryConvergence{}, errors.New("signing-authority boundary limitation record has inconsistent ambiguity status counts")
+		}
+	}
+	return signingAuthorityBoundaryConvergence{
+		Status:         status,
+		OverlapCount:   overlapCount,
+		AmbiguityCount: ambiguityCount,
+		Evaluated:      status != "not-evaluated",
 	}, nil
 }
 

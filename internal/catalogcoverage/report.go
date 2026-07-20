@@ -209,6 +209,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 				"Independent promotion review is represented but remains an external review step.",
 				"Integration validation alone is not execution evidence; component and topology coverage requires a matching execution audit chain.",
 				fmt.Sprintf("integration-evidence-convergence:identity-count=%d,deduplicated-count=%d", evidence.IntegrationIdentityCount, evidence.IntegrationDeduplicatedCount),
+				"signing-authority-boundary:status=not-evaluated,overlap-count=0,ambiguity-count=0",
 			},
 		},
 	}

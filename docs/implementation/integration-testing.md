@@ -161,6 +161,14 @@ The boundary command fails closed when:
 - key-role reuse is ambiguous (for example the same key ID appears with different digests across role evidence);
 - trust-policy or authorization evidence is malformed.
 
+`catalog coverage create` and `catalog coverage lifecycle-publication-policy` now emit a shared deterministic explainability surface across:
+
+- lifecycle publication readiness and blocker taxonomy;
+- integration evidence convergence (`identityCount`, `deduplicatedCount`);
+- signing-authority boundary report-limitation state (`status`, `overlapCount`, `ambiguityCount`, `evaluated`).
+
+Both commands fail closed when signing-authority boundary limitation records are missing, duplicated, malformed, or internally inconsistent.
+
 Canonical lifecycle publication blocker taxonomy:
 
 - `lifecycle-proof-approval-not-recorded` -> `record-lifecycle-proof-approval`
