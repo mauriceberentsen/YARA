@@ -1333,6 +1333,15 @@ function CapsuleView({ payload }) {
     releaseReadinessReference: "",
   }));
   const [closureSubmitState, setClosureSubmitState] = useState({ loading: false, error: "", result: null });
+  const [reviewGateForm, setReviewGateForm] = useState(() => ({
+    releaseReadinessReference: "",
+    reviewerReference: "",
+    decision: "approved",
+    markdownPath: workspacePath ? `${workspacePath}/workflow.closure-review-gate.md` : "",
+    jsonPath: workspacePath ? `${workspacePath}/workflow.closure-review-gate.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.closure-review-gate.export.audit.jsonl` : "",
+  }));
+  const [reviewGateSubmitState, setReviewGateSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1359,6 +1368,12 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.closure-package.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.closure-package.export.audit.jsonl`,
+    }));
+    setReviewGateForm((previous) => ({
+      ...previous,
+      markdownPath: previous.markdownPath || `${workspacePath}/workflow.closure-review-gate.md`,
+      jsonPath: previous.jsonPath || `${workspacePath}/workflow.closure-review-gate.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.closure-review-gate.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1477,6 +1492,39 @@ function CapsuleView({ payload }) {
       setClosureSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setClosureSubmitState({ loading: false, error: error.message || "Closure package export failed", result: null });
+    }
+  };
+  const updateReviewGate = (key) => (event) => {
+    setReviewGateForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportReviewGate = reviewGateForm.releaseReadinessReference.trim() !== "" &&
+    reviewGateForm.reviewerReference.trim() !== "" &&
+    reviewGateForm.decision.trim() !== "" &&
+    reviewGateForm.markdownPath !== "" &&
+    reviewGateForm.jsonPath !== "" &&
+    reviewGateForm.auditPath !== "" &&
+    reviewGateForm.markdownPath !== reviewGateForm.jsonPath &&
+    reviewGateForm.markdownPath !== reviewGateForm.auditPath &&
+    reviewGateForm.jsonPath !== reviewGateForm.auditPath;
+  const submitReviewGate = async (event) => {
+    event.preventDefault();
+    if (!canExportReviewGate) {
+      return;
+    }
+    setReviewGateSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/closure-package/review-gate/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(reviewGateForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Closure review gate export failed");
+      }
+      setReviewGateSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setReviewGateSubmitState({ loading: false, error: error.message || "Closure review gate export failed", result: null });
     }
   };
   return (
@@ -1648,6 +1696,49 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Evidence bundles</dt><dd>{String(closureSubmitState.result.evidenceBundleCount ?? 0)}</dd></div>
           <div><dt>Receipt timelines</dt><dd>{String(closureSubmitState.result.receiptTimelineCount ?? 0)}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure review gate</h3>
+      <form onSubmit={submitReviewGate}>
+        <div className="formRow">
+          <label htmlFor="review-gate-release-reference">Review gate release readiness reference</label>
+          <input id="review-gate-release-reference" value={reviewGateForm.releaseReadinessReference} onChange={updateReviewGate("releaseReadinessReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="review-gate-reviewer-reference">Reviewer reference</label>
+          <input id="review-gate-reviewer-reference" value={reviewGateForm.reviewerReference} onChange={updateReviewGate("reviewerReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="review-gate-decision">Decision</label>
+          <select id="review-gate-decision" value={reviewGateForm.decision} onChange={updateReviewGate("decision")}>
+            <option value="approved">approved</option>
+            <option value="blocked">blocked</option>
+          </select>
+        </div>
+        <div className="formRow">
+          <label htmlFor="review-gate-markdown-path">Markdown output path</label>
+          <input id="review-gate-markdown-path" value={reviewGateForm.markdownPath} onChange={updateReviewGate("markdownPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="review-gate-json-path">JSON output path</label>
+          <input id="review-gate-json-path" value={reviewGateForm.jsonPath} onChange={updateReviewGate("jsonPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="review-gate-audit-path">Audit output path</label>
+          <input id="review-gate-audit-path" value={reviewGateForm.auditPath} onChange={updateReviewGate("auditPath")} />
+        </div>
+        <button type="submit" disabled={reviewGateSubmitState.loading || !canExportReviewGate}>
+          {reviewGateSubmitState.loading ? "Exporting closure review gate..." : "Export closure review gate"}
+        </button>
+      </form>
+      {!canExportReviewGate && <p className="error">Closure review gate export requires references plus distinct markdown/json/audit paths.</p>}
+      {reviewGateSubmitState.error && <p className="error">Error: {reviewGateSubmitState.error}</p>}
+      {reviewGateSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Markdown path</dt><dd>{reviewGateSubmitState.result.markdownPath || "n/a"}</dd></div>
+          <div><dt>JSON path</dt><dd>{reviewGateSubmitState.result.jsonPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{reviewGateSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Outcome</dt><dd>{reviewGateSubmitState.result.outcome || "n/a"}</dd></div>
         </dl>
       )}
     </>

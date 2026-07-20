@@ -266,6 +266,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/closure-package/review-gate/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            markdownPath: requestPayload.markdownPath,
+            jsonPath: requestPayload.jsonPath,
+            auditPath: requestPayload.auditPath,
+            outcome: requestPayload.decision === "blocked" ? "blocked" : "passed",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -499,6 +511,10 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Release readiness reference"), { target: { value: "release-checklist-001" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure package" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.closure-package.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Review gate release readiness reference"), { target: { value: "release-checklist-001" } });
+    fireEvent.change(screen.getByLabelText("Reviewer reference"), { target: { value: "ticket-456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure review gate" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.closure-review-gate.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -574,6 +590,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-031", message: "YARA-CLS-003: evidence bundle and receipt timeline authorization continuity is mismatched", severity: "error" }],
         }), { status: 400 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/closure-package/review-gate/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-033", message: "YARA-RVG-006: closure package continuity is mismatched against current evidence bundle and receipt timeline exports", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -611,6 +633,10 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Release readiness reference"), { target: { value: "release-checklist-001" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure package" }));
     await waitFor(() => expect(screen.getByText(/continuity is mismatched/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Review gate release readiness reference"), { target: { value: "release-checklist-001" } });
+    fireEvent.change(screen.getByLabelText("Reviewer reference"), { target: { value: "ticket-456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure review gate" }));
+    await waitFor(() => expect(screen.getByText(/YARA-RVG-006/)).toBeInTheDocument());
   });
 
   it("fails closed on malformed drift payload", async () => {

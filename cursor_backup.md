@@ -1,7 +1,7 @@
 # Cursor handoff
 ## Current repository state
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
-- Recent commits (newest first): `843287b`, `3252d0e`, `88dcc81`, `f4bc3fc`, `efd79b3`.
+- Recent commits (newest first): `55b812b`, `843287b`, `3252d0e`, `88dcc81`, `f4bc3fc`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
@@ -56,6 +56,10 @@
   - `POST /api/v1/workflow/closure-package/export` persists deterministic closure package manifests + mandatory audit outputs that bind evidence-bundle, receipt-timeline, runbook, and capsule exports by immutable digests;
   - closure package export requires explicit `releaseReadinessReference` and fails closed on missing/malformed continuity artifacts or authorization/target digest mismatches (`YARA-CLS-*`);
   - capsule UI now supports closure package export actions and operator-facing blocker diagnostics for release handoff readiness.
+- Interactive workflow cockpit I15 is implemented:
+  - `GET /api/v1/workflow/closure-package/review-gate` evaluates the latest closure package against explicit `releaseReadinessReference`, `reviewerReference`, and `decision` gate inputs without mutation;
+  - `POST /api/v1/workflow/closure-package/review-gate/export` persists deterministic markdown/json review-gate artifacts plus mandatory audit outputs with workspace-bounded no-overwrite checks;
+  - review gate fails closed on malformed decision payloads, missing gate inputs, and closure continuity mismatches (`YARA-RVG-*`), and capsule UI now surfaces pass/blocked review gate diagnostics.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -66,9 +70,9 @@
 ## Current branch and working tree
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `POST /api/v1/workflow/closure-package/export` now writes deterministic closure package manifests + mandatory audit outputs to workspace-bounded paths;
-  - closure package export now requires `releaseReadinessReference` and fails closed on continuity mismatches across evidence-bundle and receipt-timeline chains;
-  - UI capsule panel now supports closure package export and surfaces manifest/audit paths plus closure continuity diagnostics.
+  - `GET /api/v1/workflow/closure-package/review-gate` now evaluates closure package readiness against explicit reviewer gate inputs with deterministic pass/blocked outcomes;
+  - `POST /api/v1/workflow/closure-package/review-gate/export` now writes deterministic review gate markdown/json plus mandatory audit outputs to workspace-bounded paths;
+  - UI capsule panel now supports review-gate export and surfaces artifact paths and fail-closed continuity/decision diagnostics.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui` and `git diff --check`;
@@ -77,7 +81,6 @@
 - Required git author for this stream: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 ## Open limitations and unproven claims
 - No live cluster validation was executed in this run; run validated release publication and artifacts only.
-- Web UI remains local-only in this stage (no auth, no multi-user/session); private-key signing still runs outside the server boundary.
 ## MVP-2 milestone path — Web UI
 - Running the UI: `yara serve --catalog catalog/v0.2/snapshot.yaml --coverage-report .yara/catalog-v0.2-coverage.yaml --ui --port 7474` then open `http://127.0.0.1:7474`.
 ## MVP-3 milestone path — Interactive Workflow Cockpit
@@ -94,24 +97,16 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 ### I5 — Approval form
 - `POST /api/v1/workflow/approval` + deterministic approval checklist/form/result with workspace-bounded outputs. Status: completed.
 ### I6 — Authorization CLI generator and apply confirmation
-- for authorization, the UI generates and displays the exact `yara authorization issue` CLI command with all workspace-resolved paths — the private key is never sent to the server;
-- once the authorization file appears in the workspace (operator runs the command externally), the UI detects it via `GET /api/v1/workspace` polling and advances to the apply stage;
-- new `POST /api/v1/workflow/apply` endpoint invokes `deployment apply kubernetes` only after the operator confirms via an explicit UI dialog that shows the full evidence chain (plan → bundle → preflight → change-set → approval → authorization digests) and requires typing the confirm-authorization hash;
+- UI renders deterministic `yara authorization issue` command (private key stays client-side), detects authorization artifact presence, and runs `POST /api/v1/workflow/apply` only after explicit evidence-chain confirmation.
 - Status: completed.
 ### I7 — Air-gap gate and provenance controls in apply cockpit
-- extend `POST /api/v1/workflow/apply` request/response coverage and UI to drive optional air-gap gate inputs (`airgapGateResultPath`, trust-policy confirmation, policy-diff/transition-review confirmations) with explicit fail-closed diagnostics;
-- expose deterministic transfer + scan receipt chain assistant fields in the UI with pre-submit validation and clear blocker remediation;
-- add end-to-end API/UI tests for optional gate paths (including destructive trust-policy transition review requirement) so cockpit behavior matches CLI policy gates exactly.
+- `POST /api/v1/workflow/apply` + UI support optional air-gap gate inputs with deterministic transfer/scan provenance helpers and fail-closed policy diagnostics.
 - Status: completed.
 ### I8 — Workflow execution runbook export
-- add `GET /api/v1/workflow/runbook` that emits a deterministic, redact-safe step list for plan→render→preflight→change-set→approval→authorization→apply using current workspace artifact paths and IDs;
-- include explicit fail-closed reminders for private-key handling, digest confirmation, and air-gap gate decision points;
-- extend UI with a runbook panel that operators can copy as a single artifact for review and controlled execution sessions.
+- add `GET /api/v1/workflow/runbook` + UI panel for deterministic, redact-safe plan→apply guidance with explicit fail-closed reminders.
 - Status: completed.
 ### I9 — Runbook artifact persistence
-- add `POST /api/v1/workflow/runbook/export` to persist the generated runbook markdown/JSON into workspace-bounded files with immutable naming conventions and audit output;
-- add UI action to export the active runbook and show resulting artifact/audit paths;
-- enforce fail-closed behavior for overwrite attempts and out-of-workspace export paths.
+- add `POST /api/v1/workflow/runbook/export` + UI action for deterministic runbook markdown/json/audit export with workspace-bounded no-overwrite fail-closed checks.
 - Status: completed.
 ### I10 — End-to-end cockpit execution capsule
 - add `GET /api/v1/workflow/capsule` plus UI capsule view to surface deterministic stage/evidence readiness, runbook export references, and blocker taxonomy with remediation.
@@ -130,16 +125,20 @@ Status: completed.
 - add `POST /api/v1/workflow/closure-package/export` + capsule UI action to persist deterministic closure manifests/audit outputs linking evidence-bundle, receipt-timeline, runbook, and capsule exports by immutable digest.
 - require explicit `releaseReadinessReference`; fail closed on missing/malformed/mismatched closure inputs or authorization/target continuity divergence with deterministic blocker codes.
 Status: completed.
+### I15 — Closure package review gate snapshot
+- add `GET /api/v1/workflow/closure-package/review-gate` and `POST /api/v1/workflow/closure-package/review-gate/export` with deterministic pass/blocked outcomes bound to closure package continuity and reviewer decision inputs.
+- enforce fail-closed behavior for malformed/missing gate fields and continuity mismatches; export markdown/json/audit outputs from capsule UI.
+Status: completed.
 ## Next implementation slice
-Implement **I15 — Closure package review gate snapshot**:
-- add `GET /api/v1/workflow/closure-package/review-gate` to evaluate the latest closure package against explicit reviewer gate inputs (`releaseReadinessReference`, `reviewerReference`, `decision`) without mutation;
-- add `POST /api/v1/workflow/closure-package/review-gate/export` to persist deterministic review gate json/markdown plus mandatory audit outputs with workspace-bounded no-overwrite semantics;
-- fail closed when closure package continuity is mismatched, required gate fields are missing, or decision payload is malformed;
-- extend capsule UI with review-gate export action and explicit pass/blocked handoff diagnostics.
+Implement **I16 — Release decision ledger export**:
+- add `POST /api/v1/workflow/release-decision/export` to persist a deterministic ledger entry that binds closure package + review gate digests, `releaseReadinessReference`, `reviewerReference`, and final decision metadata;
+- require explicit decision timestamp + operator reference and fail closed when referenced closure/review artifacts are missing or continuity chains diverge;
+- emit mandatory audit output with workspace-bounded no-overwrite semantics and deterministic blocker codes for decision publication failures;
+- extend capsule UI with release-decision export action and explicit "ready to publish / blocked" diagnostics.
 Acceptance criteria:
-- review gate endpoints/export produce deterministic pass/blocked gate artifacts linked to closure package continuity and release readiness references;
-- review gate flow fails closed on malformed decision payloads, missing reviewer references, continuity mismatches, and out-of-workspace or duplicate output paths;
-- UI review-gate export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
+- release-decision export writes deterministic ledger + audit artifacts bound to closure package and review gate continuity digests;
+- release-decision export fails closed on missing/malformed continuity inputs, invalid decision metadata, and out-of-workspace or duplicate output paths;
+- UI release-decision export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 ## Validation requirements
 Run at minimum for each slice:

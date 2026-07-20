@@ -1368,6 +1368,105 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.ReceiptTimelineCount = len(closurePackage.Package.ReceiptTimelines)
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/closure-package/review-gate", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow closure review gate requires --workspace")
+			return
+		}
+		releaseReadinessReference := strings.TrimSpace(request.URL.Query().Get("releaseReadinessReference"))
+		reviewerReference := strings.TrimSpace(request.URL.Query().Get("reviewerReference"))
+		decision := strings.TrimSpace(request.URL.Query().Get("decision"))
+		gate, _, err := evaluateWorkflowClosureReviewGate(workspacePath, releaseReadinessReference, reviewerReference, decision)
+		if err != nil {
+			status := http.StatusBadRequest
+			if gateErr, ok := err.(workflowGateError); ok {
+				status = gateErr.Status
+			}
+			writeServeError(writer, status, "YARA-SRV-032", err.Error())
+			return
+		}
+		writeServeJSON(writer, http.StatusOK, gate)
+	})
+	apiMux.HandleFunc("/api/v1/workflow/closure-package/review-gate/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow closure review gate export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowClosureReviewGateExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-033", err.Error())
+			return
+		}
+		markdownPath, err := ensureWorkspaceFilePath(workspacePath, payload.MarkdownPath, "markdownPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-033", err.Error())
+			return
+		}
+		jsonPath, err := ensureWorkspaceFilePath(workspacePath, payload.JSONPath, "jsonPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-033", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-033", err.Error())
+			return
+		}
+		if markdownPath == jsonPath || markdownPath == auditPath || jsonPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-033", "markdownPath, jsonPath and auditPath must be different files")
+			return
+		}
+		gate, subjects, err := evaluateWorkflowClosureReviewGate(workspacePath, payload.ReleaseReadinessReference, payload.ReviewerReference, payload.Decision)
+		if err != nil {
+			status := http.StatusBadRequest
+			if gateErr, ok := err.(workflowGateError); ok {
+				status = gateErr.Status
+			}
+			writeServeError(writer, status, "YARA-SRV-033", err.Error())
+			return
+		}
+		markdownBytes := []byte(renderClosureReviewGateMarkdown(gate) + "\n")
+		if err := writeExclusive(markdownPath, markdownBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-033", err.Error())
+			return
+		}
+		jsonBytes, err := json.MarshalIndent(gate, "", "  ")
+		if err != nil {
+			_ = os.Remove(markdownPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode closure review gate export json: %v", err))
+			return
+		}
+		jsonBytes = append(jsonBytes, '\n')
+		if err := writeExclusive(jsonPath, jsonBytes); err != nil {
+			_ = os.Remove(markdownPath)
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-033", err.Error())
+			return
+		}
+		exportSubjects := append(append([]audit.Subject(nil), subjects...),
+			audit.Subject{Kind: "ClosureReviewGateMarkdown", Digest: digestBytes(markdownBytes)},
+			audit.Subject{Kind: "ClosureReviewGateJSON", Digest: digestBytes(jsonBytes)},
+		)
+		if err := persistOperationAuditForTarget(auditPath, "workflow.closure-package.review-gate.export", "completed", gate.Gate.Outcome, "kubernetes:"+gate.Gate.Continuity.TargetDigest, exportSubjects, nil); err != nil {
+			_ = os.Remove(markdownPath)
+			_ = os.Remove(jsonPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowClosureReviewGateExportResponse{Valid: true}
+		response.Export.MarkdownPath = markdownPath
+		response.Export.JSONPath = jsonPath
+		response.Export.AuditPath = auditPath
+		response.Export.Outcome = gate.Gate.Outcome
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -1842,6 +1941,38 @@ type workflowClosureArtifact struct {
 	Digest string `json:"digest"`
 }
 
+type workflowClosureReviewGateResponse struct {
+	Valid bool `json:"valid"`
+	Gate  struct {
+		ClosurePackagePath        string                    `json:"closurePackagePath"`
+		ReleaseReadinessReference string                    `json:"releaseReadinessReference"`
+		ReviewerReference         string                    `json:"reviewerReference"`
+		Decision                  string                    `json:"decision"`
+		Outcome                   string                    `json:"outcome"`
+		BlockerCode               string                    `json:"blockerCode,omitempty"`
+		Continuity                workflowClosureContinuity `json:"continuity"`
+	} `json:"gate"`
+}
+
+type workflowClosureReviewGateExportRequest struct {
+	ReleaseReadinessReference string `json:"releaseReadinessReference"`
+	ReviewerReference         string `json:"reviewerReference"`
+	Decision                  string `json:"decision"`
+	MarkdownPath              string `json:"markdownPath"`
+	JSONPath                  string `json:"jsonPath"`
+	AuditPath                 string `json:"auditPath"`
+}
+
+type workflowClosureReviewGateExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		MarkdownPath string `json:"markdownPath"`
+		JSONPath     string `json:"jsonPath"`
+		AuditPath    string `json:"auditPath"`
+		Outcome      string `json:"outcome"`
+	} `json:"export"`
+}
+
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -2310,6 +2441,26 @@ func decodeWorkflowClosurePackageExportRequest(request *http.Request) (workflowC
 	return payload, nil
 }
 
+func decodeWorkflowClosureReviewGateExportRequest(request *http.Request) (workflowClosureReviewGateExportRequest, error) {
+	var payload workflowClosureReviewGateExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.ReleaseReadinessReference) == "" || strings.TrimSpace(payload.ReviewerReference) == "" || strings.TrimSpace(payload.Decision) == "" || strings.TrimSpace(payload.MarkdownPath) == "" || strings.TrimSpace(payload.JSONPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("releaseReadinessReference, reviewerReference, decision, markdownPath, jsonPath and auditPath are required")
+	}
+	if payload.MarkdownPath == payload.JSONPath || payload.MarkdownPath == payload.AuditPath || payload.JSONPath == payload.AuditPath {
+		return payload, errors.New("markdownPath, jsonPath and auditPath must be different files")
+	}
+	return payload, nil
+}
+
 func shellQuote(value string) string {
 	if value == "" {
 		return "''"
@@ -2773,6 +2924,15 @@ type receiptTimelineSummary struct {
 	TargetDigest    string
 }
 
+type workflowGateError struct {
+	Status int
+	Err    string
+}
+
+func (e workflowGateError) Error() string {
+	return e.Err
+}
+
 func collectReceiptTimelineArtifacts(workspacePath string) ([]workflowClosureArtifact, []audit.Subject, receiptTimelineSummary, error) {
 	markdownPaths, jsonPaths := discoverReceiptTimelineExports(workspacePath)
 	if len(markdownPaths) == 0 || len(jsonPaths) == 0 {
@@ -2823,6 +2983,114 @@ func collectReceiptTimelineArtifacts(workspacePath string) ([]workflowClosureArt
 	}
 	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
 	return artifacts, subjects, summary, nil
+}
+
+func evaluateWorkflowClosureReviewGate(workspacePath, releaseReadinessReference, reviewerReference, decision string) (workflowClosureReviewGateResponse, []audit.Subject, error) {
+	releaseReadinessReference = strings.TrimSpace(releaseReadinessReference)
+	reviewerReference = strings.TrimSpace(reviewerReference)
+	decision = strings.TrimSpace(decision)
+	if releaseReadinessReference == "" || reviewerReference == "" || decision == "" {
+		return workflowClosureReviewGateResponse{}, nil, workflowGateError{Status: http.StatusBadRequest, Err: "releaseReadinessReference, reviewerReference and decision are required"}
+	}
+	normalizedDecision, err := normalizeReviewGateDecision(decision)
+	if err != nil {
+		return workflowClosureReviewGateResponse{}, nil, workflowGateError{Status: http.StatusBadRequest, Err: err.Error()}
+	}
+	closurePackage, closurePackagePath, closurePackageDigest, err := loadLatestClosurePackage(workspacePath)
+	if err != nil {
+		return workflowClosureReviewGateResponse{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	evidenceBundles, _, evidenceSummary, err := collectEvidenceBundleArtifacts(workspacePath)
+	if err != nil {
+		return workflowClosureReviewGateResponse{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	receiptTimelines, _, receiptSummary, err := collectReceiptTimelineArtifacts(workspacePath)
+	if err != nil {
+		return workflowClosureReviewGateResponse{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	if closurePackage.Package.ReleaseReadinessReference != releaseReadinessReference {
+		return workflowClosureReviewGateResponse{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RVG-004: release readiness reference does not match latest closure package"}
+	}
+	if closurePackage.Package.Continuity.AuthorizationID == "" || closurePackage.Package.Continuity.TargetDigest == "" {
+		return workflowClosureReviewGateResponse{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RVG-005: closure package continuity metadata is incomplete"}
+	}
+	if closurePackage.Package.Continuity.AuthorizationID != evidenceSummary.AuthorizationID || closurePackage.Package.Continuity.AuthorizationID != receiptSummary.AuthorizationID ||
+		closurePackage.Package.Continuity.TargetDigest != evidenceSummary.TargetDigest || closurePackage.Package.Continuity.TargetDigest != receiptSummary.TargetDigest {
+		return workflowClosureReviewGateResponse{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RVG-006: closure package continuity is mismatched against current evidence bundle and receipt timeline exports"}
+	}
+	gate := workflowClosureReviewGateResponse{Valid: true}
+	gate.Gate.ClosurePackagePath = closurePackagePath
+	gate.Gate.ReleaseReadinessReference = releaseReadinessReference
+	gate.Gate.ReviewerReference = reviewerReference
+	gate.Gate.Decision = normalizedDecision
+	gate.Gate.Continuity = closurePackage.Package.Continuity
+	gate.Gate.Outcome = "passed"
+	if normalizedDecision == "blocked" {
+		gate.Gate.Outcome = "blocked"
+		gate.Gate.BlockerCode = "YARA-RVG-010"
+	}
+	subjects := []audit.Subject{
+		{Kind: "WorkflowClosurePackageManifest", Digest: closurePackageDigest},
+		{Kind: "ClosureReviewDecision", Digest: digestBytes([]byte(strings.Join([]string{releaseReadinessReference, reviewerReference, normalizedDecision, gate.Gate.Outcome}, "|")))},
+	}
+	for _, artifact := range evidenceBundles {
+		subjects = append(subjects, audit.Subject{Kind: "WorkflowEvidenceBundleManifest", Digest: artifact.Digest})
+	}
+	for _, artifact := range receiptTimelines {
+		subjects = append(subjects, audit.Subject{Kind: "ReceiptTimelineArtifact", Digest: artifact.Digest})
+	}
+	return gate, subjects, nil
+}
+
+func normalizeReviewGateDecision(decision string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(decision)) {
+	case "approve", "approved", "pass", "passed":
+		return "approved", nil
+	case "block", "blocked":
+		return "blocked", nil
+	default:
+		return "", errors.New("decision must be one of approve/approved/pass/passed/block/blocked")
+	}
+}
+
+func loadLatestClosurePackage(workspacePath string) (workflowClosurePackageManifest, string, string, error) {
+	paths := discoverClosurePackageExports(workspacePath)
+	if len(paths) == 0 {
+		return workflowClosurePackageManifest{}, "", "", errors.New("YARA-RVG-001: closure package review gate requires at least one closure package export")
+	}
+	latestPath := paths[len(paths)-1]
+	content, err := os.ReadFile(latestPath)
+	if err != nil {
+		return workflowClosurePackageManifest{}, "", "", fmt.Errorf("read latest closure package %s: %w", filepath.Base(latestPath), err)
+	}
+	manifest := workflowClosurePackageManifest{}
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return workflowClosurePackageManifest{}, "", "", fmt.Errorf("decode latest closure package %s: %w", filepath.Base(latestPath), err)
+	}
+	if !manifest.Valid {
+		return workflowClosurePackageManifest{}, "", "", errors.New("YARA-RVG-002: latest closure package export is invalid")
+	}
+	return manifest, latestPath, digestBytes(content), nil
+}
+
+func renderClosureReviewGateMarkdown(gate workflowClosureReviewGateResponse) string {
+	lines := []string{
+		"# YARA closure package review gate",
+		"",
+		"## Decision",
+		"- Release readiness reference: " + gate.Gate.ReleaseReadinessReference,
+		"- Reviewer reference: " + gate.Gate.ReviewerReference,
+		"- Decision: " + gate.Gate.Decision,
+		"- Outcome: " + gate.Gate.Outcome,
+		"",
+		"## Continuity",
+		"- Authorization ID: " + gate.Gate.Continuity.AuthorizationID,
+		"- Target digest: " + gate.Gate.Continuity.TargetDigest,
+	}
+	if gate.Gate.BlockerCode != "" {
+		lines = append(lines, "", "## Blocker", "- Code: "+gate.Gate.BlockerCode)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func workflowCoreArtifacts(workspacePath string) (map[string]string, []string, error) {
@@ -3143,6 +3411,25 @@ func discoverReceiptTimelineExports(workspacePath string) ([]string, []string) {
 	sort.Strings(markdownPaths)
 	sort.Strings(jsonPaths)
 	return markdownPaths, jsonPaths
+}
+
+func discoverClosurePackageExports(workspacePath string) []string {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}
+	}
+	paths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".closure-package.json") {
+			paths = append(paths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func renderCapsuleMarkdown(capsule workflowCapsuleResponse, blockedReasonReference string) string {
