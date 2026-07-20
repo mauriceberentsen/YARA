@@ -1384,6 +1384,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.envelope.export.audit.jsonl` : "",
   }));
   const [publicationEnvelopeSubmitState, setPublicationEnvelopeSubmitState] = useState({ loading: false, error: "", result: null });
+  const [handoffReceiptForm, setHandoffReceiptForm] = useState(() => ({
+    receiverReference: "",
+    handoffTimestamp: "",
+    operatorReference: "",
+    receiptPath: workspacePath ? `${workspacePath}/workflow.release-publication.handoff-receipt.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.handoff-receipt.export.audit.jsonl` : "",
+  }));
+  const [handoffReceiptSubmitState, setHandoffReceiptSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1441,6 +1449,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.release-publication.envelope.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.envelope.export.audit.jsonl`,
+    }));
+    setHandoffReceiptForm((previous) => ({
+      ...previous,
+      receiptPath: previous.receiptPath || `${workspacePath}/workflow.release-publication.handoff-receipt.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.handoff-receipt.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1744,6 +1757,36 @@ function CapsuleView({ payload }) {
       setPublicationEnvelopeSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setPublicationEnvelopeSubmitState({ loading: false, error: error.message || "Release publication envelope export failed", result: null });
+    }
+  };
+  const updateHandoffReceipt = (key) => (event) => {
+    setHandoffReceiptForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportHandoffReceipt = handoffReceiptForm.receiverReference.trim() !== "" &&
+    handoffReceiptForm.handoffTimestamp.trim() !== "" &&
+    handoffReceiptForm.operatorReference.trim() !== "" &&
+    handoffReceiptForm.receiptPath !== "" &&
+    handoffReceiptForm.auditPath !== "" &&
+    handoffReceiptForm.receiptPath !== handoffReceiptForm.auditPath;
+  const submitHandoffReceipt = async (event) => {
+    event.preventDefault();
+    if (!canExportHandoffReceipt) {
+      return;
+    }
+    setHandoffReceiptSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/release-publication/handoff-receipt/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(handoffReceiptForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Release publication handoff receipt export failed");
+      }
+      setHandoffReceiptSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setHandoffReceiptSubmitState({ loading: false, error: error.message || "Release publication handoff receipt export failed", result: null });
     }
   };
   return (
@@ -2149,6 +2192,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{publicationEnvelopeSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Delivery readiness</dt><dd>{publicationEnvelopeSubmitState.result.deliveryState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{publicationEnvelopeSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export release publication handoff receipt</h3>
+      <form onSubmit={submitHandoffReceipt}>
+        <div className="formRow">
+          <label htmlFor="handoff-receiver-reference">Receiver reference</label>
+          <input id="handoff-receiver-reference" value={handoffReceiptForm.receiverReference} onChange={updateHandoffReceipt("receiverReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="handoff-timestamp">Handoff timestamp (RFC3339)</label>
+          <input id="handoff-timestamp" value={handoffReceiptForm.handoffTimestamp} onChange={updateHandoffReceipt("handoffTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="handoff-operator-reference">Handoff operator reference</label>
+          <input id="handoff-operator-reference" value={handoffReceiptForm.operatorReference} onChange={updateHandoffReceipt("operatorReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="handoff-receipt-path">Receipt output path</label>
+          <input id="handoff-receipt-path" value={handoffReceiptForm.receiptPath} onChange={updateHandoffReceipt("receiptPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="handoff-audit-path">Audit output path</label>
+          <input id="handoff-audit-path" value={handoffReceiptForm.auditPath} onChange={updateHandoffReceipt("auditPath")} />
+        </div>
+        <button type="submit" disabled={handoffReceiptSubmitState.loading || !canExportHandoffReceipt}>
+          {handoffReceiptSubmitState.loading ? "Exporting handoff receipt..." : "Export handoff receipt"}
+        </button>
+      </form>
+      {!canExportHandoffReceipt && <p className="error">Handoff receipt export requires receiver reference, handoff timestamp, operator reference, and distinct receipt/audit paths.</p>}
+      {handoffReceiptSubmitState.error && <p className="error">Handoff readiness: blocked ({handoffReceiptSubmitState.error})</p>}
+      {handoffReceiptSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Receipt path</dt><dd>{handoffReceiptSubmitState.result.receiptPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{handoffReceiptSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Handoff readiness</dt><dd>{handoffReceiptSubmitState.result.handoffState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{handoffReceiptSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>

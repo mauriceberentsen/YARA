@@ -1,7 +1,7 @@
 # Cursor handoff
 ## Current repository state
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
-- Recent commits (newest first): `12f5dbe`, `560c535`, `678ab76`, `5153a0a`, `6b8ce34`.
+- Recent commits (newest first): `a8badc5`, `12f5dbe`, `560c535`, `678ab76`, `5153a0a`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
@@ -60,10 +60,10 @@
   - `POST /api/v1/workflow/release-decision/export` persists deterministic release decision ledger entries bound to closure package + review gate digests, continuity IDs, reviewer metadata, and operator/timestamp decision metadata;
   - export fails closed on missing/malformed timestamp/reference metadata, missing review-gate artifacts, and closure/review continuity divergence (`YARA-RDL-*`), with workspace-bounded no-overwrite output enforcement and mandatory audit output;
   - capsule UI now supports release-decision export and shows explicit `ready-to-publish` vs `blocked` publication diagnostics.
-- Interactive workflow cockpit I17-I20 are implemented:
-  - `POST /api/v1/workflow/release-publication/export`, `.../index/export`, `.../package/export`, and `.../envelope/export` now persist deterministic publication-chain attestation/index/package/envelope manifests bound to closure/review/decision/publication digests;
-  - exports fail closed on missing/blocked chain artifacts, malformed publication metadata, and continuity/digest divergence (`YARA-RPB-*`, `YARA-RPI-*`, `YARA-RPK-*`, `YARA-RPE-*`) with workspace-bounded no-overwrite audit outputs;
-  - capsule UI now supports publication attestation/index/package/envelope export and surfaces explicit `publishable`, `index-ready`, `package-ready`, and `delivery-ready` readiness diagnostics.
+- Interactive workflow cockpit I17-I21 are implemented:
+  - `POST /api/v1/workflow/release-publication/export`, `.../index/export`, `.../package/export`, `.../envelope/export`, and `.../handoff-receipt/export` now persist deterministic publication-chain attestation/index/package/envelope/handoff manifests bound to closure/review/decision/publication digests;
+  - exports fail closed on missing/blocked chain artifacts, malformed publication metadata, and continuity/digest divergence (`YARA-RPB-*`, `YARA-RPI-*`, `YARA-RPK-*`, `YARA-RPE-*`, `YARA-RHR-*`) with workspace-bounded no-overwrite audit outputs;
+  - capsule UI now supports publication attestation/index/package/envelope/handoff export and surfaces explicit `publishable`, `index-ready`, `package-ready`, `delivery-ready`, and `handoff-ready` readiness diagnostics.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -73,9 +73,9 @@
 ## Current branch and working tree
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `POST /api/v1/workflow/release-publication/envelope/export` now writes deterministic publication delivery envelope manifests + mandatory audit output with workspace-bounded no-overwrite semantics;
-  - release-publication envelope export now requires explicit `deliveryReference` + `destinationReference` + `operatorReference` and fails closed on missing/blocked publication chain artifacts or continuity/digest divergence;
-  - UI capsule panel now supports delivery-envelope export and surfaces artifact paths plus explicit `delivery-ready` / `blocked` diagnostics.
+  - `POST /api/v1/workflow/release-publication/handoff-receipt/export` now writes deterministic publication handoff receipts + mandatory audit output with workspace-bounded no-overwrite semantics;
+  - handoff-receipt export now requires explicit `receiverReference` + `handoffTimestamp` + `operatorReference` and fails closed on missing/blocked publication chain artifacts or continuity/digest divergence;
+  - UI capsule panel now supports handoff-receipt export and surfaces artifact paths plus explicit `handoff-ready` / `blocked` diagnostics.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui` and `git diff --check`;
@@ -128,15 +128,18 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 - add `POST /api/v1/workflow/release-publication/package/export` to persist deterministic publication package manifests that bind closure/review/decision/publication/index digests with explicit `packageReference`, `publicationWindowReference`, and `operatorReference`; fail closed on missing/blocked artifacts, malformed package metadata, or continuity/digest divergence (`YARA-RPK-*`) with mandatory workspace-bounded no-overwrite audit output. Status: completed.
 ### I20 — Release publication delivery envelope export
 - add `POST /api/v1/workflow/release-publication/envelope/export` to persist deterministic delivery envelope manifests that bind closure/review/decision/publication/index/package digests with explicit `deliveryReference`, `destinationReference`, and `operatorReference`; fail closed on missing/blocked artifacts, malformed envelope metadata, or continuity/digest divergence (`YARA-RPE-*`) with mandatory workspace-bounded no-overwrite audit output. Status: completed.
+### I21 — Release publication handoff receipt export
+- add `POST /api/v1/workflow/release-publication/handoff-receipt/export` to persist deterministic handoff receipts that bind closure/review/decision/publication/index/package/envelope digests with explicit `receiverReference`, `handoffTimestamp`, and `operatorReference`; fail closed on missing/blocked artifacts, malformed handoff metadata, or continuity/digest divergence (`YARA-RHR-*`) with mandatory workspace-bounded no-overwrite audit output. Status: completed.
 ## Next implementation slice
-Implement **I21 — Release publication handoff receipt export**:
-- add `POST /api/v1/workflow/release-publication/handoff-receipt/export` to persist one deterministic handoff receipt that binds envelope/package/index/attestation/decision/closure/review digests for external acceptance;
-- require explicit receiver reference + handoff timestamp + operator reference and emit mandatory workspace-bounded no-overwrite audit output; fail closed when any publication-chain artifact is missing, blocked, malformed, or continuity diverges;
-- extend capsule UI with handoff-receipt export action and explicit "handoff ready / blocked" diagnostics.
+Implement **I22 — Release publication acknowledgment export**:
+- add `POST /api/v1/workflow/release-publication/acknowledgment/export` to persist one deterministic acknowledgment manifest that binds handoff receipt, envelope, package, index, attestation, decision, closure, and review digests for closure of the external handoff;
+- require explicit acknowledgment reference + acknowledged-by reference + acknowledgment timestamp; fail closed when any publication-chain artifact is missing, blocked, malformed, or continuity diverges;
+- emit mandatory audit output with workspace-bounded no-overwrite semantics and deterministic blocker codes for acknowledgment export failures;
+- extend capsule UI with acknowledgment export action and explicit "acknowledgment ready / blocked" diagnostics.
 Acceptance criteria:
-- release-publication handoff-receipt export writes deterministic handoff receipt + audit artifacts bound to closure/review/decision/publication/index/package/envelope continuity digests;
-- release-publication handoff-receipt export fails closed on missing/blocked/malformed publication artifacts and out-of-workspace or duplicate output paths;
-- UI release-publication handoff-receipt export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
+- release-publication acknowledgment export writes deterministic acknowledgment manifest + audit artifacts bound to closure/review/decision/publication/index/package/envelope/handoff continuity digests;
+- release-publication acknowledgment export fails closed on missing/blocked/malformed publication artifacts and out-of-workspace or duplicate output paths;
+- UI release-publication acknowledgment export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 ## Validation requirements
 Run at minimum for each slice:
