@@ -502,6 +502,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/attest" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            manifestPath: requestPayload.manifestPath,
+            auditPath: requestPayload.auditPath,
+            attestationState: "attestation-ready",
+            blockerCode: "",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -829,6 +841,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification timestamp (RFC3339)"), { target: { value: "2026-07-21T01:35:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification bundle" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Attestation reference"), { target: { value: "attestation-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Attested by reference"), { target: { value: "audit-operator-1" } });
+    fireEvent.change(screen.getByLabelText("Attestation timestamp (RFC3339)"), { target: { value: "2026-07-21T01:40:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification attestation" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.attestation.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -1029,6 +1046,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-050", message: "YARA-RCVX-003: verification is blocked; set allowBlocked=true with allowBlockedReasonReference to export blocked verification", severity: "error" }],
         }), { status: 422 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/attest" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-051", message: "YARA-RCVA-003: latest closure verification export is blocked without archived blocked reason reference", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -1175,6 +1198,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification timestamp (RFC3339)"), { target: { value: "2026-07-21T01:35:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification bundle" }));
     await waitFor(() => expect(screen.getByText(/YARA-RCVX-003/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Attestation reference"), { target: { value: "attestation-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Attested by reference"), { target: { value: "audit-operator-1" } });
+    fireEvent.change(screen.getByLabelText("Attestation timestamp (RFC3339)"), { target: { value: "2026-07-21T01:40:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification attestation" }));
+    await waitFor(() => expect(screen.getByText(/YARA-RCVA-003/)).toBeInTheDocument());
   }, 55000);
 
   it("fails closed on malformed drift payload", async () => {

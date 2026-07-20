@@ -1485,6 +1485,14 @@ function CapsuleView({ payload }) {
     allowBlockedReasonReference: "",
   }));
   const [closureVerifyExportSubmitState, setClosureVerifyExportSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyAttestationForm, setClosureVerifyAttestationForm] = useState(() => ({
+    attestationReference: "",
+    attestedByReference: "",
+    attestationTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.attestation.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.attestation.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyAttestationSubmitState, setClosureVerifyAttestationSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1603,6 +1611,11 @@ function CapsuleView({ payload }) {
       markdownPath: previous.markdownPath || `${workspacePath}/workflow.rollout-closure-verify.md`,
       jsonPath: previous.jsonPath || `${workspacePath}/workflow.rollout-closure-verify.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.export.audit.jsonl`,
+    }));
+    setClosureVerifyAttestationForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.attestation.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.attestation.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2287,6 +2300,36 @@ function CapsuleView({ payload }) {
       setClosureVerifyExportSubmitState({ loading: false, error: error.message || "Rollout closure verify export failed", result: null });
     }
   };
+  const updateClosureVerifyAttestation = (key) => (event) => {
+    setClosureVerifyAttestationForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyAttestation = closureVerifyAttestationForm.attestationReference.trim() !== "" &&
+    closureVerifyAttestationForm.attestedByReference.trim() !== "" &&
+    closureVerifyAttestationForm.attestationTimestamp.trim() !== "" &&
+    closureVerifyAttestationForm.manifestPath !== "" &&
+    closureVerifyAttestationForm.auditPath !== "" &&
+    closureVerifyAttestationForm.manifestPath !== closureVerifyAttestationForm.auditPath;
+  const submitClosureVerifyAttestation = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyAttestation) {
+      return;
+    }
+    setClosureVerifyAttestationSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/attest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyAttestationForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify attestation export failed");
+      }
+      setClosureVerifyAttestationSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyAttestationSubmitState({ loading: false, error: error.message || "Rollout closure verify attestation export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -2438,6 +2481,42 @@ function CapsuleView({ payload }) {
           <div><dt>Verification state</dt><dd>{closureVerifyExportSubmitState.result.verificationState || "n/a"}</dd></div>
           <div><dt>Blocked archival</dt><dd>{String(Boolean(closureVerifyExportSubmitState.result.blockedArchival))}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyExportSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification attestation</h3>
+      <form onSubmit={submitClosureVerifyAttestation}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-attestation-reference">Attestation reference</label>
+          <input id="closure-verify-attestation-reference" value={closureVerifyAttestationForm.attestationReference} onChange={updateClosureVerifyAttestation("attestationReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-attested-by-reference">Attested by reference</label>
+          <input id="closure-verify-attested-by-reference" value={closureVerifyAttestationForm.attestedByReference} onChange={updateClosureVerifyAttestation("attestedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-attestation-timestamp">Attestation timestamp (RFC3339)</label>
+          <input id="closure-verify-attestation-timestamp" value={closureVerifyAttestationForm.attestationTimestamp} onChange={updateClosureVerifyAttestation("attestationTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-attestation-manifest-path">Attestation manifest output path</label>
+          <input id="closure-verify-attestation-manifest-path" value={closureVerifyAttestationForm.manifestPath} onChange={updateClosureVerifyAttestation("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-attestation-audit-path">Attestation audit output path</label>
+          <input id="closure-verify-attestation-audit-path" value={closureVerifyAttestationForm.auditPath} onChange={updateClosureVerifyAttestation("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyAttestationSubmitState.loading || !canExportClosureVerifyAttestation}>
+          {closureVerifyAttestationSubmitState.loading ? "Exporting verification attestation..." : "Export closure verification attestation"}
+        </button>
+      </form>
+      {!canExportClosureVerifyAttestation && <p className="error">Verification attestation export requires references, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyAttestationSubmitState.error && <p className="error">Verification attestation: blocked ({closureVerifyAttestationSubmitState.error})</p>}
+      {closureVerifyAttestationSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyAttestationSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyAttestationSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Attestation state</dt><dd>{closureVerifyAttestationSubmitState.result.attestationState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyAttestationSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>

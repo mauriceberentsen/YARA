@@ -1,7 +1,7 @@
 # Cursor handoff
 ## Current repository state
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
-- Recent commits (newest first): `86e15ba`, `57200d2`, `da0a5b1`, `63bd823`, `56556c0`.
+- Recent commits: run `git log --oneline -n 5` for the latest local sequence on `main`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
@@ -64,9 +64,9 @@
 ## Current branch and working tree
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `POST /api/v1/workflow/rollout-closure/verify/export` now persists deterministic verification bundle artifacts (`markdown` + `json` + mandatory `audit`) bound to latest closure-chain verification continuity and digests;
-  - verification export now requires explicit `verificationReference` + `operatorReference` + `verificationTimestamp` and fails closed on blocked verification unless `allowBlocked=true` with `allowBlockedReasonReference` (`YARA-RCVX-*`);
-  - UI capsule panel now supports verification export with blocked archival guardrails and deterministic pass/blocked diagnostics plus output-path reporting.
+  - `POST /api/v1/workflow/rollout-closure/verify/attest` now persists deterministic attestation manifests + mandatory audit output that bind latest verification-export markdown/json digests, continuity IDs, and explicit attestor metadata into an immutable publication record;
+  - attestation export now requires explicit `attestationReference` + `attestedByReference` + `attestationTimestamp` and fails closed when latest verification export is missing/malformed, blocked without archived reason, or continuity-divergent (`YARA-RCVA-*`);
+  - UI capsule panel now supports verification-attestation export with explicit attestation readiness/blocked diagnostics and deterministic manifest/audit path reporting without exposing secret-bearing fields.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui` and `git diff --check`;
@@ -129,17 +129,17 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 - add `POST /api/v1/workflow/rollout-closure-delivery/export` to persist deterministic delivery-record manifests that bind closure-summary/acknowledgment/handoff/envelope/package/index/attestation/decision/closure/review digests with explicit `deliveryReference`, `destinationReference`, `operatorReference`, and `deliveryTimestamp`; fail closed on missing/blocked artifacts, malformed delivery metadata, or continuity/digest divergence (`YARA-RCD-*`) with mandatory workspace-bounded no-overwrite audit output. Status: completed.
 ### I25-I31 — Rollout closure acceptance/certificate/ledger/docket/bulletin/packet/recipient-package exports
 - add `POST /api/v1/workflow/rollout-closure-acceptance/export`, `.../rollout-closure-certificate/export`, `.../rollout-closure-ledger/export`, `.../rollout-closure-docket/export`, `.../rollout-closure-bulletin/export`, `.../rollout-closure-packet/export`, and `.../rollout-closure-recipient-package/export` to persist deterministic acceptance/certificate/ledger/docket/bulletin/packet/recipient-package manifests that bind delivery/summary/acknowledgment/handoff/envelope/package/index/attestation/decision/closure/review digests with explicit `acceptanceReference`/`acceptedByReference`/`acceptanceTimestamp`, `certificateReference`/`issuedByReference`/`issuedTimestamp`, `ledgerReference`/`recordedByReference`/`recordedTimestamp`, `docketReference`/`preparedByReference`/`preparedTimestamp`, `bulletinReference`/`publishedByReference`/`publishedTimestamp`, `packetReference`/`packagedByReference`/`packagedTimestamp`, and `recipientPackageReference`/`preparedForReference`/`preparedTimestamp`; fail closed on missing/blocked artifacts, malformed metadata, or continuity/digest divergence (`YARA-RCA-*`, `YARA-RCC-*`, `YARA-RLG-*`, `YARA-RDK-*`, `YARA-RBL-*`, `YARA-RPT-*`, `YARA-RPKG-*`) with mandatory workspace-bounded no-overwrite audit output. Status: completed.
-### I32-I33 — Closure-chain verification and export bundle
-- add `GET /api/v1/workflow/rollout-closure/verify` plus `POST /api/v1/workflow/rollout-closure/verify/export` to provide deterministic read-only closure-chain verification and deterministic verification markdown/json/audit export with explicit blocked archival override requirements and blocker taxonomies (`YARA-RCV-*`, `YARA-RCVX-*`). Status: completed.
+### I32-I34 — Closure-chain verification, export bundle, and digest attestation
+- add `GET /api/v1/workflow/rollout-closure/verify`, `POST /api/v1/workflow/rollout-closure/verify/export`, and `POST /api/v1/workflow/rollout-closure/verify/attest` to provide deterministic read-only closure-chain verification plus deterministic verification bundle/attestation exports with explicit blocked archival requirements and blocker taxonomies (`YARA-RCV-*`, `YARA-RCVX-*`, `YARA-RCVA-*`). Status: completed.
 ## Next implementation slice
-Implement **I34 — Closure-chain verification digest attestation export**:
-- add `POST /api/v1/workflow/rollout-closure/verify/attest` to persist one deterministic attestation artifact that binds the latest verification-export markdown/json digests, continuity IDs, and explicit attestor metadata into an immutable publication record;
-- require explicit `attestationReference` + `attestedByReference` + `attestationTimestamp` and fail closed when latest verification export is missing, malformed, blocked without archived reason, or continuity diverges;
-- enforce workspace-bounded no-overwrite output semantics and deterministic blocker taxonomy (`YARA-RCVA-*`) for attestation precondition/path failures;
-- extend capsule UI with verification-attestation export action and explicit attestation readiness/blocked diagnostics without exposing secret-bearing fields.
+Implement **I35 — Closure-chain verification attestation registry export**:
+- add `POST /api/v1/workflow/rollout-closure/verify/attest/index/export` to persist one deterministic registry index that binds the latest verification attestation manifest digest with verification-export markdown/json digests, continuity IDs, and explicit publication metadata;
+- require explicit `attestationIndexReference` + `publishedByReference` + `publishedTimestamp` and fail closed when latest verification attestation/export artifacts are missing, malformed, blocked without archived reason, or continuity diverges;
+- enforce workspace-bounded no-overwrite output semantics and deterministic blocker taxonomy (`YARA-RCVAI-*`) for attestation-index precondition/path failures;
+- extend capsule UI with verification-attestation-index export action and explicit pass/blocked diagnostics for index publication readiness.
 Acceptance criteria:
-- verification attestation export persists deterministic attestation artifacts bound to latest verification-export digests and continuity metadata, and fails closed when verification-export prerequisites are missing/malformed/blocked-without-reason or output paths are out-of-workspace/duplicate;
-- UI verification attestation flow surfaces readiness/blocked outcomes and deterministic diagnostics without exposing secret-bearing fields;
+- attestation index export persists deterministic index artifacts bound to latest verification attestation + verification-export digests and continuity metadata, and fails closed when prerequisites are missing/malformed/blocked-without-reason or output paths are out-of-workspace/duplicate;
+- UI verification attestation-index flow surfaces readiness/blocked outcomes and deterministic diagnostics without exposing secret-bearing fields;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 ## Validation requirements
 Run at minimum for each slice:
