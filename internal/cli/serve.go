@@ -2025,6 +2025,68 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.BlockerCode = manifest.Delivery.BlockerCode
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/rollout-closure-acceptance/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow rollout closure acceptance export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowRolloutClosureAcceptanceExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-043", err.Error())
+			return
+		}
+		manifestPath, err := ensureWorkspaceFilePath(workspacePath, payload.ManifestPath, "manifestPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-043", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-043", err.Error())
+			return
+		}
+		if manifestPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-043", "manifestPath and auditPath must be different files")
+			return
+		}
+		manifest, subjects, err := buildWorkflowRolloutClosureAcceptanceManifest(workspacePath, payload)
+		if err != nil {
+			status := http.StatusBadRequest
+			if gateErr, ok := err.(workflowGateError); ok {
+				status = gateErr.Status
+			}
+			writeServeError(writer, status, "YARA-SRV-043", err.Error())
+			return
+		}
+		manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode rollout closure acceptance manifest: %v", err))
+			return
+		}
+		manifestBytes = append(manifestBytes, '\n')
+		if err := writeExclusive(manifestPath, manifestBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-043", err.Error())
+			return
+		}
+		exportSubjects := append(append([]audit.Subject(nil), subjects...),
+			audit.Subject{Kind: "WorkflowRolloutClosureAcceptanceManifest", Digest: digestBytes(manifestBytes)},
+		)
+		if err := persistOperationAuditForTarget(auditPath, "workflow.rollout-closure-acceptance.export", "completed", manifest.Acceptance.AcceptanceState, "kubernetes:"+manifest.Acceptance.Continuity.TargetDigest, exportSubjects, nil); err != nil {
+			_ = os.Remove(manifestPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowRolloutClosureAcceptanceExportResponse{Valid: true}
+		response.Export.ManifestPath = manifestPath
+		response.Export.AuditPath = auditPath
+		response.Export.AcceptanceState = manifest.Acceptance.AcceptanceState
+		response.Export.BlockerCode = manifest.Acceptance.BlockerCode
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -2872,6 +2934,48 @@ type workflowRolloutClosureDeliveryManifest struct {
 	} `json:"rolloutClosureDelivery"`
 }
 
+type workflowRolloutClosureAcceptanceExportRequest struct {
+	AcceptanceReference string `json:"acceptanceReference"`
+	AcceptedByReference string `json:"acceptedByReference"`
+	AcceptanceTimestamp string `json:"acceptanceTimestamp"`
+	ManifestPath        string `json:"manifestPath"`
+	AuditPath           string `json:"auditPath"`
+}
+
+type workflowRolloutClosureAcceptanceExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		ManifestPath    string `json:"manifestPath"`
+		AuditPath       string `json:"auditPath"`
+		AcceptanceState string `json:"acceptanceState"`
+		BlockerCode     string `json:"blockerCode,omitempty"`
+	} `json:"export"`
+}
+
+type workflowRolloutClosureAcceptanceManifest struct {
+	Valid      bool `json:"valid"`
+	Acceptance struct {
+		WorkspacePath              string                    `json:"workspacePath"`
+		AcceptanceReference        string                    `json:"acceptanceReference"`
+		AcceptedByReference        string                    `json:"acceptedByReference"`
+		AcceptanceTimestamp        string                    `json:"acceptanceTimestamp"`
+		AcceptanceState            string                    `json:"acceptanceState"`
+		BlockerCode                string                    `json:"blockerCode,omitempty"`
+		Continuity                 workflowClosureContinuity `json:"continuity"`
+		DeliveryRecord             workflowClosureArtifact   `json:"deliveryRecord"`
+		ClosureSummary             workflowClosureArtifact   `json:"closureSummary"`
+		Acknowledgment             workflowClosureArtifact   `json:"acknowledgment"`
+		HandoffReceipt             workflowClosureArtifact   `json:"handoffReceipt"`
+		ReleasePublicationEnvelope workflowClosureArtifact   `json:"releasePublicationEnvelope"`
+		ReleasePublicationPackage  workflowClosureArtifact   `json:"releasePublicationPackage"`
+		ReleasePublicationIndex    workflowClosureArtifact   `json:"releasePublicationIndex"`
+		ReleasePublication         workflowClosureArtifact   `json:"releasePublication"`
+		ReleaseDecision            workflowClosureArtifact   `json:"releaseDecision"`
+		ClosurePackage             workflowClosureArtifact   `json:"closurePackage"`
+		ReviewGate                 workflowClosureArtifact   `json:"reviewGate"`
+	} `json:"rolloutClosureAcceptance"`
+}
+
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -3554,6 +3658,29 @@ func decodeWorkflowRolloutClosureDeliveryExportRequest(request *http.Request) (w
 	}
 	if _, err := time.Parse(time.RFC3339Nano, payload.DeliveryTimestamp); err != nil {
 		return payload, errors.New("deliveryTimestamp must be a valid RFC3339 timestamp")
+	}
+	return payload, nil
+}
+
+func decodeWorkflowRolloutClosureAcceptanceExportRequest(request *http.Request) (workflowRolloutClosureAcceptanceExportRequest, error) {
+	var payload workflowRolloutClosureAcceptanceExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.AcceptanceReference) == "" || strings.TrimSpace(payload.AcceptedByReference) == "" || strings.TrimSpace(payload.AcceptanceTimestamp) == "" || strings.TrimSpace(payload.ManifestPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("acceptanceReference, acceptedByReference, acceptanceTimestamp, manifestPath and auditPath are required")
+	}
+	if payload.ManifestPath == payload.AuditPath {
+		return payload, errors.New("manifestPath and auditPath must be different files")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.AcceptanceTimestamp); err != nil {
+		return payload, errors.New("acceptanceTimestamp must be a valid RFC3339 timestamp")
 	}
 	return payload, nil
 }
@@ -4853,6 +4980,117 @@ func buildWorkflowRolloutClosureDeliveryManifest(workspacePath string, payload w
 	return manifest, subjects, nil
 }
 
+func buildWorkflowRolloutClosureAcceptanceManifest(workspacePath string, payload workflowRolloutClosureAcceptanceExportRequest) (workflowRolloutClosureAcceptanceManifest, []audit.Subject, error) {
+	deliveryRecord, deliveryRecordPath, deliveryRecordDigest, err := loadLatestRolloutClosureDelivery(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	if deliveryRecord.Delivery.DeliveryRecordState != "delivery-record-ready" {
+		blocker := mapValueOrDefault(deliveryRecord.Delivery.BlockerCode, "none")
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RCA-003: latest rollout closure delivery record is blocked (blocker: " + blocker + ")"}
+	}
+	closureSummary, closureSummaryPath, closureSummaryDigest, err := loadLatestRolloutClosureSummary(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	acknowledgment, acknowledgmentPath, acknowledgmentDigest, err := loadLatestReleasePublicationAcknowledgment(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	handoffReceipt, handoffReceiptPath, handoffReceiptDigest, err := loadLatestReleasePublicationHandoffReceipt(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublicationEnvelope, releasePublicationEnvelopePath, releasePublicationEnvelopeDigest, err := loadLatestReleasePublicationEnvelope(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublicationPackage, releasePublicationPackagePath, releasePublicationPackageDigest, err := loadLatestReleasePublicationPackage(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublicationIndex, releasePublicationIndexPath, releasePublicationIndexDigest, err := loadLatestReleasePublicationIndex(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublication, releasePublicationPath, releasePublicationDigest, err := loadLatestReleasePublication(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releaseDecision, releaseDecisionPath, releaseDecisionDigest, err := loadLatestReleaseDecision(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	closurePackage, closurePackagePath, closurePackageDigest, err := loadLatestClosurePackage(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	reviewGate, reviewGatePath, reviewGateDigest, err := loadLatestClosureReviewGate(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	if closureSummary.Summary.SummaryState != "summary-ready" || acknowledgment.Acknowledgment.AcknowledgmentState != "acknowledgment-ready" || handoffReceipt.Handoff.HandoffState != "handoff-ready" || releasePublicationEnvelope.Envelope.DeliveryState != "delivery-ready" || releasePublicationPackage.Package.PackageState != "package-ready" || releasePublicationIndex.Index.IndexState != "index-ready" || releasePublication.Publication.PublicationState != "publishable" || releaseDecision.Ledger.PublicationState != "ready-to-publish" || reviewGate.Gate.Outcome != "passed" {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RCA-004: rollout closure acceptance requires ready publication and closure states"}
+	}
+	if deliveryRecord.Delivery.Continuity != closureSummary.Summary.Continuity ||
+		deliveryRecord.Delivery.Continuity != acknowledgment.Acknowledgment.Continuity ||
+		deliveryRecord.Delivery.Continuity != handoffReceipt.Handoff.Continuity ||
+		deliveryRecord.Delivery.Continuity != releasePublicationEnvelope.Envelope.Continuity ||
+		deliveryRecord.Delivery.Continuity != releasePublicationPackage.Package.Continuity ||
+		deliveryRecord.Delivery.Continuity != releasePublicationIndex.Index.Continuity ||
+		deliveryRecord.Delivery.Continuity != releasePublication.Publication.Continuity ||
+		deliveryRecord.Delivery.Continuity != releaseDecision.Ledger.Continuity ||
+		deliveryRecord.Delivery.Continuity != closurePackage.Package.Continuity ||
+		deliveryRecord.Delivery.Continuity != reviewGate.Gate.Continuity {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RCA-005: rollout closure acceptance continuity chains are mismatched"}
+	}
+	if deliveryRecord.Delivery.ClosureSummary.Digest != closureSummaryDigest ||
+		deliveryRecord.Delivery.Acknowledgment.Digest != acknowledgmentDigest ||
+		deliveryRecord.Delivery.HandoffReceipt.Digest != handoffReceiptDigest ||
+		deliveryRecord.Delivery.ReleasePublicationEnvelope.Digest != releasePublicationEnvelopeDigest ||
+		deliveryRecord.Delivery.ReleasePublicationPackage.Digest != releasePublicationPackageDigest ||
+		deliveryRecord.Delivery.ReleasePublicationIndex.Digest != releasePublicationIndexDigest ||
+		deliveryRecord.Delivery.ReleasePublication.Digest != releasePublicationDigest ||
+		deliveryRecord.Delivery.ReleaseDecision.Digest != releaseDecisionDigest ||
+		deliveryRecord.Delivery.ClosurePackage.Digest != closurePackageDigest ||
+		deliveryRecord.Delivery.ReviewGate.Digest != reviewGateDigest {
+		return workflowRolloutClosureAcceptanceManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RCA-006: delivery record digest bindings do not match current publication chain"}
+	}
+	manifest := workflowRolloutClosureAcceptanceManifest{Valid: true}
+	manifest.Acceptance.WorkspacePath = workspacePath
+	manifest.Acceptance.AcceptanceReference = strings.TrimSpace(payload.AcceptanceReference)
+	manifest.Acceptance.AcceptedByReference = strings.TrimSpace(payload.AcceptedByReference)
+	manifest.Acceptance.AcceptanceTimestamp = strings.TrimSpace(payload.AcceptanceTimestamp)
+	manifest.Acceptance.AcceptanceState = "acceptance-ready"
+	manifest.Acceptance.Continuity = deliveryRecord.Delivery.Continuity
+	manifest.Acceptance.DeliveryRecord = workflowClosureArtifact{Path: deliveryRecordPath, Digest: deliveryRecordDigest}
+	manifest.Acceptance.ClosureSummary = workflowClosureArtifact{Path: closureSummaryPath, Digest: closureSummaryDigest}
+	manifest.Acceptance.Acknowledgment = workflowClosureArtifact{Path: acknowledgmentPath, Digest: acknowledgmentDigest}
+	manifest.Acceptance.HandoffReceipt = workflowClosureArtifact{Path: handoffReceiptPath, Digest: handoffReceiptDigest}
+	manifest.Acceptance.ReleasePublicationEnvelope = workflowClosureArtifact{Path: releasePublicationEnvelopePath, Digest: releasePublicationEnvelopeDigest}
+	manifest.Acceptance.ReleasePublicationPackage = workflowClosureArtifact{Path: releasePublicationPackagePath, Digest: releasePublicationPackageDigest}
+	manifest.Acceptance.ReleasePublicationIndex = workflowClosureArtifact{Path: releasePublicationIndexPath, Digest: releasePublicationIndexDigest}
+	manifest.Acceptance.ReleasePublication = workflowClosureArtifact{Path: releasePublicationPath, Digest: releasePublicationDigest}
+	manifest.Acceptance.ReleaseDecision = workflowClosureArtifact{Path: releaseDecisionPath, Digest: releaseDecisionDigest}
+	manifest.Acceptance.ClosurePackage = workflowClosureArtifact{Path: closurePackagePath, Digest: closurePackageDigest}
+	manifest.Acceptance.ReviewGate = workflowClosureArtifact{Path: reviewGatePath, Digest: reviewGateDigest}
+	subjects := []audit.Subject{
+		{Kind: "WorkflowRolloutClosureDeliveryManifest", Digest: deliveryRecordDigest},
+		{Kind: "WorkflowRolloutClosureSummaryManifest", Digest: closureSummaryDigest},
+		{Kind: "ReleasePublicationAcknowledgment", Digest: acknowledgmentDigest},
+		{Kind: "ReleasePublicationHandoffReceipt", Digest: handoffReceiptDigest},
+		{Kind: "ReleasePublicationEnvelopeManifest", Digest: releasePublicationEnvelopeDigest},
+		{Kind: "ReleasePublicationPackageManifest", Digest: releasePublicationPackageDigest},
+		{Kind: "ReleasePublicationIndexManifest", Digest: releasePublicationIndexDigest},
+		{Kind: "ReleasePublicationAttestation", Digest: releasePublicationDigest},
+		{Kind: "ReleaseDecisionLedger", Digest: releaseDecisionDigest},
+		{Kind: "WorkflowClosurePackageManifest", Digest: closurePackageDigest},
+		{Kind: "ClosureReviewGateJSON", Digest: reviewGateDigest},
+		{Kind: "RolloutClosureAcceptanceReceipt", Digest: digestBytes([]byte(strings.Join([]string{manifest.Acceptance.AcceptanceReference, manifest.Acceptance.AcceptedByReference, manifest.Acceptance.AcceptanceTimestamp, deliveryRecordDigest, closureSummaryDigest, acknowledgmentDigest, handoffReceiptDigest, releasePublicationEnvelopeDigest, releasePublicationPackageDigest, releasePublicationIndexDigest, releasePublicationDigest, releaseDecisionDigest, closurePackageDigest, reviewGateDigest}, "|")))},
+	}
+	return manifest, subjects, nil
+}
+
 func loadLatestReleasePublication(workspacePath string) (workflowReleasePublicationAttestation, string, string, error) {
 	paths := discoverReleasePublicationExports(workspacePath)
 	if len(paths) == 0 {
@@ -5029,6 +5267,26 @@ func loadLatestRolloutClosureSummary(workspacePath string) (workflowRolloutClosu
 	}
 	if !manifest.Valid {
 		return workflowRolloutClosureSummaryManifest{}, "", "", errors.New("YARA-RCD-002: latest rollout closure summary manifest is invalid")
+	}
+	return manifest, latestPath, digestBytes(content), nil
+}
+
+func loadLatestRolloutClosureDelivery(workspacePath string) (workflowRolloutClosureDeliveryManifest, string, string, error) {
+	paths := discoverRolloutClosureDeliveryExports(workspacePath)
+	if len(paths) == 0 {
+		return workflowRolloutClosureDeliveryManifest{}, "", "", errors.New("YARA-RCA-001: rollout closure acceptance export requires at least one rollout closure delivery manifest")
+	}
+	latestPath := paths[len(paths)-1]
+	content, err := os.ReadFile(latestPath)
+	if err != nil {
+		return workflowRolloutClosureDeliveryManifest{}, "", "", fmt.Errorf("read latest rollout closure delivery %s: %w", filepath.Base(latestPath), err)
+	}
+	manifest := workflowRolloutClosureDeliveryManifest{}
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return workflowRolloutClosureDeliveryManifest{}, "", "", fmt.Errorf("decode latest rollout closure delivery %s: %w", filepath.Base(latestPath), err)
+	}
+	if !manifest.Valid {
+		return workflowRolloutClosureDeliveryManifest{}, "", "", errors.New("YARA-RCA-002: latest rollout closure delivery manifest is invalid")
 	}
 	return manifest, latestPath, digestBytes(content), nil
 }
@@ -5536,6 +5794,25 @@ func discoverRolloutClosureSummaryExports(workspacePath string) []string {
 		}
 		name := entry.Name()
 		if strings.HasSuffix(name, ".rollout-closure-summary.json") {
+			paths = append(paths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func discoverRolloutClosureDeliveryExports(workspacePath string) []string {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}
+	}
+	paths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".rollout-closure-delivery.json") {
 			paths = append(paths, filepath.Join(workspacePath, name))
 		}
 	}

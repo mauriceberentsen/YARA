@@ -1417,6 +1417,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-delivery.export.audit.jsonl` : "",
   }));
   const [closureDeliverySubmitState, setClosureDeliverySubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureAcceptanceForm, setClosureAcceptanceForm] = useState(() => ({
+    acceptanceReference: "",
+    acceptedByReference: "",
+    acceptanceTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-acceptance.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-acceptance.export.audit.jsonl` : "",
+  }));
+  const [closureAcceptanceSubmitState, setClosureAcceptanceSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1494,6 +1502,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-delivery.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-delivery.export.audit.jsonl`,
+    }));
+    setClosureAcceptanceForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-acceptance.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-acceptance.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1918,6 +1931,36 @@ function CapsuleView({ payload }) {
       setClosureDeliverySubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setClosureDeliverySubmitState({ loading: false, error: error.message || "Rollout closure delivery export failed", result: null });
+    }
+  };
+  const updateClosureAcceptance = (key) => (event) => {
+    setClosureAcceptanceForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureAcceptance = closureAcceptanceForm.acceptanceReference.trim() !== "" &&
+    closureAcceptanceForm.acceptedByReference.trim() !== "" &&
+    closureAcceptanceForm.acceptanceTimestamp.trim() !== "" &&
+    closureAcceptanceForm.manifestPath !== "" &&
+    closureAcceptanceForm.auditPath !== "" &&
+    closureAcceptanceForm.manifestPath !== closureAcceptanceForm.auditPath;
+  const submitClosureAcceptance = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureAcceptance) {
+      return;
+    }
+    setClosureAcceptanceSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure-acceptance/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureAcceptanceForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure acceptance export failed");
+      }
+      setClosureAcceptanceSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureAcceptanceSubmitState({ loading: false, error: error.message || "Rollout closure acceptance export failed", result: null });
     }
   };
   return (
@@ -2471,6 +2514,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureDeliverySubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Delivery record readiness</dt><dd>{closureDeliverySubmitState.result.deliveryRecordState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureDeliverySubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export rollout closure acceptance receipt</h3>
+      <form onSubmit={submitClosureAcceptance}>
+        <div className="formRow">
+          <label htmlFor="closure-acceptance-reference">Acceptance reference</label>
+          <input id="closure-acceptance-reference" value={closureAcceptanceForm.acceptanceReference} onChange={updateClosureAcceptance("acceptanceReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-acceptance-accepted-by-reference">Accepted by reference</label>
+          <input id="closure-acceptance-accepted-by-reference" value={closureAcceptanceForm.acceptedByReference} onChange={updateClosureAcceptance("acceptedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-acceptance-timestamp">Acceptance timestamp (RFC3339)</label>
+          <input id="closure-acceptance-timestamp" value={closureAcceptanceForm.acceptanceTimestamp} onChange={updateClosureAcceptance("acceptanceTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-acceptance-manifest-path">Acceptance manifest output path</label>
+          <input id="closure-acceptance-manifest-path" value={closureAcceptanceForm.manifestPath} onChange={updateClosureAcceptance("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-acceptance-audit-path">Acceptance audit output path</label>
+          <input id="closure-acceptance-audit-path" value={closureAcceptanceForm.auditPath} onChange={updateClosureAcceptance("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureAcceptanceSubmitState.loading || !canExportClosureAcceptance}>
+          {closureAcceptanceSubmitState.loading ? "Exporting acceptance receipt..." : "Export acceptance receipt"}
+        </button>
+      </form>
+      {!canExportClosureAcceptance && <p className="error">Acceptance export requires acceptance reference, accepted-by reference, timestamp, and distinct manifest/audit paths.</p>}
+      {closureAcceptanceSubmitState.error && <p className="error">Acceptance readiness: blocked ({closureAcceptanceSubmitState.error})</p>}
+      {closureAcceptanceSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureAcceptanceSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureAcceptanceSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Acceptance readiness</dt><dd>{closureAcceptanceSubmitState.result.acceptanceState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureAcceptanceSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>
