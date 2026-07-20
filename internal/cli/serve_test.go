@@ -2642,6 +2642,142 @@ func TestServeWorkflowRolloutClosureSummaryExportRejectsDigestMismatch(t *testin
 	}
 }
 
+func TestServeWorkflowRolloutClosureDeliveryExportWritesManifestAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	writeReleasePublicationAcknowledgmentFixture(t, workspacePath)
+	writeRolloutClosureSummaryFixture(t, workspacePath)
+	handler := serveHandlerFixture(t, false, workspacePath)
+	manifestPath := filepath.Join(workspacePath, "workflow.rollout-closure-delivery.json")
+	auditPath := filepath.Join(workspacePath, "workflow.rollout-closure-delivery.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"deliveryReference":"closure-delivery-2026-07-21","destinationReference":"release-ops://final-transfer","operatorReference":"operator-9","deliveryTimestamp":"2026-07-21T00:50:00Z","manifestPath":%q,"auditPath":%q}`, manifestPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/rollout-closure-delivery/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for rollout closure delivery export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read rollout closure delivery manifest: %v", err)
+	}
+	manifest := workflowRolloutClosureDeliveryManifest{}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode rollout closure delivery manifest: %v", err)
+	}
+	if manifest.Delivery.DeliveryRecordState != "delivery-record-ready" {
+		t.Fatalf("expected delivery-record-ready state, got %#v", manifest.Delivery)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("load rollout closure delivery audit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected audit events for rollout closure delivery export")
+	}
+}
+
+func TestServeWorkflowRolloutClosureDeliveryExportRejectsBlockedSummary(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	writeReleasePublicationAcknowledgmentFixture(t, workspacePath)
+	summaryPath := writeRolloutClosureSummaryFixture(t, workspacePath)
+	summary := workflowRolloutClosureSummaryManifest{}
+	summaryBytes, err := os.ReadFile(summaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(summaryBytes, &summary); err != nil {
+		t.Fatal(err)
+	}
+	summary.Summary.SummaryState = "blocked"
+	summary.Summary.BlockerCode = "YARA-RCS-006"
+	corrupted, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted = append(corrupted, '\n')
+	if err := os.WriteFile(summaryPath, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"deliveryReference":"closure-delivery-2026-07-21","destinationReference":"release-ops://final-transfer","operatorReference":"operator-9","deliveryTimestamp":"2026-07-21T00:50:00Z","manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.rollout-closure-delivery.json"),
+		filepath.Join(workspacePath, "workflow.rollout-closure-delivery.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/rollout-closure-delivery/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for blocked rollout closure summary, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RCD-003") {
+		t.Fatalf("expected rollout closure delivery blocker code, got %s", recorder.Body.String())
+	}
+}
+
+func TestServeWorkflowRolloutClosureDeliveryExportRejectsDigestMismatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	writeReleasePublicationAcknowledgmentFixture(t, workspacePath)
+	summaryPath := writeRolloutClosureSummaryFixture(t, workspacePath)
+	summary := workflowRolloutClosureSummaryManifest{}
+	summaryBytes, err := os.ReadFile(summaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(summaryBytes, &summary); err != nil {
+		t.Fatal(err)
+	}
+	summary.Summary.Acknowledgment.Digest = testCLIDigest('2')
+	corrupted, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted = append(corrupted, '\n')
+	if err := os.WriteFile(summaryPath, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"deliveryReference":"closure-delivery-2026-07-21","destinationReference":"release-ops://final-transfer","operatorReference":"operator-9","deliveryTimestamp":"2026-07-21T00:50:00Z","manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.rollout-closure-delivery.mismatch.json"),
+		filepath.Join(workspacePath, "workflow.rollout-closure-delivery.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/rollout-closure-delivery/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for rollout closure delivery digest mismatch, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RCD-007") {
+		t.Fatalf("expected rollout closure delivery digest blocker code, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
@@ -3137,6 +3273,30 @@ func writeReleasePublicationAcknowledgmentFixture(t *testing.T, workspacePath st
 	manifestBytes = append(manifestBytes, '\n')
 	if err := os.WriteFile(manifestPath, manifestBytes, 0o600); err != nil {
 		t.Fatalf("write release publication acknowledgment fixture: %v", err)
+	}
+	return manifestPath
+}
+
+func writeRolloutClosureSummaryFixture(t *testing.T, workspacePath string) string {
+	t.Helper()
+	manifest, _, err := buildWorkflowRolloutClosureSummaryManifest(workspacePath, workflowRolloutClosureSummaryExportRequest{
+		SummaryReference:  "closure-summary-2026-07-21",
+		OperatorReference: "operator-8",
+		SummaryTimestamp:  "2026-07-21T00:40:00Z",
+		ManifestPath:      filepath.Join(workspacePath, "workflow.rollout-closure-summary.json"),
+		AuditPath:         filepath.Join(workspacePath, "workflow.rollout-closure-summary.export.audit.jsonl"),
+	})
+	if err != nil {
+		t.Fatalf("build rollout closure summary fixture: %v", err)
+	}
+	manifestPath := filepath.Join(workspacePath, "workflow.rollout-closure-summary.json")
+	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal rollout closure summary fixture: %v", err)
+	}
+	manifestBytes = append(manifestBytes, '\n')
+	if err := os.WriteFile(manifestPath, manifestBytes, 0o600); err != nil {
+		t.Fatalf("write rollout closure summary fixture: %v", err)
 	}
 	return manifestPath
 }

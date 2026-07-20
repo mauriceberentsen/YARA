@@ -1408,6 +1408,15 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-summary.export.audit.jsonl` : "",
   }));
   const [closureSummarySubmitState, setClosureSummarySubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureDeliveryForm, setClosureDeliveryForm] = useState(() => ({
+    deliveryReference: "",
+    destinationReference: "",
+    operatorReference: "",
+    deliveryTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-delivery.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-delivery.export.audit.jsonl` : "",
+  }));
+  const [closureDeliverySubmitState, setClosureDeliverySubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1480,6 +1489,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-summary.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-summary.export.audit.jsonl`,
+    }));
+    setClosureDeliveryForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-delivery.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-delivery.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1873,6 +1887,37 @@ function CapsuleView({ payload }) {
       setClosureSummarySubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setClosureSummarySubmitState({ loading: false, error: error.message || "Rollout closure summary export failed", result: null });
+    }
+  };
+  const updateClosureDelivery = (key) => (event) => {
+    setClosureDeliveryForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureDelivery = closureDeliveryForm.deliveryReference.trim() !== "" &&
+    closureDeliveryForm.destinationReference.trim() !== "" &&
+    closureDeliveryForm.operatorReference.trim() !== "" &&
+    closureDeliveryForm.deliveryTimestamp.trim() !== "" &&
+    closureDeliveryForm.manifestPath !== "" &&
+    closureDeliveryForm.auditPath !== "" &&
+    closureDeliveryForm.manifestPath !== closureDeliveryForm.auditPath;
+  const submitClosureDelivery = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureDelivery) {
+      return;
+    }
+    setClosureDeliverySubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure-delivery/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureDeliveryForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure delivery export failed");
+      }
+      setClosureDeliverySubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureDeliverySubmitState({ loading: false, error: error.message || "Rollout closure delivery export failed", result: null });
     }
   };
   return (
@@ -2386,6 +2431,46 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureSummarySubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Summary readiness</dt><dd>{closureSummarySubmitState.result.summaryState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureSummarySubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export rollout closure delivery record</h3>
+      <form onSubmit={submitClosureDelivery}>
+        <div className="formRow">
+          <label htmlFor="closure-delivery-reference">Delivery record reference</label>
+          <input id="closure-delivery-reference" value={closureDeliveryForm.deliveryReference} onChange={updateClosureDelivery("deliveryReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-delivery-destination-reference">Delivery record destination reference</label>
+          <input id="closure-delivery-destination-reference" value={closureDeliveryForm.destinationReference} onChange={updateClosureDelivery("destinationReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-delivery-operator-reference">Delivery operator reference</label>
+          <input id="closure-delivery-operator-reference" value={closureDeliveryForm.operatorReference} onChange={updateClosureDelivery("operatorReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-delivery-timestamp">Delivery timestamp (RFC3339)</label>
+          <input id="closure-delivery-timestamp" value={closureDeliveryForm.deliveryTimestamp} onChange={updateClosureDelivery("deliveryTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-delivery-manifest-path">Manifest output path</label>
+          <input id="closure-delivery-manifest-path" value={closureDeliveryForm.manifestPath} onChange={updateClosureDelivery("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-delivery-audit-path">Audit output path</label>
+          <input id="closure-delivery-audit-path" value={closureDeliveryForm.auditPath} onChange={updateClosureDelivery("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureDeliverySubmitState.loading || !canExportClosureDelivery}>
+          {closureDeliverySubmitState.loading ? "Exporting delivery record..." : "Export delivery record"}
+        </button>
+      </form>
+      {!canExportClosureDelivery && <p className="error">Delivery record export requires delivery reference, destination reference, operator reference, timestamp, and distinct manifest/audit paths.</p>}
+      {closureDeliverySubmitState.error && <p className="error">Delivery record readiness: blocked ({closureDeliverySubmitState.error})</p>}
+      {closureDeliverySubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureDeliverySubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureDeliverySubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Delivery record readiness</dt><dd>{closureDeliverySubmitState.result.deliveryRecordState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureDeliverySubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>
