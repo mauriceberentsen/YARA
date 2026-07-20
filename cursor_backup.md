@@ -26,25 +26,7 @@
   - `catalog coverage runtime-drift-policy` evaluates `runtimeDriftPosture` for all assertions or one selected assertion;
   - assertion-scoped checks fail with infeasible exit when posture is `missing` or `drifted`;
   - malformed/incomplete posture records fail closed before policy output.
-- Web UI backend foundation (W1) is now implemented as a bounded local read-only HTTP API:
-  - `yara serve --catalog <file> --coverage-report <file> [--port <port>]` starts a local `net/http` server;
-  - read-only endpoints exposed: `/api/v1/catalog`, `/api/v1/assertions`, `/api/v1/coverage`, `/api/v1/drift-posture`, `/api/v1/lifecycle-policy`;
-  - unknown routes and unsupported methods fail closed with structured `404` diagnostics and no mutation surface.
-- Web UI shell (W2) is now implemented as an embedded React + Vite SPA served by `yara serve --ui`:
-  - top-level views: Catalog, Coverage, Drift, Lifecycle;
-  - each view fetches existing W1 read-only endpoints with deterministic loading/empty/error states;
-  - no mutation endpoints or mutation controls are exposed in the UI.
-- Runtime drift posture view (W3) is now implemented as a dedicated read-only drift interface:
-  - assertion-scoped filtering is supported via `/api/v1/drift-posture?assertion=<id>`;
-  - drift posture cards render deterministic status, blocker, remediation, selected signal, and audit reference fields;
-  - malformed/unsupported posture payloads fail closed in UI with non-destructive error rendering.
-- Lifecycle publication readiness view (W4) is now implemented as a dedicated read-only lifecycle interface:
-  - assertion-scoped filtering is supported via `/api/v1/lifecycle-policy?assertion=<id>`;
-  - lifecycle rows render deterministic four-pillar statuses (proof, integration, rehearsal, renewal) plus blocker code/remediation;
-  - malformed/inconsistent lifecycle payloads fail closed in UI with non-destructive error rendering.
-- Web UI release and documentation slice (W5) is now implemented:
-  - release workflow now references `.github/release-notes/v0.2.0-alpha.1.md` for canonical publication notes;
-  - docs + release notes now align on Web UI startup and local-only/read-only pre-alpha scope.
+- Web UI (MVP-2, W1–W5) is fully implemented as a local-only, read-only embedded React/Vite SPA served by `yara serve --ui`; see MVP-2 milestone path below for detail; `v0.2.0-alpha.1` release notes and docs are aligned.
 - Bootstrap + first-use path is implemented:
   - `deployment bootstrap kubernetes` (bounded namespace/PVC provisioning with `BootstrapReceipt`);
   - `deployment import kubernetes` (bounded single-model local staging into bootstrap PVC with `ArtifactImportReceipt`).
@@ -56,11 +38,8 @@
 
 - **Local/simulated verification:** Go/unit/CLI/schema tests prove deterministic IDs, fail-closed stale/foreign/mismatch paths, and bounded mutation authority.
 - **Pre-alpha docs clarity:** `README.md`, `docs/quickstart.md`, `docs/reference/commands.md`, and `docs/architecture/README.md` separate implemented behavior from deferred roadmap scope.
-- **Runtime drift contract verification:** new schema/resource/CLI/catalog-coverage wiring validates deterministic IDs, stale/foreign preflight rejection, audited target binding, and fail-closed malformed diagnostics parsing.
 - **Runtime drift policy gate verification:** dedicated policy command emits deterministic blocker/remediation output, produces auditable pass/fail responses, and enforces assertion-scoped infeasible exits for non-`in-sync` posture.
-- **Web UI API verification (simulated/local):** endpoint tests validate deterministic read responses from real catalog/coverage fixtures and fail-closed handling for unknown routes and non-read methods.
-- **Web UI drift posture verification (simulated/local):** tests cover assertion-scoped filter success/failure, payload validation failures, deterministic rendering order, and status-to-remediation mapping.
-- **Web UI lifecycle readiness verification (simulated/local):** tests cover lifecycle assertion filtering, deterministic four-pillar rendering, taxonomy/scope metadata display, and malformed payload fail-closed behavior.
+- **Web UI verification (simulated/local):** endpoint tests cover all read endpoints, assertion-scoped drift/lifecycle filtering, payload validation failures, and fail-closed handling; binary smoke test confirmed `yara serve --ui` serves embedded UI and policy endpoints.
 
 ## Current branch and working tree
 
@@ -76,60 +55,80 @@
 
 ## MVP milestone path
 
-- M1 Publication gating closure — completed.
-- M2 Artifact import receipt chain — completed.
-- M3 Bootstrap and first-use path — completed.
-- M4 CI and binary release — completed.
-- M5 Public documentation and honest scope statement — completed.
+- M1–M5 — completed (publication gating, artifact import, bootstrap, CI/release, public documentation).
 
 ## Open limitations and unproven claims
 
-- No live cluster validation was executed in this run for rollback/integration/promotion/lifecycle publication paths; this run validated release publication and artifacts only.
-- Air-gap external trust chain (acquisition execution, transfer-medium attestation chain, external scanner attestations) remains outside YARA proof boundary.
-- Bootstrap remains intentionally narrow (single YARA-owned namespace + model PVC); full cluster install/orchestration is deferred.
-- Web UI remains local-only and read-only in this stage (no auth, no multi-user/session model, no mutation endpoints).
+- No live cluster validation was executed in this run; run validated release publication and artifacts only.
+- Air-gap external trust chain remains outside YARA proof boundary.
+- Bootstrap remains intentionally narrow (single YARA-owned namespace + model PVC).
+- Web UI remains local-only and read-only in this stage (no auth, no multi-user/session, no mutation endpoints).
 
 ## MVP-2 milestone path — Web UI
 
-### W1 — Backend HTTP API layer
+- W1 Backend HTTP API, W2 Dashboard shell, W3 Drift posture view, W4 Lifecycle readiness view, W5 Release/docs — all completed.
+- Running the UI: `yara serve --catalog catalog/v0.2/snapshot.yaml --coverage-report .yara/catalog-v0.2-coverage.yaml --ui --port 7474` then open `http://127.0.0.1:7474`.
 
-- Bounded local read-only HTTP server and policy endpoints.
-- Status: completed.
+## MVP-3 milestone path — Interactive Workflow Cockpit
 
-### W2 — Minimal dashboard shell
+Goal: a browser-based operator cockpit where the complete plan-to-apply rollout workflow can be driven through the UI, with all existing audit, approval, and fail-closed gates preserved. The server remains local-only. Private keys are never sent to the server; the authorization signing step shows the exact CLI command for the operator to run or executes it only after explicit UI confirmation.
 
-- Embedded React + Vite shell with Catalog/Coverage/Drift/Lifecycle views over W1 endpoints.
-- Status: completed.
+### I1 — Workspace and pipeline overview
 
-### W3 — Runtime drift posture view
+- `yara serve --workspace <dir>` introduces a named local artifact directory;
+- new `GET /api/v1/workspace` endpoint scans the workspace for known artifact files and maps them to pipeline stages (plan, bundle, preflight, change-set, approval, authorization, receipt);
+- UI renders a visual pipeline with per-stage status badges (not-started / inputs-ready / complete / failed);
+- no mutation — discovery only.
 
-- Drift cards + assertion-scoped filtering + fail-closed payload handling.
-- Status: completed.
+### I2 — Plan creation form
 
-### W4 — Lifecycle publication readiness view
+- new `POST /api/v1/workflow/plan` endpoint invokes `plan create` with operator-supplied inputs and writes outputs to the workspace;
+- UI exposes a form: model/hardware assertion selector (populated from `/api/v1/assertions`), request name, request and inventory file paths;
+- result shows plan summary (selected components, confidence, top decision factors) inline;
+- fail closed: endpoint returns structured diagnostics on non-zero exit; no partial outputs are accepted.
 
-- Lifecycle table + assertion-scoped filtering + fail-closed payload handling.
-- Status: completed.
+### I3 — Bundle render
 
-### W5 — Web UI release and public documentation
+- new `POST /api/v1/workflow/render` endpoint invokes `render kubernetes-gitops` (or `docker-compose`) and writes bundle to workspace;
+- UI shows target format selector, bundle name field, and inline bundle summary (manifest count, artifact inventory);
+- fail closed on render error; existing bundle is not overwritten unless operator explicitly requests it.
 
-- Release notes template + workflow + docs alignment for Web UI publication.
-- Status: completed.
+### I4 — Preflight and change-set observation
+
+- new `POST /api/v1/workflow/preflight` and `POST /api/v1/workflow/changeset` endpoints invoke the respective read-only Kubernetes observation commands;
+- UI shows kubeconfig/context input fields and renders the change inspector: adds/modifies/deletions per object with severity;
+- blocked change-sets are surfaced as hard blockers — the UI prevents advancing to approval when the change-set status is `blocked`.
+
+### I5 — Approval form
+
+- new `POST /api/v1/workflow/approval` endpoint invokes `approval record` with the decision, reason-reference, and bound artifact identities;
+- UI shows a review checklist that surfaces plan summary, bundle digest, preflight target, and change-set object list before the approve/reject form;
+- no implicit approval — the operator must explicitly choose `approve` or `reject` and supply a reason-reference string;
+- result shows approval summary and content-addressed approval ID.
+
+### I6 — Authorization CLI generator and apply confirmation
+
+- for authorization, the UI generates and displays the exact `yara authorization issue` CLI command with all workspace-resolved paths — the private key is never sent to the server;
+- once the authorization file appears in the workspace (operator runs the command externally), the UI detects it via `GET /api/v1/workspace` polling and advances to the apply stage;
+- new `POST /api/v1/workflow/apply` endpoint invokes `deployment apply kubernetes` only after the operator confirms via an explicit UI dialog that shows the full evidence chain (plan → bundle → preflight → change-set → approval → authorization digests) and requires typing the confirm-authorization hash;
+- apply result shows receipt summary and audit chain link.
 
 ## Next implementation slice
 
-Implement **Post-MVP-2 slice — Web UI read-only auth boundary (fail-closed)**:
+Implement **I1 — Workspace and pipeline overview**:
 
-- add optional local auth token requirement for `yara serve` API/UI access (disabled by default, explicit opt-in flag);
-- enforce fail-closed `401` responses for missing/invalid tokens across all `/api/v1/*` endpoints;
-- keep mutation authority absent and preserve deterministic response schemas for authorized reads;
-- update docs/reference with explicit local-auth threat model limits (still single-user local pre-alpha).
+- add `--workspace <dir>` flag to `yara serve`; reject startup if the directory does not exist;
+- implement `GET /api/v1/workspace` that scans the workspace for known artifact filenames and returns a structured pipeline stage map with per-stage status (`not-started`, `ready`, `complete`) derived from artifact presence and validity;
+- extend the UI with a Pipeline view (new top-level nav item) that renders the seven stages as a visual pipeline column with status badges and artifact path labels;
+- no forms, no mutation — this slice is discovery and display only.
 
 Acceptance criteria:
 
-- opt-in auth mode blocks unauthenticated reads and admits only exact-token requests;
-- UI shell can load successfully when token is present and fail closed otherwise;
-- backend and frontend checks both pass in `make check` and `go test -race ./...` (frontend checks classified simulated/local).
+- `yara serve --workspace .yara/workspaces/default --catalog ... --coverage-report ...` starts successfully only when the workspace directory exists;
+- `GET /api/v1/workspace` returns deterministic stage status for an empty workspace and for a workspace containing a real plan file from `plan create`;
+- Pipeline view renders all seven stages; a workspace with only a plan file shows "complete" for stage 1 and "not-started" for stages 2–7;
+- unknown or malformed artifact files in the workspace fail closed with a diagnostic, not a silent success;
+- backend and frontend checks both pass in `make check` and `go test -race ./...`.
 
 ## Validation requirements
 
