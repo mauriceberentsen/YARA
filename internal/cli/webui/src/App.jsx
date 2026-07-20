@@ -1441,6 +1441,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-ledger.export.audit.jsonl` : "",
   }));
   const [closureLedgerSubmitState, setClosureLedgerSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureDocketForm, setClosureDocketForm] = useState(() => ({
+    docketReference: "",
+    preparedByReference: "",
+    preparedTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-docket.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-docket.export.audit.jsonl` : "",
+  }));
+  const [closureDocketSubmitState, setClosureDocketSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1533,6 +1541,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-ledger.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-ledger.export.audit.jsonl`,
+    }));
+    setClosureDocketForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-docket.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-docket.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2047,6 +2060,36 @@ function CapsuleView({ payload }) {
       setClosureLedgerSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setClosureLedgerSubmitState({ loading: false, error: error.message || "Rollout closure ledger export failed", result: null });
+    }
+  };
+  const updateClosureDocket = (key) => (event) => {
+    setClosureDocketForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureDocket = closureDocketForm.docketReference.trim() !== "" &&
+    closureDocketForm.preparedByReference.trim() !== "" &&
+    closureDocketForm.preparedTimestamp.trim() !== "" &&
+    closureDocketForm.manifestPath !== "" &&
+    closureDocketForm.auditPath !== "" &&
+    closureDocketForm.manifestPath !== closureDocketForm.auditPath;
+  const submitClosureDocket = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureDocket) {
+      return;
+    }
+    setClosureDocketSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure-docket/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureDocketForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure docket export failed");
+      }
+      setClosureDocketSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureDocketSubmitState({ loading: false, error: error.message || "Rollout closure docket export failed", result: null });
     }
   };
   return (
@@ -2708,6 +2751,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureLedgerSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Ledger readiness</dt><dd>{closureLedgerSubmitState.result.ledgerState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureLedgerSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export rollout closure handoff docket</h3>
+      <form onSubmit={submitClosureDocket}>
+        <div className="formRow">
+          <label htmlFor="closure-docket-reference">Docket reference</label>
+          <input id="closure-docket-reference" value={closureDocketForm.docketReference} onChange={updateClosureDocket("docketReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-docket-prepared-by-reference">Prepared by reference</label>
+          <input id="closure-docket-prepared-by-reference" value={closureDocketForm.preparedByReference} onChange={updateClosureDocket("preparedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-docket-prepared-timestamp">Prepared timestamp (RFC3339)</label>
+          <input id="closure-docket-prepared-timestamp" value={closureDocketForm.preparedTimestamp} onChange={updateClosureDocket("preparedTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-docket-manifest-path">Docket manifest output path</label>
+          <input id="closure-docket-manifest-path" value={closureDocketForm.manifestPath} onChange={updateClosureDocket("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-docket-audit-path">Docket audit output path</label>
+          <input id="closure-docket-audit-path" value={closureDocketForm.auditPath} onChange={updateClosureDocket("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureDocketSubmitState.loading || !canExportClosureDocket}>
+          {closureDocketSubmitState.loading ? "Exporting closure docket..." : "Export closure docket"}
+        </button>
+      </form>
+      {!canExportClosureDocket && <p className="error">Docket export requires docket reference, prepared-by reference, prepared timestamp, and distinct manifest/audit paths.</p>}
+      {closureDocketSubmitState.error && <p className="error">Docket readiness: blocked ({closureDocketSubmitState.error})</p>}
+      {closureDocketSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureDocketSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureDocketSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Docket readiness</dt><dd>{closureDocketSubmitState.result.docketState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureDocketSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>

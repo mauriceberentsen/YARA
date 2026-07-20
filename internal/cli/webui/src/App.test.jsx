@@ -422,6 +422,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure-docket/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            manifestPath: requestPayload.manifestPath,
+            auditPath: requestPayload.auditPath,
+            docketState: "docket-ready",
+            blockerCode: "",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -721,6 +733,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Recorded timestamp (RFC3339)"), { target: { value: "2026-07-21T01:05:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure ledger" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-ledger.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Docket reference"), { target: { value: "closure-docket-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Prepared by reference"), { target: { value: "handoff-preparer-1" } });
+    fireEvent.change(screen.getByLabelText("Prepared timestamp (RFC3339)"), { target: { value: "2026-07-21T01:10:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure docket" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-docket.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -740,7 +757,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Assertion filter"), { target: { value: "compat.a" } });
     await waitFor(() => expect(screen.getByText("missing-proof")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("record-proof")).toBeInTheDocument());
-  }, 35000);
+  }, 40000);
 
   it("enforces air-gap apply guardrails in UI", async () => {
     render(<App />);
@@ -874,6 +891,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-045", message: "YARA-RLG-003: latest rollout closure certificate is blocked", severity: "error" }],
         }), { status: 422 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure-docket/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-046", message: "YARA-RDK-003: latest rollout closure ledger is blocked", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -988,7 +1011,13 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export closure ledger" }));
     await waitFor(() => expect(screen.getByText(/Ledger readiness: blocked/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText(/YARA-RLG-003/)).toBeInTheDocument());
-  }, 35000);
+    fireEvent.change(screen.getByLabelText("Docket reference"), { target: { value: "closure-docket-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Prepared by reference"), { target: { value: "handoff-preparer-1" } });
+    fireEvent.change(screen.getByLabelText("Prepared timestamp (RFC3339)"), { target: { value: "2026-07-21T01:10:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure docket" }));
+    await waitFor(() => expect(screen.getByText(/Docket readiness: blocked/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/YARA-RDK-003/)).toBeInTheDocument());
+  }, 40000);
 
   it("fails closed on malformed drift payload", async () => {
     global.fetch = vi.fn((input) => {
