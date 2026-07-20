@@ -160,13 +160,15 @@ type acceptedLifecycleProofApproval struct {
 }
 
 type evidenceIndex struct {
-	Contracts               map[string][]acceptedEvidence
-	ComponentEvidence       map[string][]acceptedIntegrationEvidence
-	TopologyEvidence        map[string][]acceptedIntegrationEvidence
-	PromotionReviews        map[string][]acceptedPromotionReview
-	LifecycleProofApprovals map[string][]acceptedLifecycleProofApproval
-	AcceptedCount           int
-	VerifiedAuditCount      int
+	Contracts                    map[string][]acceptedEvidence
+	ComponentEvidence            map[string][]acceptedIntegrationEvidence
+	TopologyEvidence             map[string][]acceptedIntegrationEvidence
+	PromotionReviews             map[string][]acceptedPromotionReview
+	LifecycleProofApprovals      map[string][]acceptedLifecycleProofApproval
+	AcceptedCount                int
+	VerifiedAuditCount           int
+	IntegrationIdentityCount     int
+	IntegrationDeduplicatedCount int
 }
 
 func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Report, error) {
@@ -191,6 +193,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 				"Component, model and hardware coverage is derived from exact compatibility assertions and does not replace dedicated integration review.",
 				"Independent promotion review is represented but remains an external review step.",
 				"Integration validation alone is not execution evidence; component and topology coverage requires a matching execution audit chain.",
+				fmt.Sprintf("integration-evidence-convergence:identity-count=%d,deduplicated-count=%d", evidence.IntegrationIdentityCount, evidence.IntegrationDeduplicatedCount),
 			},
 		},
 	}
@@ -718,6 +721,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 				if existing.AuditHead != accepted.AuditHead {
 					return fmt.Errorf("integration evidence %s reuses result identity with mismatched audit binding", filepath.Base(path))
 				}
+				result.IntegrationDeduplicatedCount++
 				return nil
 			}
 			acceptedIntegrationByID[integrationResult.Metadata.ResultID] = accepted
@@ -859,6 +863,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		result.AcceptedCount++
 		result.VerifiedAuditCount++
 	}
+	result.IntegrationIdentityCount = len(acceptedIntegrationByID)
 	return result, nil
 }
 

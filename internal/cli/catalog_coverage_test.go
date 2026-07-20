@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
+	"github.com/mauriceberentsen/YARA/internal/catalog"
 	"github.com/mauriceberentsen/YARA/internal/catalogcoverage"
+	"github.com/mauriceberentsen/YARA/internal/resources"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,15 +25,23 @@ func TestCatalogCoverageWritesIncompleteAuditedReport(t *testing.T) {
 		t.Fatalf("coverage failed with %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
 	}
 	var response struct {
-		Valid    bool   `json:"valid"`
-		Complete bool   `json:"complete"`
-		ReportID string `json:"reportId"`
+		Valid                          bool   `json:"valid"`
+		Complete                       bool   `json:"complete"`
+		ReportID                       string `json:"reportId"`
+		IntegrationEvidenceConvergence struct {
+			IdentityCount        int  `json:"identityCount"`
+			DeduplicatedCount    int  `json:"deduplicatedCount"`
+			DeduplicationApplied bool `json:"deduplicationApplied"`
+		} `json:"integrationEvidenceConvergence"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if !response.Valid || response.Complete || response.ReportID == "" {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+	if response.IntegrationEvidenceConvergence.IdentityCount != 0 || response.IntegrationEvidenceConvergence.DeduplicatedCount != 0 || response.IntegrationEvidenceConvergence.DeduplicationApplied {
+		t.Fatalf("unexpected integration convergence diagnostics for v0.2 fixtures: %#v", response.IntegrationEvidenceConvergence)
 	}
 	report, err := catalogcoverage.Load(outputPath)
 	if err != nil {
@@ -127,6 +139,11 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 			Code        string `json:"code"`
 			Remediation string `json:"remediation"`
 		} `json:"blockedAssertions"`
+		IntegrationEvidenceConvergence struct {
+			IdentityCount        int  `json:"identityCount"`
+			DeduplicatedCount    int  `json:"deduplicatedCount"`
+			DeduplicationApplied bool `json:"deduplicationApplied"`
+		} `json:"integrationEvidenceConvergence"`
 		Taxonomy []catalogcoverage.LifecyclePublicationBlockerDefinition `json:"taxonomy"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
@@ -147,6 +164,9 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 	if len(response.Taxonomy) == 0 {
 		t.Fatalf("blocker taxonomy must be included in policy diagnostics response")
 	}
+	if response.IntegrationEvidenceConvergence.IdentityCount != 0 || response.IntegrationEvidenceConvergence.DeduplicatedCount != 0 || response.IntegrationEvidenceConvergence.DeduplicationApplied {
+		t.Fatalf("unexpected integration convergence diagnostics for v0.2 policy response: %#v", response.IntegrationEvidenceConvergence)
+	}
 	events, err := audit.LoadJSONL(policyAuditPath)
 	if err != nil {
 		t.Fatalf("load policy audit: %v", err)
@@ -154,6 +174,94 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 	terminal := events[len(events)-1]
 	if terminal.Spec.Action != "catalog.coverage.lifecycle-publication-policy.completed" {
 		t.Fatalf("unexpected policy audit terminal event: %#v", terminal.Spec)
+	}
+}
+
+func TestCatalogCoverageCreateReportsDeduplicatedIntegrationConvergenceState(t *testing.T) {
+	temp := t.TempDir()
+	catalogPath := filepath.Join("..", "..", "catalog", "v0.2", "snapshot.yaml")
+	snapshot, err := catalog.Load(catalogPath)
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	digest, err := snapshot.Digest()
+	if err != nil {
+		t.Fatalf("catalog digest: %v", err)
+	}
+	evidenceDir := filepath.Join(temp, "evidence")
+	if err := os.MkdirAll(evidenceDir, 0o755); err != nil {
+		t.Fatalf("create evidence dir: %v", err)
+	}
+	result := deterministicIntegrationResultFixtureForCLI(t, digest)
+	writeCatalogCoverageYAMLFixture(t, filepath.Join(evidenceDir, "integration-one.yaml"), result)
+	writeCatalogCoverageYAMLFixture(t, filepath.Join(evidenceDir, "integration-two.yaml"), result)
+	writeIntegrationAuditFixture(t, filepath.Join(evidenceDir, "integration-one.audit.jsonl"), digest, result.Metadata.ResultID, result.Spec.Environment.ReferenceDigest, "2026-07-20T12:30:00Z")
+	writeIntegrationAuditFixture(t, filepath.Join(evidenceDir, "integration-two.audit.jsonl"), digest, result.Metadata.ResultID, result.Spec.Environment.ReferenceDigest, "2026-07-20T12:30:00Z")
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	auditPath := filepath.Join(temp, "coverage.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	exit := Run([]string{
+		"catalog", "coverage", "create",
+		"--catalog", catalogPath,
+		"--evidence-dir", evidenceDir,
+		"--name", "coverage-dedup",
+		"--output", outputPath,
+		"--audit-output", auditPath,
+	}, &stdout, &stderr)
+	if exit != ExitSuccess {
+		t.Fatalf("coverage create failed with %d: stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	var response struct {
+		IntegrationEvidenceConvergence struct {
+			IdentityCount        int  `json:"identityCount"`
+			DeduplicatedCount    int  `json:"deduplicatedCount"`
+			DeduplicationApplied bool `json:"deduplicationApplied"`
+		} `json:"integrationEvidenceConvergence"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.IntegrationEvidenceConvergence.IdentityCount != 1 || response.IntegrationEvidenceConvergence.DeduplicatedCount != 1 || !response.IntegrationEvidenceConvergence.DeduplicationApplied {
+		t.Fatalf("unexpected deduplicated integration convergence diagnostics: %#v", response.IntegrationEvidenceConvergence)
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnMalformedConvergenceLimitations(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	report, err := catalogcoverage.Load(outputPath)
+	if err != nil {
+		t.Fatalf("load report: %v", err)
+	}
+	filtered := make([]string, 0, len(report.Spec.Limitations))
+	for _, limitation := range report.Spec.Limitations {
+		if strings.HasPrefix(limitation, "integration-evidence-convergence:") {
+			filtered = append(filtered, "integration-evidence-convergence:identity-count=abc,deduplicated-count=1")
+			continue
+		}
+		filtered = append(filtered, limitation)
+	}
+	report.Spec.Limitations = filtered
+	report, err = report.AssignReportID()
+	if err != nil {
+		t.Fatalf("assign report id: %v", err)
+	}
+	reportData, err := yaml.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(outputPath, reportData, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInternal {
+		t.Fatalf("expected internal error for malformed convergence limitation record, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
 	}
 }
 
@@ -227,5 +335,100 @@ func catalogCoverageArgs(outputPath, auditPath string) []string {
 		"catalog", "coverage", "create", "--catalog", filepath.Join(root, "snapshot.yaml"),
 		"--evidence-dir", filepath.Join(root, "evidence"), "--name", "catalog-v0.2-coverage",
 		"--output", outputPath, "--audit-output", auditPath,
+	}
+}
+
+func deterministicIntegrationResultFixtureForCLI(t *testing.T, catalogDigest string) resources.IntegrationTestResult {
+	t.Helper()
+	result := resources.IntegrationTestResult{
+		APIVersion: resources.APIVersion,
+		Kind:       "IntegrationTestResult",
+		Metadata: resources.IntegrationTestResultMetadata{
+			Name: "integration-cli-fixture",
+		},
+		Spec: resources.IntegrationTestResultSpec{
+			Mode:          "component-smoke",
+			Outcome:       "passed",
+			CatalogDigest: catalogDigest,
+			ComponentRefs: []string{"core.litellm@1.93.0"},
+			Environment: resources.ContractTestEnvironment{
+				Transport:       "local",
+				ReferenceDigest: "sha256:" + strings.Repeat("a", 64),
+				OperatingSystem: "linux",
+				Architecture:    "amd64",
+				Docker: resources.ContractTestDocker{
+					Available: true, Version: "27.0.0", OperatingSystem: "linux", Architecture: "amd64",
+				},
+				Accelerators: []resources.ContractTestAccelerator{},
+			},
+			Checks: []resources.ContractTestCheck{
+				{ID: "integration.cli.fixture", Status: "passed", EvidenceDigest: "sha256:" + strings.Repeat("b", 64)},
+			},
+			Limitations: []string{"integration fixture"},
+		},
+	}
+	slices.Sort(result.Spec.ComponentRefs)
+	slices.Sort(result.Spec.Limitations)
+	result, err := result.AssignResultID()
+	if err != nil {
+		t.Fatalf("assign integration fixture id: %v", err)
+	}
+	return result
+}
+
+func writeCatalogCoverageYAMLFixture(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := yaml.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal yaml fixture: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write yaml fixture: %v", err)
+	}
+}
+
+func writeIntegrationAuditFixture(t *testing.T, path, catalogDigest, resultID, targetDigest, occurredAt string) {
+	t.Helper()
+	chain := audit.NewChain()
+	started, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "integration-started", OccurredAt: occurredAt},
+		Spec: audit.Spec{
+			CorrelationID: "integration-cli-fixture",
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "integration.component-smoke.started",
+			Subjects:      []audit.Subject{{Kind: "CatalogSnapshot", Digest: catalogDigest}},
+			Reason:        audit.Reason{Type: "user-request", Reference: "test"},
+			Target:        "local:" + targetDigest,
+			Outcome:       "started",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append started integration audit: %v", err)
+	}
+	terminal, err := chain.Append(audit.Event{
+		Metadata: audit.Metadata{ID: "integration-terminal", OccurredAt: occurredAt},
+		Spec: audit.Spec{
+			CorrelationID: "integration-cli-fixture",
+			CausationID:   started.Metadata.ID,
+			Actor:         audit.Actor{ID: "local:runner", Type: "user", Assurance: "self-asserted-local"},
+			Action:        "integration.component-smoke.completed",
+			Subjects: []audit.Subject{
+				{Kind: "CatalogSnapshot", Digest: catalogDigest},
+				{Kind: "IntegrationTestResult", Digest: resultID},
+			},
+			Reason:  audit.Reason{Type: "user-request", Reference: "test"},
+			Target:  "local:" + targetDigest,
+			Outcome: "success",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append terminal integration audit: %v", err)
+	}
+	var buffer bytes.Buffer
+	if err := audit.EncodeJSONL(&buffer, []audit.Event{started, terminal}); err != nil {
+		t.Fatalf("encode integration audit fixture: %v", err)
+	}
+	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
+		t.Fatalf("write integration audit fixture: %v", err)
 	}
 }

@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `f3ddebb` (`Close generic integration execute policy and audit parity.`).
+- Branch baseline before this slice: `main` at `07b8dba` (`Converge integration evidence identities in catalog coverage.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
@@ -49,6 +49,9 @@
   - catalog coverage now deduplicates accepted integration evidence by immutable `IntegrationTestResult` identity so mixed direct and generic execution artifacts cannot inflate accepted evidence counts;
   - catalog coverage now fails closed when one integration result identity is reused with mismatched verified audit-chain heads;
   - integration policy docs now describe convergence semantics for direct and generic integration evidence identity reuse.
+  - `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now surface converged integration evidence diagnostics (`integrationEvidenceConvergence.identityCount`, `deduplicatedCount`, `deduplicationApplied`) without changing durable resource schemas;
+  - publication-facing convergence diagnostics now fail closed when report convergence limitation records are malformed or ambiguous;
+  - mixed direct/generic integration evidence publication diagnostics are now covered by deterministic CLI tests proving deduplication-state stability.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -82,6 +85,7 @@
   - integration execution now fails closed on unsupported generic modes and stale topology/component assertion drift prior to executor invocation;
   - integration execute diagnostics now include deterministic remediation guidance for unsupported mode and stale binding/role drift, and generic execution output includes explicit mode-path explainability metadata;
   - catalog coverage now enforces identity-equivalent integration evidence convergence for mixed direct/generic execution artifacts and rejects audit-binding drift for reused result identities;
+  - publication-facing coverage diagnostics now expose integration convergence state deterministically for both create and lifecycle-policy command paths;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -118,13 +122,13 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by five commits before this uncommitted work).
-- Recent commits before this slice (newest first): `f3ddebb`, `f737bfe`, `9da6239`, `ae1c94a`, `3bd2ec3`.
-- This slice closes integration-evidence convergence in catalog coverage by deduplicating mixed direct/generic evidence identities and failing closed on audit-binding drift.
+- Branch: `main` tracking `origin/main` (local ahead by six commits before this uncommitted work).
+- Recent commits before this slice (newest first): `07b8dba`, `f3ddebb`, `f737bfe`, `9da6239`, `ae1c94a`.
+- This slice closes publication-facing diagnostics parity for converged integration evidence across create and lifecycle-policy CLI outputs.
 - Phase 3 milestone slice plan now tracks three ordered slices:
   - slice 1 completed: generic integration executor policy and audit parity closure;
   - slice 2 completed in this run: coverage identity convergence and fail-closed audit-binding drift enforcement;
-  - slice 3 remaining: publication-facing diagnostics and gate explainability parity for converged integration evidence.
+  - slice 3 completed in this run: publication-facing diagnostics and gate explainability parity for converged integration evidence.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -137,19 +141,19 @@
 
 ## Next implementation slice
 
-Implement **Phase 3 major milestone continuation: publication-facing diagnostics parity for converged integration evidence**:
+Implement **Phase 4 milestone kickoff: audited integration publication attestation closure**:
 
-- extend catalog coverage CLI diagnostics (`catalog coverage create` and `catalog coverage lifecycle-publication-policy`) to surface converged integration evidence identity counts and deduplication state without schema mutations;
-- add fail-closed CLI/coverage tests proving publication diagnostics remain deterministic when mixed direct/generic integration evidence is present and deduplicated;
-- document publication-readiness interpretation for converged integration evidence in operator guidance alongside lifecycle publication diagnostics;
+- introduce an immutable integration publication attestation resource binding one catalog assertion to selected converged integration evidence identities plus reviewer decision and bounded validity;
+- add a bounded CLI command to record integration publication attestations with deterministic audit chains and explicit fail-closed binding checks;
+- gate catalog publication diagnostics on accepted integration publication attestation evidence for assertions where integration execution is required;
 - keep gate-evaluation signing authority independent from deployment authorization keys while preserving deterministic, content-addressed evidence;
 - preserve non-secret durable evidence boundaries (no raw scanner logs, payloads, secrets, kubeconfig, or host addresses).
 
 Acceptance criteria:
 
-- publication-facing catalog coverage diagnostics expose converged integration identity/dedup state without mutating durable resource contracts;
-- mixed direct/generic integration evidence remains deduplicated and deterministic in both coverage internals and operator-facing diagnostic output;
-- publication gating and lifecycle diagnostics remain fail-closed and non-secret after convergence diagnostics are added;
+- integration publication attestation evidence is immutable, content-addressed, and independently auditable;
+- publication diagnostics fail closed when required integration attestation evidence is missing, stale, foreign, or unbound to selected converged evidence identities;
+- lifecycle and integration publication diagnostics remain deterministic and non-secret with no mutation authority added;
 - lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
 - apply-side provenance remains fail-closed and unaffected by lifecycle publication-policy UX additions;

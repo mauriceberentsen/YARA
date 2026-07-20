@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/mauriceberentsen/YARA/internal/audit"
 	"github.com/mauriceberentsen/YARA/internal/catalog"
@@ -27,6 +29,12 @@ type lifecyclePublicationPolicyOptions struct {
 	reportPath string
 	assertion  string
 	auditPath  string
+}
+
+type integrationEvidenceConvergence struct {
+	IdentityCount        int  `json:"identityCount"`
+	DeduplicatedCount    int  `json:"deduplicatedCount"`
+	DeduplicationApplied bool `json:"deduplicationApplied"`
 }
 
 func catalogCoverage(args []string, stdout, stderr io.Writer) int {
@@ -62,6 +70,11 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 		_ = os.Remove(options.outputPath)
 		return writeLoadError(stdout, "YARA-AUD-005", err)
 	}
+	convergence, err := integrationEvidenceConvergenceFromReport(report)
+	if err != nil {
+		_ = os.Remove(options.outputPath)
+		return writeCatalogCoverageFailure(stdout, options, []audit.Subject{catalogSubject, reportSubject}, "YARA-COV-500", err, ExitInternal)
+	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(map[string]any{
@@ -69,6 +82,7 @@ func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 		"output": options.outputPath, "auditOutput": options.auditPath, "summary": report.Spec.Summary,
 		"lifecyclePublicationReadyAssertions":   report.Spec.Summary.LifecyclePublicationReadyAssertions,
 		"lifecyclePublicationBlockedAssertions": report.Spec.Summary.LifecyclePublicationBlockedAssertions,
+		"integrationEvidenceConvergence":        convergence,
 	}); err != nil {
 		return ExitInternal
 	}
@@ -93,6 +107,10 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 	}
 	if options.assertion != "" && len(filtered) == 0 {
 		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-007", errors.New("assertion is not present in catalog coverage report"), ExitInvalidInput)
+	}
+	convergence, err := integrationEvidenceConvergenceFromReport(report)
+	if err != nil {
+		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
 	}
 	blocked := []map[string]string{}
 	for _, assertion := range filtered {
@@ -123,6 +141,7 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		"assertionScope":                        lifecyclePublicationAssertionScope(options.assertion),
 		"lifecyclePublicationReadyAssertions":   report.Spec.Summary.LifecyclePublicationReadyAssertions,
 		"lifecyclePublicationBlockedAssertions": report.Spec.Summary.LifecyclePublicationBlockedAssertions,
+		"integrationEvidenceConvergence":        convergence,
 		"blockedAssertions":                     blocked,
 		"taxonomy":                              catalogcoverage.LifecyclePublicationBlockerTaxonomy(),
 		"auditOutput":                           options.auditPath,
@@ -154,6 +173,52 @@ func lifecyclePublicationAssertionScope(assertion string) map[string]string {
 		return map[string]string{"mode": "all"}
 	}
 	return map[string]string{"mode": "single-assertion", "assertion": assertion}
+}
+
+func integrationEvidenceConvergenceFromReport(report catalogcoverage.Report) (integrationEvidenceConvergence, error) {
+	const prefix = "integration-evidence-convergence:"
+	found := ""
+	for _, limitation := range report.Spec.Limitations {
+		if strings.HasPrefix(limitation, prefix) {
+			if found != "" {
+				return integrationEvidenceConvergence{}, errors.New("catalog coverage report contains multiple integration convergence limitation records")
+			}
+			found = limitation
+		}
+	}
+	if found == "" {
+		return integrationEvidenceConvergence{}, errors.New("catalog coverage report does not include integration convergence limitation record")
+	}
+	body := strings.TrimPrefix(found, prefix)
+	parts := strings.Split(body, ",")
+	if len(parts) != 2 {
+		return integrationEvidenceConvergence{}, errors.New("integration convergence limitation record is malformed")
+	}
+	values := map[string]int{}
+	for _, part := range parts {
+		keyValue := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(keyValue) != 2 {
+			return integrationEvidenceConvergence{}, errors.New("integration convergence limitation record contains invalid key-value pairs")
+		}
+		value, err := strconv.Atoi(strings.TrimSpace(keyValue[1]))
+		if err != nil || value < 0 {
+			return integrationEvidenceConvergence{}, errors.New("integration convergence limitation record contains invalid count values")
+		}
+		values[strings.TrimSpace(keyValue[0])] = value
+	}
+	identityCount, ok := values["identity-count"]
+	if !ok {
+		return integrationEvidenceConvergence{}, errors.New("integration convergence limitation record omits identity-count")
+	}
+	deduplicatedCount, ok := values["deduplicated-count"]
+	if !ok {
+		return integrationEvidenceConvergence{}, errors.New("integration convergence limitation record omits deduplicated-count")
+	}
+	return integrationEvidenceConvergence{
+		IdentityCount:        identityCount,
+		DeduplicatedCount:    deduplicatedCount,
+		DeduplicationApplied: deduplicatedCount > 0,
+	}, nil
 }
 
 func writeCatalogCoveragePolicyFailure(output io.Writer, auditPath string, subjects []audit.Subject, code string, err error, exitCode int) int {
