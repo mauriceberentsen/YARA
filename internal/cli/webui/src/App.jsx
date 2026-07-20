@@ -1449,6 +1449,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-docket.export.audit.jsonl` : "",
   }));
   const [closureDocketSubmitState, setClosureDocketSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureBulletinForm, setClosureBulletinForm] = useState(() => ({
+    bulletinReference: "",
+    publishedByReference: "",
+    publishedTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-bulletin.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-bulletin.export.audit.jsonl` : "",
+  }));
+  const [closureBulletinSubmitState, setClosureBulletinSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1546,6 +1554,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-docket.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-docket.export.audit.jsonl`,
+    }));
+    setClosureBulletinForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-bulletin.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-bulletin.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2090,6 +2103,36 @@ function CapsuleView({ payload }) {
       setClosureDocketSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setClosureDocketSubmitState({ loading: false, error: error.message || "Rollout closure docket export failed", result: null });
+    }
+  };
+  const updateClosureBulletin = (key) => (event) => {
+    setClosureBulletinForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureBulletin = closureBulletinForm.bulletinReference.trim() !== "" &&
+    closureBulletinForm.publishedByReference.trim() !== "" &&
+    closureBulletinForm.publishedTimestamp.trim() !== "" &&
+    closureBulletinForm.manifestPath !== "" &&
+    closureBulletinForm.auditPath !== "" &&
+    closureBulletinForm.manifestPath !== closureBulletinForm.auditPath;
+  const submitClosureBulletin = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureBulletin) {
+      return;
+    }
+    setClosureBulletinSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure-bulletin/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureBulletinForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure bulletin export failed");
+      }
+      setClosureBulletinSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureBulletinSubmitState({ loading: false, error: error.message || "Rollout closure bulletin export failed", result: null });
     }
   };
   return (
@@ -2787,6 +2830,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureDocketSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Docket readiness</dt><dd>{closureDocketSubmitState.result.docketState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureDocketSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export rollout closure release bulletin</h3>
+      <form onSubmit={submitClosureBulletin}>
+        <div className="formRow">
+          <label htmlFor="closure-bulletin-reference">Bulletin reference</label>
+          <input id="closure-bulletin-reference" value={closureBulletinForm.bulletinReference} onChange={updateClosureBulletin("bulletinReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-bulletin-published-by-reference">Published by reference</label>
+          <input id="closure-bulletin-published-by-reference" value={closureBulletinForm.publishedByReference} onChange={updateClosureBulletin("publishedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-bulletin-published-timestamp">Published timestamp (RFC3339)</label>
+          <input id="closure-bulletin-published-timestamp" value={closureBulletinForm.publishedTimestamp} onChange={updateClosureBulletin("publishedTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-bulletin-manifest-path">Bulletin manifest output path</label>
+          <input id="closure-bulletin-manifest-path" value={closureBulletinForm.manifestPath} onChange={updateClosureBulletin("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-bulletin-audit-path">Bulletin audit output path</label>
+          <input id="closure-bulletin-audit-path" value={closureBulletinForm.auditPath} onChange={updateClosureBulletin("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureBulletinSubmitState.loading || !canExportClosureBulletin}>
+          {closureBulletinSubmitState.loading ? "Exporting closure bulletin..." : "Export closure bulletin"}
+        </button>
+      </form>
+      {!canExportClosureBulletin && <p className="error">Bulletin export requires bulletin reference, published-by reference, published timestamp, and distinct manifest/audit paths.</p>}
+      {closureBulletinSubmitState.error && <p className="error">Bulletin readiness: blocked ({closureBulletinSubmitState.error})</p>}
+      {closureBulletinSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureBulletinSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureBulletinSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Bulletin readiness</dt><dd>{closureBulletinSubmitState.result.bulletinState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureBulletinSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>
