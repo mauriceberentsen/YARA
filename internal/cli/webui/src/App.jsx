@@ -1361,6 +1361,13 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.export.audit.jsonl` : "",
   }));
   const [releasePublicationSubmitState, setReleasePublicationSubmitState] = useState({ loading: false, error: "", result: null });
+  const [publicationIndexForm, setPublicationIndexForm] = useState(() => ({
+    publicationBatchReference: "",
+    operatorReference: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.release-publication.index.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.release-publication.index.export.audit.jsonl` : "",
+  }));
+  const [publicationIndexSubmitState, setPublicationIndexSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1403,6 +1410,11 @@ function CapsuleView({ payload }) {
       ...previous,
       attestationPath: previous.attestationPath || `${workspacePath}/workflow.release-publication.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.export.audit.jsonl`,
+    }));
+    setPublicationIndexForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.release-publication.index.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.release-publication.index.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -1617,6 +1629,35 @@ function CapsuleView({ payload }) {
       setReleasePublicationSubmitState({ loading: false, error: "", result: responsePayload.export || null });
     } catch (error) {
       setReleasePublicationSubmitState({ loading: false, error: error.message || "Release publication export failed", result: null });
+    }
+  };
+  const updatePublicationIndex = (key) => (event) => {
+    setPublicationIndexForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportPublicationIndex = publicationIndexForm.publicationBatchReference.trim() !== "" &&
+    publicationIndexForm.operatorReference.trim() !== "" &&
+    publicationIndexForm.manifestPath !== "" &&
+    publicationIndexForm.auditPath !== "" &&
+    publicationIndexForm.manifestPath !== publicationIndexForm.auditPath;
+  const submitPublicationIndex = async (event) => {
+    event.preventDefault();
+    if (!canExportPublicationIndex) {
+      return;
+    }
+    setPublicationIndexSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/release-publication/index/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(publicationIndexForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Release publication index export failed");
+      }
+      setPublicationIndexSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setPublicationIndexSubmitState({ loading: false, error: error.message || "Release publication index export failed", result: null });
     }
   };
   return (
@@ -1918,6 +1959,38 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{releasePublicationSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Publication readiness</dt><dd>{releasePublicationSubmitState.result.publicationState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{releasePublicationSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export release publication index</h3>
+      <form onSubmit={submitPublicationIndex}>
+        <div className="formRow">
+          <label htmlFor="publication-index-batch-reference">Publication batch reference</label>
+          <input id="publication-index-batch-reference" value={publicationIndexForm.publicationBatchReference} onChange={updatePublicationIndex("publicationBatchReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-index-operator-reference">Publication index operator reference</label>
+          <input id="publication-index-operator-reference" value={publicationIndexForm.operatorReference} onChange={updatePublicationIndex("operatorReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-index-manifest-path">Manifest output path</label>
+          <input id="publication-index-manifest-path" value={publicationIndexForm.manifestPath} onChange={updatePublicationIndex("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="publication-index-audit-path">Audit output path</label>
+          <input id="publication-index-audit-path" value={publicationIndexForm.auditPath} onChange={updatePublicationIndex("auditPath")} />
+        </div>
+        <button type="submit" disabled={publicationIndexSubmitState.loading || !canExportPublicationIndex}>
+          {publicationIndexSubmitState.loading ? "Exporting publication index..." : "Export publication index"}
+        </button>
+      </form>
+      {!canExportPublicationIndex && <p className="error">Publication index export requires batch reference, operator reference, and distinct manifest/audit paths.</p>}
+      {publicationIndexSubmitState.error && <p className="error">Index readiness: blocked ({publicationIndexSubmitState.error})</p>}
+      {publicationIndexSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{publicationIndexSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{publicationIndexSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Index readiness</dt><dd>{publicationIndexSubmitState.result.indexState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{publicationIndexSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
     </>

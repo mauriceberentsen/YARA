@@ -1,7 +1,7 @@
 # Cursor handoff
 ## Current repository state
 - Repository: `YARA` on branch `main` (tracking `origin/main`).
-- Recent commits (newest first): `5153a0a`, `6b8ce34`, `55b812b`, `843287b`, `3252d0e`.
+- Recent commits (newest first): `678ab76`, `5153a0a`, `6b8ce34`, `55b812b`, `843287b`.
 - Public schema surface includes deployment, approval, lifecycle-proof, integration-publication, publication-chain, bootstrap, air-gap provenance, and runtime drift contracts under `schemas/yara.dev/v1alpha1`.
 ## Current product boundary
 - Deterministic plan/render + read-only preflight/change-set + review-first approval + short-lived authorization + bounded apply/retire/rollback execution are implemented.
@@ -64,10 +64,10 @@
   - `POST /api/v1/workflow/release-decision/export` persists deterministic release decision ledger entries bound to closure package + review gate digests, continuity IDs, reviewer metadata, and operator/timestamp decision metadata;
   - export fails closed on missing/malformed timestamp/reference metadata, missing review-gate artifacts, and closure/review continuity divergence (`YARA-RDL-*`), with workspace-bounded no-overwrite output enforcement and mandatory audit output;
   - capsule UI now supports release-decision export and shows explicit `ready-to-publish` vs `blocked` publication diagnostics.
-- Interactive workflow cockpit I17 is implemented:
-  - `POST /api/v1/workflow/release-publication/export` persists deterministic publication attestation entries bound to latest release-decision/closure/review digests plus channel/location/operator/timestamp metadata;
-  - export fails closed on missing/blocked release decision ledgers, malformed publication metadata, and continuity/digest divergence against current closure-review artifacts (`YARA-RPB-*`);
-  - capsule UI now supports release-publication export and surfaces explicit `publishable` / `blocked` publication readiness diagnostics.
+- Interactive workflow cockpit I17-I18 are implemented:
+  - `POST /api/v1/workflow/release-publication/export` and `POST /api/v1/workflow/release-publication/index/export` now persist deterministic publication attestations and publication-chain index manifests bound to closure/review/decision/publication digests;
+  - exports fail closed on missing/blocked chain artifacts, malformed publication metadata, and continuity/digest divergence (`YARA-RPB-*`, `YARA-RPI-*`) with workspace-bounded no-overwrite audit outputs;
+  - capsule UI now supports publication attestation + publication index export and surfaces explicit `publishable` / `blocked` and `index-ready` / `blocked` diagnostics.
 - Bootstrap + first-use path is implemented (`deployment bootstrap kubernetes` + `deployment import kubernetes`) with bounded namespace/PVC and import receipt enforcement.
 - CI and release automation is implemented:
   - CI gates on PR/push: `make check`, `go test -race ./...`, schema draft-2020-12 validation, `git diff --check`;
@@ -78,9 +78,9 @@
 ## Current branch and working tree
 - Branch: `main` tracking `origin/main`.
 - This slice completed:
-  - `POST /api/v1/workflow/release-publication/export` now writes deterministic publication attestation + mandatory audit output with workspace-bounded no-overwrite semantics;
-  - release-publication export now requires explicit channel/location/operator/timestamp metadata and fails closed when release decision is blocked/missing or closure-review continuity diverges;
-  - UI capsule panel now supports release-publication export and surfaces artifact paths plus explicit `publishable` / `blocked` diagnostics.
+  - `POST /api/v1/workflow/release-publication/index/export` now writes deterministic publication-chain index manifests + mandatory audit output with workspace-bounded no-overwrite semantics;
+  - release-publication index export now requires explicit `publicationBatchReference` + `operatorReference` and fails closed on missing/blocked chain artifacts or continuity/digest divergence;
+  - UI capsule panel now supports publication-index export and surfaces artifact paths plus explicit `index-ready` / `blocked` diagnostics.
 - Validation (simulated/local) passed:
   - `gofmt -w internal/cli/serve.go internal/cli/serve_test.go`;
   - `npm run check --prefix internal/cli/webui` and `git diff --check`;
@@ -122,24 +122,24 @@ Goal: a browser-based operator cockpit where the complete plan-to-apply rollout 
 ### I14 — Rollout closure package export
 - add `POST /api/v1/workflow/closure-package/export` + capsule UI action to persist deterministic closure manifests/audit outputs linking evidence-bundle, receipt-timeline, runbook, and capsule exports by immutable digest; require explicit `releaseReadinessReference` and fail closed on malformed/mismatched continuity inputs. Status: completed.
 ### I15 — Closure package review gate snapshot
-- add `GET /api/v1/workflow/closure-package/review-gate` and `POST /api/v1/workflow/closure-package/review-gate/export` with deterministic pass/blocked outcomes bound to closure package continuity and reviewer decision inputs.
-- enforce fail-closed behavior for malformed/missing gate fields and continuity mismatches; export markdown/json/audit outputs from capsule UI. Status: completed.
+- add `GET /api/v1/workflow/closure-package/review-gate` and `POST /api/v1/workflow/closure-package/review-gate/export` with deterministic pass/blocked outcomes bound to closure package continuity and reviewer decision inputs; enforce fail-closed malformed/missing gate field behavior and export markdown/json/audit outputs. Status: completed.
 ### I16 — Release decision ledger export
-- add `POST /api/v1/workflow/release-decision/export` to persist deterministic ledger entries binding closure package + review gate digests, continuity IDs, release readiness reference, reviewer reference, operator reference, and explicit decision timestamp.
-- fail closed on missing/malformed decision metadata, missing review-gate exports, decision mismatches against latest review gate, or continuity divergence (`YARA-RDL-*`); persist mandatory workspace-bounded no-overwrite audit output. Status: completed.
+- add `POST /api/v1/workflow/release-decision/export` to persist deterministic ledger entries binding closure package + review gate digests, continuity IDs, release readiness/reviewer/operator/timestamp metadata; fail closed on malformed/missing decision inputs or continuity divergence (`YARA-RDL-*`) with mandatory workspace-bounded no-overwrite audit output. Status: completed.
 ### I17 — Release publication attestation export
-- add `POST /api/v1/workflow/release-publication/export` to persist deterministic publication attestations binding release-decision/closure/review digests and explicit publication channel/location/operator/timestamp metadata.
-- fail closed on missing/blocked release decisions, malformed publication metadata, and continuity/digest divergence (`YARA-RPB-*`); persist mandatory workspace-bounded no-overwrite audit output. Status: completed.
+- add `POST /api/v1/workflow/release-publication/export` to persist deterministic publication attestations binding release-decision/closure/review digests with explicit publication channel/location/operator/timestamp metadata; fail closed on missing/blocked release decisions or continuity/digest divergence (`YARA-RPB-*`) with mandatory workspace-bounded no-overwrite audit output. Status: completed.
+### I18 — Release publication registry index export
+- add `POST /api/v1/workflow/release-publication/index/export` to persist deterministic publication-chain index manifests binding closure/review/decision/publication digests with explicit `publicationBatchReference` and `operatorReference`.
+- fail closed on missing/blocked publication artifacts, malformed index metadata, or continuity/digest divergence (`YARA-RPI-*`); persist mandatory workspace-bounded no-overwrite audit output. Status: completed.
 ## Next implementation slice
-Implement **I18 — Release publication registry index export**:
-- add `POST /api/v1/workflow/release-publication/index/export` to persist one deterministic index manifest that binds closure package, review gate, release decision, and release publication attestation digests into a single publication chain record;
-- require explicit publication batch reference + operator reference; fail closed when any referenced publication artifact is missing, blocked, malformed, or continuity diverges;
-- emit mandatory audit output with workspace-bounded no-overwrite semantics and deterministic blocker codes for publication index failures;
-- extend capsule UI with publication-index export action and explicit "index ready / blocked" diagnostics.
+Implement **I19 — Release publication package export**:
+- add `POST /api/v1/workflow/release-publication/package/export` to persist one deterministic package manifest that bundles publication index, publication attestation, release decision, closure package, and review gate manifests for operator handoff;
+- require explicit package reference + operator reference + publication window reference; fail closed when any publication-chain artifact is missing, blocked, malformed, or continuity diverges;
+- emit mandatory audit output with workspace-bounded no-overwrite semantics and deterministic blocker codes for publication package failures;
+- extend capsule UI with publication-package export action and explicit "package ready / blocked" diagnostics.
 Acceptance criteria:
-- release-publication index export writes deterministic publication-chain index + audit artifacts bound to release-decision/review/closure/publication continuity digests;
-- release-publication index export fails closed on missing/blocked/malformed publication artifacts and out-of-workspace or duplicate output paths;
-- UI release-publication index export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
+- release-publication package export writes deterministic publication package + audit artifacts bound to closure/review/decision/publication/index continuity digests;
+- release-publication package export fails closed on missing/blocked/malformed publication artifacts and out-of-workspace or duplicate output paths;
+- UI release-publication package export flow surfaces artifact paths and fail-closed diagnostics without exposing secret-bearing fields;
 - backend and frontend checks both pass in `make check` and `go test -race ./...`.
 ## Validation requirements
 Run at minimum for each slice:

@@ -1591,6 +1591,68 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.BlockerCode = attestation.Publication.BlockerCode
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/release-publication/index/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow release publication index export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowReleasePublicationIndexExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-036", err.Error())
+			return
+		}
+		manifestPath, err := ensureWorkspaceFilePath(workspacePath, payload.ManifestPath, "manifestPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-036", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-036", err.Error())
+			return
+		}
+		if manifestPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-036", "manifestPath and auditPath must be different files")
+			return
+		}
+		manifest, subjects, err := buildWorkflowReleasePublicationIndexManifest(workspacePath, payload)
+		if err != nil {
+			status := http.StatusBadRequest
+			if gateErr, ok := err.(workflowGateError); ok {
+				status = gateErr.Status
+			}
+			writeServeError(writer, status, "YARA-SRV-036", err.Error())
+			return
+		}
+		manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode release publication index manifest: %v", err))
+			return
+		}
+		manifestBytes = append(manifestBytes, '\n')
+		if err := writeExclusive(manifestPath, manifestBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-036", err.Error())
+			return
+		}
+		exportSubjects := append(append([]audit.Subject(nil), subjects...),
+			audit.Subject{Kind: "ReleasePublicationIndexManifest", Digest: digestBytes(manifestBytes)},
+		)
+		if err := persistOperationAuditForTarget(auditPath, "workflow.release-publication.index.export", "completed", manifest.Index.IndexState, "kubernetes:"+manifest.Index.Continuity.TargetDigest, exportSubjects, nil); err != nil {
+			_ = os.Remove(manifestPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowReleasePublicationIndexExportResponse{Valid: true}
+		response.Export.ManifestPath = manifestPath
+		response.Export.AuditPath = auditPath
+		response.Export.IndexState = manifest.Index.IndexState
+		response.Export.BlockerCode = manifest.Index.BlockerCode
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -2170,6 +2232,39 @@ type workflowReleasePublicationAttestation struct {
 	} `json:"releasePublication"`
 }
 
+type workflowReleasePublicationIndexExportRequest struct {
+	PublicationBatchReference string `json:"publicationBatchReference"`
+	OperatorReference         string `json:"operatorReference"`
+	ManifestPath              string `json:"manifestPath"`
+	AuditPath                 string `json:"auditPath"`
+}
+
+type workflowReleasePublicationIndexExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		ManifestPath string `json:"manifestPath"`
+		AuditPath    string `json:"auditPath"`
+		IndexState   string `json:"indexState"`
+		BlockerCode  string `json:"blockerCode,omitempty"`
+	} `json:"export"`
+}
+
+type workflowReleasePublicationIndexManifest struct {
+	Valid bool `json:"valid"`
+	Index struct {
+		WorkspacePath             string                    `json:"workspacePath"`
+		PublicationBatchReference string                    `json:"publicationBatchReference"`
+		OperatorReference         string                    `json:"operatorReference"`
+		IndexState                string                    `json:"indexState"`
+		BlockerCode               string                    `json:"blockerCode,omitempty"`
+		Continuity                workflowClosureContinuity `json:"continuity"`
+		ClosurePackage            workflowClosureArtifact   `json:"closurePackage"`
+		ReviewGate                workflowClosureArtifact   `json:"reviewGate"`
+		ReleaseDecision           workflowClosureArtifact   `json:"releaseDecision"`
+		ReleasePublication        workflowClosureArtifact   `json:"releasePublication"`
+	} `json:"releasePublicationIndex"`
+}
+
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -2700,6 +2795,26 @@ func decodeWorkflowReleasePublicationExportRequest(request *http.Request) (workf
 	}
 	if _, err := time.Parse(time.RFC3339Nano, payload.PublicationTimestamp); err != nil {
 		return payload, errors.New("publicationTimestamp must be a valid RFC3339 timestamp")
+	}
+	return payload, nil
+}
+
+func decodeWorkflowReleasePublicationIndexExportRequest(request *http.Request) (workflowReleasePublicationIndexExportRequest, error) {
+	var payload workflowReleasePublicationIndexExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.PublicationBatchReference) == "" || strings.TrimSpace(payload.OperatorReference) == "" || strings.TrimSpace(payload.ManifestPath) == "" || strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("publicationBatchReference, operatorReference, manifestPath and auditPath are required")
+	}
+	if payload.ManifestPath == payload.AuditPath {
+		return payload, errors.New("manifestPath and auditPath must be different files")
 	}
 	return payload, nil
 }
@@ -3467,6 +3582,80 @@ func loadLatestReleaseDecision(workspacePath string) (workflowReleaseDecisionLed
 	return ledger, latestPath, digestBytes(content), nil
 }
 
+func buildWorkflowReleasePublicationIndexManifest(workspacePath string, payload workflowReleasePublicationIndexExportRequest) (workflowReleasePublicationIndexManifest, []audit.Subject, error) {
+	closurePackage, closurePackagePath, closurePackageDigest, err := loadLatestClosurePackage(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationIndexManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	reviewGate, reviewGatePath, reviewGateDigest, err := loadLatestClosureReviewGate(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationIndexManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releaseDecision, releaseDecisionPath, releaseDecisionDigest, err := loadLatestReleaseDecision(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationIndexManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	releasePublication, releasePublicationPath, releasePublicationDigest, err := loadLatestReleasePublication(workspacePath)
+	if err != nil {
+		return workflowReleasePublicationIndexManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	if releasePublication.Publication.PublicationState != "publishable" {
+		blocker := mapValueOrDefault(releasePublication.Publication.BlockerCode, "none")
+		return workflowReleasePublicationIndexManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RPI-003: latest release publication attestation is blocked (blocker: " + blocker + ")"}
+	}
+	if releaseDecision.Ledger.PublicationState != "ready-to-publish" {
+		blocker := mapValueOrDefault(releaseDecision.Ledger.BlockerCode, "none")
+		return workflowReleasePublicationIndexManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RPI-004: latest release decision ledger is blocked (blocker: " + blocker + ")"}
+	}
+	if closurePackage.Package.Continuity != reviewGate.Gate.Continuity || closurePackage.Package.Continuity != releaseDecision.Ledger.Continuity || closurePackage.Package.Continuity != releasePublication.Publication.Continuity {
+		return workflowReleasePublicationIndexManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RPI-005: publication artifact continuity chains are mismatched"}
+	}
+	if releaseDecision.Ledger.ClosurePackage.Digest != closurePackageDigest || releaseDecision.Ledger.ReviewGate.Digest != reviewGateDigest {
+		return workflowReleasePublicationIndexManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RPI-006: release decision digest bindings do not match latest closure/review artifacts"}
+	}
+	if releasePublication.Publication.ReleaseDecision.Digest != releaseDecisionDigest || releasePublication.Publication.ClosurePackage.Digest != closurePackageDigest || releasePublication.Publication.ReviewGate.Digest != reviewGateDigest {
+		return workflowReleasePublicationIndexManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: "YARA-RPI-007: release publication digest bindings do not match current publication chain"}
+	}
+	manifest := workflowReleasePublicationIndexManifest{Valid: true}
+	manifest.Index.WorkspacePath = workspacePath
+	manifest.Index.PublicationBatchReference = strings.TrimSpace(payload.PublicationBatchReference)
+	manifest.Index.OperatorReference = strings.TrimSpace(payload.OperatorReference)
+	manifest.Index.IndexState = "index-ready"
+	manifest.Index.Continuity = closurePackage.Package.Continuity
+	manifest.Index.ClosurePackage = workflowClosureArtifact{Path: closurePackagePath, Digest: closurePackageDigest}
+	manifest.Index.ReviewGate = workflowClosureArtifact{Path: reviewGatePath, Digest: reviewGateDigest}
+	manifest.Index.ReleaseDecision = workflowClosureArtifact{Path: releaseDecisionPath, Digest: releaseDecisionDigest}
+	manifest.Index.ReleasePublication = workflowClosureArtifact{Path: releasePublicationPath, Digest: releasePublicationDigest}
+	subjects := []audit.Subject{
+		{Kind: "WorkflowClosurePackageManifest", Digest: closurePackageDigest},
+		{Kind: "ClosureReviewGateJSON", Digest: reviewGateDigest},
+		{Kind: "ReleaseDecisionLedger", Digest: releaseDecisionDigest},
+		{Kind: "ReleasePublicationAttestation", Digest: releasePublicationDigest},
+		{Kind: "ReleasePublicationIndex", Digest: digestBytes([]byte(strings.Join([]string{manifest.Index.PublicationBatchReference, manifest.Index.OperatorReference, closurePackageDigest, reviewGateDigest, releaseDecisionDigest, releasePublicationDigest}, "|")))},
+	}
+	return manifest, subjects, nil
+}
+
+func loadLatestReleasePublication(workspacePath string) (workflowReleasePublicationAttestation, string, string, error) {
+	paths := discoverReleasePublicationExports(workspacePath)
+	if len(paths) == 0 {
+		return workflowReleasePublicationAttestation{}, "", "", errors.New("YARA-RPI-001: release publication index export requires at least one release publication attestation")
+	}
+	latestPath := paths[len(paths)-1]
+	content, err := os.ReadFile(latestPath)
+	if err != nil {
+		return workflowReleasePublicationAttestation{}, "", "", fmt.Errorf("read latest release publication %s: %w", filepath.Base(latestPath), err)
+	}
+	attestation := workflowReleasePublicationAttestation{}
+	if err := json.Unmarshal(content, &attestation); err != nil {
+		return workflowReleasePublicationAttestation{}, "", "", fmt.Errorf("decode latest release publication %s: %w", filepath.Base(latestPath), err)
+	}
+	if !attestation.Valid {
+		return workflowReleasePublicationAttestation{}, "", "", errors.New("YARA-RPI-002: latest release publication attestation is invalid")
+	}
+	return attestation, latestPath, digestBytes(content), nil
+}
+
 func workflowCoreArtifacts(workspacePath string) (map[string]string, []string, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -3837,6 +4026,25 @@ func discoverReleaseDecisionExports(workspacePath string) []string {
 		}
 		name := entry.Name()
 		if strings.HasSuffix(name, ".release-decision.json") {
+			paths = append(paths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func discoverReleasePublicationExports(workspacePath string) []string {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}
+	}
+	paths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".release-publication.json") {
 			paths = append(paths, filepath.Join(workspacePath, name))
 		}
 	}
