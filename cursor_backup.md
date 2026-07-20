@@ -76,6 +76,8 @@
   - lifecycle publication policy diagnostics now fail closed when publication-chain retention explainability limitation records are missing, duplicated, malformed, or inconsistent with selected publication-chain rehearsal identities.
   - `publication chain renewal-review` now emits immutable `PublicationChainRenewalReview` evidence that binds one assertion-scoped publication-chain history set (rehearsal ID, retention diagnostics audit head, promotion review ID, lifecycle approval ID, integration attestation ID) with explicit reviewer decision and bounded validity.
   - `promotion review record` now requires explicit publication-chain renewal-review evidence binding for integration-required assertion scopes and fails closed on missing, stale, foreign, malformed, or unselected renewal-review identities.
+- `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now expose assertion-scoped publication-chain renewal-review posture (`status`, `selectedRenewalReview`, `blocker`) via deterministic report limitation records;
+- publication-policy diagnostics now fail closed when publication-chain renewal-review explainability records are missing, duplicated, malformed, or inconsistent with selected lifecycle/integration/rehearsal evidence identities.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -126,6 +128,8 @@
   - publication-facing diagnostics now include deterministic assertion-scoped publication-chain retention posture and enforce fail-closed parity checks between retention limitation records and selected rehearsal identities;
   - publication-chain renewal reviews are content-addressed (`reviewId`), non-mutating, and fail closed on missing/foreign/stale prerequisite evidence, retention audit binding drift, confirmation mismatches, or incomplete selected-evidence identity bindings;
   - promotion-review entry points now require explicit publication-chain renewal-review binding (`PublicationChainRenewalReview`) in addition to rehearsal and retention bindings for integration-required assertions;
+  - catalog coverage outputs now preserve deterministic parity for assertion-scoped renewal-review diagnostics across create and lifecycle-publication-policy entry points;
+  - lifecycle publication policy diagnostics now fail closed when renewal-review explainability records drift from selected gate evidence state or use malformed limitation encoding;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -165,13 +169,13 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by seventeen commits before this uncommitted work).
+- Branch: `main` tracking `origin/main` (local ahead by eighteen commits before this slice commit).
 - Recent commits before this slice (newest first): `86aca55`, `499df6d`, `b01fd01`, `ef33988`, `91e2e78`.
-- This slice closes Phase 7 slice 2 for renewal review binding enforcement in publication-policy entry points.
+- This slice closes Phase 7 slice 3 for renewal-review diagnostics parity in catalog coverage publication outputs.
 - Phase 7 milestone currently tracks three ordered slices:
   - slice 1 completed: publication-chain renewal review resource/command/validation closure with fail-closed scope/freshness/identity binding checks;
   - slice 2 completed in this run: promotion-review entry points enforce explicit renewal-review identity binding with fail-closed scope/freshness/selection checks;
-  - slice 3 pending: expose renewal-review posture and blocker diagnostics parity in catalog coverage publication outputs.
+  - slice 3 completed in this run: coverage create + lifecycle-publication-policy now expose deterministic renewal-review posture and fail closed on malformed or inconsistent renewal-review explainability records.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -184,20 +188,19 @@
 
 ## Next implementation slice
 
-Implement **Phase 7 slice 3: renewal-review diagnostics parity in catalog coverage publication outputs**:
+Implement **Phase 8 slice 1: renewal-review evidence binding in lifecycle publication readiness gate**:
 
-- surface assertion-scoped renewal-review posture (`status`, `selectedRenewalReview`, `blocker`) in `catalog coverage create` and `catalog coverage lifecycle-publication-policy` outputs;
-- fail closed when renewal-review explainability records are missing, duplicated, malformed, or inconsistent with selected lifecycle/integration/rehearsal retention evidence identities;
-- preserve deterministic non-secret diagnostics parity between coverage creation and lifecycle publication policy command paths without adding mutation authority.
+- require assertions that depend on integration publication to also require a passing bound `publication-chain-renewal-review` gate in lifecycle publication readiness evaluation;
+- add deterministic lifecycle blocker taxonomy entries/remediations for missing, non-approved, stale, catalog-mismatched, or unbound renewal-review evidence;
+- keep gating read-only and fail-closed while preserving non-secret explainability parity between report creation and policy diagnostics outputs.
 
 Acceptance criteria:
 
-- catalog coverage and lifecycle publication policy outputs expose deterministic renewal-review posture for assertion scopes that require publication-chain renewal evidence;
-- lifecycle publication policy diagnostics fail closed when renewal-review explainability records are missing, malformed, stale, foreign, duplicated, or identity-inconsistent;
-- lifecycle and integration publication diagnostics remain deterministic and non-secret with no mutation authority added;
-- lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
-- durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
-- apply-side provenance remains fail-closed and unaffected by lifecycle publication-policy UX additions;
+- lifecycle publication readiness now requires explicit passing renewal-review evidence binding for integration-required assertions;
+- blocker taxonomy encodes renewal-review failure states with deterministic remediation guidance and fail-closed parsing;
+- report create and policy diagnostics preserve deterministic non-secret parity for lifecycle/integration/renewal publication gating;
+- durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval, renewal review, and publication outputs;
+- apply-side provenance remains fail-closed and unaffected by publication-gating changes;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 
 ## Validation requirements

@@ -179,18 +179,25 @@ type acceptedPublicationChainRehearsal struct {
 	OccurredAt string
 }
 
+type acceptedPublicationChainRenewalReview struct {
+	Review     resources.PublicationChainRenewalReview
+	AuditHead  string
+	OccurredAt string
+}
+
 type evidenceIndex struct {
-	Contracts                    map[string][]acceptedEvidence
-	ComponentEvidence            map[string][]acceptedIntegrationEvidence
-	TopologyEvidence             map[string][]acceptedIntegrationEvidence
-	PromotionReviews             map[string][]acceptedPromotionReview
-	LifecycleProofApprovals      map[string][]acceptedLifecycleProofApproval
-	IntegrationAttestations      map[string][]acceptedIntegrationPublicationAttestation
-	PublicationChainRehearsals   map[string][]acceptedPublicationChainRehearsal
-	AcceptedCount                int
-	VerifiedAuditCount           int
-	IntegrationIdentityCount     int
-	IntegrationDeduplicatedCount int
+	Contracts                      map[string][]acceptedEvidence
+	ComponentEvidence              map[string][]acceptedIntegrationEvidence
+	TopologyEvidence               map[string][]acceptedIntegrationEvidence
+	PromotionReviews               map[string][]acceptedPromotionReview
+	LifecycleProofApprovals        map[string][]acceptedLifecycleProofApproval
+	IntegrationAttestations        map[string][]acceptedIntegrationPublicationAttestation
+	PublicationChainRehearsals     map[string][]acceptedPublicationChainRehearsal
+	PublicationChainRenewalReviews map[string][]acceptedPublicationChainRenewalReview
+	AcceptedCount                  int
+	VerifiedAuditCount             int
+	IntegrationIdentityCount       int
+	IntegrationDeduplicatedCount   int
 }
 
 func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Report, error) {
@@ -230,6 +237,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 			evidence.LifecycleProofApprovals[assertion.ID],
 			evidence.IntegrationAttestations[assertion.ID],
 			evidence.PublicationChainRehearsals[assertion.ID],
+			evidence.PublicationChainRenewalReviews[assertion.ID],
 			catalogDigest,
 		)
 		report.Spec.Assertions = append(report.Spec.Assertions, coverage)
@@ -243,6 +251,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 		}
 	}
 	report.Spec.Limitations = append(report.Spec.Limitations, publicationChainRetentionLimitations(report.Spec.Assertions)...)
+	report.Spec.Limitations = append(report.Spec.Limitations, publicationChainRenewalReviewLimitations(report.Spec.Assertions)...)
 	slices.Sort(report.Spec.Limitations)
 	report.Spec.Components = componentCoverage(inventory.Components, report.Spec.Assertions, evidence, func(assertion AssertionCoverage, id string) bool { return assertion.RuntimeRef == id })
 	report.Spec.Models = manifestCoverage(inventory.Models, report.Spec.Assertions, evidence.Contracts, func(assertion AssertionCoverage, id string) bool { return assertion.ModelRef == id })
@@ -294,6 +303,34 @@ func publicationChainRetentionLimitations(assertions []AssertionCoverage) []stri
 	return records
 }
 
+func publicationChainRenewalReviewLimitations(assertions []AssertionCoverage) []string {
+	records := make([]string, 0, len(assertions))
+	for _, assertion := range assertions {
+		renewalGate := GateCoverage{}
+		found := false
+		for _, gate := range assertion.Gates {
+			if gate.ID == "publication-chain-renewal-review" {
+				renewalGate = gate
+				found = true
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+		selected := renewalGate.SelectedResult
+		if selected == "" {
+			selected = "none"
+		}
+		blocker := renewalGate.Blocker
+		if blocker == "" {
+			blocker = "none"
+		}
+		records = append(records, fmt.Sprintf("publication-chain-renewal-review:assertion=%s,status=%s,selected-renewal-review=%s,blocker=%s", assertion.ID, renewalGate.Status, selected, blocker))
+	}
+	return records
+}
+
 func assertionCoverage(
 	assertion catalog.AssertionDescriptor,
 	evidence []acceptedEvidence,
@@ -302,6 +339,7 @@ func assertionCoverage(
 	approvals []acceptedLifecycleProofApproval,
 	attestations []acceptedIntegrationPublicationAttestation,
 	rehearsals []acceptedPublicationChainRehearsal,
+	renewalReviews []acceptedPublicationChainRenewalReview,
 	catalogDigest string,
 ) AssertionCoverage {
 	coverage := AssertionCoverage{
@@ -325,9 +363,11 @@ func assertionCoverage(
 	coverage.Gates = append(coverage.Gates, integrationGate)
 	rehearsalGate := publicationChainRehearsalGate(approvals, attestations, rehearsals, catalogDigest)
 	coverage.Gates = append(coverage.Gates, rehearsalGate)
+	renewalReviewGate := publicationChainRenewalReviewGate(reviews, approvals, attestations, rehearsals, renewalReviews, catalogDigest)
+	coverage.Gates = append(coverage.Gates, renewalReviewGate)
 	slices.SortFunc(coverage.Gates, func(left, right GateCoverage) int { return strings.Compare(left.ID, right.ID) })
 	for _, gate := range coverage.Gates {
-		if gate.Status != "passed" && gate.ID != "publication-chain-rehearsal" {
+		if gate.Status != "passed" && gate.ID != "publication-chain-rehearsal" && gate.ID != "publication-chain-renewal-review" {
 			coverage.Blockers = append(coverage.Blockers, gate.ID+":"+gate.Blocker)
 		}
 	}
@@ -706,6 +746,118 @@ func publicationChainRehearsalGate(approvals []acceptedLifecycleProofApproval, a
 	return gate
 }
 
+func publicationChainRenewalReviewGate(reviews []acceptedPromotionReview, approvals []acceptedLifecycleProofApproval, attestations []acceptedIntegrationPublicationAttestation, rehearsals []acceptedPublicationChainRehearsal, renewalReviews []acceptedPublicationChainRenewalReview, catalogDigest string) GateCoverage {
+	gate := GateCoverage{
+		ID:               "publication-chain-renewal-review",
+		Status:           "missing",
+		ObservedEvidence: []EvidenceBinding{},
+		Blocker:          "publication-chain-renewal-review-not-recorded",
+	}
+	if len(renewalReviews) == 0 {
+		return gate
+	}
+	reviewByID := map[string]acceptedPromotionReview{}
+	for _, item := range reviews {
+		reviewByID[item.Review.Metadata.ReviewID] = item
+	}
+	approvalByID := map[string]acceptedLifecycleProofApproval{}
+	for _, item := range approvals {
+		approvalByID[item.Approval.Metadata.ApprovalID] = item
+	}
+	attestationByID := map[string]acceptedIntegrationPublicationAttestation{}
+	for _, item := range attestations {
+		attestationByID[item.Attestation.Metadata.AttestationID] = item
+	}
+	rehearsalByID := map[string]acceptedPublicationChainRehearsal{}
+	for _, item := range rehearsals {
+		rehearsalByID[item.Rehearsal.Metadata.RehearsalID] = item
+	}
+	sorted := slices.Clone(renewalReviews)
+	slices.SortFunc(sorted, func(left, right acceptedPublicationChainRenewalReview) int {
+		if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Review.Metadata.ReviewID, right.Review.Metadata.ReviewID)
+	})
+	for _, item := range sorted {
+		outcome := "failed"
+		if item.Review.Spec.Decision == resources.PromotionDecisionApproved {
+			outcome = "passed"
+		} else if item.Review.Spec.Decision == resources.PromotionDecisionAbstained {
+			outcome = "blocked"
+		}
+		gate.ObservedEvidence = append(gate.ObservedEvidence, EvidenceBinding{
+			ResultID:  item.Review.Metadata.ReviewID,
+			Outcome:   outcome,
+			AuditHead: item.AuditHead,
+		})
+	}
+	selected := sorted[len(sorted)-1]
+	gate.SelectedResult = selected.Review.Metadata.ReviewID
+	gate.SelectedAuditHead = selected.AuditHead
+	if selected.Review.Spec.CatalogDigest != catalogDigest {
+		gate.Status = "failed"
+		gate.Blocker = "selected-renewal-review-catalog-mismatch"
+		return gate
+	}
+	if selected.Review.Spec.Decision != resources.PromotionDecisionApproved {
+		if selected.Review.Spec.Decision == resources.PromotionDecisionAbstained {
+			gate.Status = "blocked"
+			gate.Blocker = "selected-renewal-review-decision-abstained"
+		} else {
+			gate.Status = "failed"
+			gate.Blocker = "selected-renewal-review-decision-changes-required"
+		}
+		return gate
+	}
+	if _, ok := rehearsalByID[selected.Review.Spec.PublicationChainRehearsalID]; !ok {
+		gate.Status = "failed"
+		gate.Blocker = "selected-renewal-review-does-not-bind-publication-chain-rehearsal"
+		return gate
+	}
+	if _, ok := reviewByID[selected.Review.Spec.PromotionReviewID]; !ok {
+		gate.Status = "failed"
+		gate.Blocker = "selected-renewal-review-does-not-bind-promotion-review"
+		return gate
+	}
+	if _, ok := approvalByID[selected.Review.Spec.LifecycleProofApprovalID]; !ok {
+		gate.Status = "failed"
+		gate.Blocker = "selected-renewal-review-does-not-bind-lifecycle-proof-approval"
+		return gate
+	}
+	if _, ok := attestationByID[selected.Review.Spec.IntegrationPublicationAttestationID]; !ok {
+		gate.Status = "failed"
+		gate.Blocker = "selected-renewal-review-does-not-bind-integration-publication-attestation"
+		return gate
+	}
+	maxEvidenceAge, err := time.ParseDuration(selected.Review.Spec.MaxEvidenceAge)
+	if err != nil || maxEvidenceAge <= 0 {
+		gate.Status = "failed"
+		gate.Blocker = "selected-renewal-review-max-evidence-age-invalid"
+		return gate
+	}
+	reviewedAt, err := time.Parse(time.RFC3339Nano, selected.Review.Spec.ReviewedAt)
+	if err != nil {
+		gate.Status = "failed"
+		gate.Blocker = "selected-renewal-review-reviewed-at-invalid"
+		return gate
+	}
+	if strings.Compare(selected.OccurredAt, "") <= 0 {
+		gate.Status = "failed"
+		gate.Blocker = "selected-renewal-review-observed-at-invalid"
+		return gate
+	}
+	observedAt, err := time.Parse(time.RFC3339Nano, selected.OccurredAt)
+	if err != nil || reviewedAt.Before(observedAt) || reviewedAt.Sub(observedAt) > maxEvidenceAge {
+		gate.Status = "failed"
+		gate.Blocker = "selected-renewal-review-stale-for-bound-evidence"
+		return gate
+	}
+	gate.Status = "passed"
+	gate.Blocker = ""
+	return gate
+}
+
 func lifecyclePublicationBlocker(code string) string {
 	step, ok := lifecyclePublicationBlockerRemediations[code]
 	if !ok {
@@ -958,13 +1110,14 @@ func structuralCoverage(manifests []catalog.ManifestDescriptor) []ManifestCovera
 
 func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest string) (evidenceIndex, error) {
 	result := evidenceIndex{
-		Contracts:                  make(map[string][]acceptedEvidence),
-		ComponentEvidence:          make(map[string][]acceptedIntegrationEvidence),
-		TopologyEvidence:           make(map[string][]acceptedIntegrationEvidence),
-		PromotionReviews:           make(map[string][]acceptedPromotionReview),
-		LifecycleProofApprovals:    make(map[string][]acceptedLifecycleProofApproval),
-		IntegrationAttestations:    make(map[string][]acceptedIntegrationPublicationAttestation),
-		PublicationChainRehearsals: make(map[string][]acceptedPublicationChainRehearsal),
+		Contracts:                      make(map[string][]acceptedEvidence),
+		ComponentEvidence:              make(map[string][]acceptedIntegrationEvidence),
+		TopologyEvidence:               make(map[string][]acceptedIntegrationEvidence),
+		PromotionReviews:               make(map[string][]acceptedPromotionReview),
+		LifecycleProofApprovals:        make(map[string][]acceptedLifecycleProofApproval),
+		IntegrationAttestations:        make(map[string][]acceptedIntegrationPublicationAttestation),
+		PublicationChainRehearsals:     make(map[string][]acceptedPublicationChainRehearsal),
+		PublicationChainRenewalReviews: make(map[string][]acceptedPublicationChainRenewalReview),
 	}
 	assertions := make(map[string]catalog.AssertionDescriptor)
 	inventory := snapshot.ManifestInventory()
@@ -983,6 +1136,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 	pendingLifecycleProofApprovalPaths := []string{}
 	pendingIntegrationAttestationPaths := []string{}
 	pendingPublicationChainRehearsalPaths := []string{}
+	pendingPublicationChainRenewalReviewPaths := []string{}
 	acceptedIntegrationByID := map[string]acceptedIntegrationEvidence{}
 	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -1055,6 +1209,10 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		}
 		if kind == "PublicationChainRehearsal" {
 			pendingPublicationChainRehearsalPaths = append(pendingPublicationChainRehearsalPaths, path)
+			return nil
+		}
+		if kind == "PublicationChainRenewalReview" {
+			pendingPublicationChainRenewalReviewPaths = append(pendingPublicationChainRenewalReviewPaths, path)
 			return nil
 		}
 		if kind != "ContractTestResult" {
@@ -1268,6 +1426,74 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		result.AcceptedCount++
 		result.VerifiedAuditCount++
 	}
+	for _, path := range pendingPublicationChainRenewalReviewPaths {
+		review, err := resources.LoadPublicationChainRenewalReview(path)
+		if err != nil {
+			return evidenceIndex{}, fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if report := review.Validate(); !report.Valid || review.Spec.CatalogDigest != catalogDigest {
+			return evidenceIndex{}, fmt.Errorf("evidence %s is invalid or not bound to this catalog", filepath.Base(path))
+		}
+		if _, ok := assertions[review.Spec.AssertionRef]; !ok {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references an unknown assertion", filepath.Base(path))
+		}
+		rehearsalBound := false
+		for _, item := range result.PublicationChainRehearsals[review.Spec.AssertionRef] {
+			if item.Rehearsal.Metadata.RehearsalID == review.Spec.PublicationChainRehearsalID {
+				rehearsalBound = true
+				break
+			}
+		}
+		if !rehearsalBound {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references unknown publication-chain rehearsal %s", filepath.Base(path), review.Spec.PublicationChainRehearsalID)
+		}
+		promotionReviewBound := false
+		for _, item := range result.PromotionReviews[review.Spec.AssertionRef] {
+			if item.Review.Metadata.ReviewID == review.Spec.PromotionReviewID {
+				promotionReviewBound = true
+				break
+			}
+		}
+		if !promotionReviewBound {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references unknown promotion review %s", filepath.Base(path), review.Spec.PromotionReviewID)
+		}
+		lifecycleApprovalBound := false
+		for _, item := range result.LifecycleProofApprovals[review.Spec.AssertionRef] {
+			if item.Approval.Metadata.ApprovalID == review.Spec.LifecycleProofApprovalID {
+				lifecycleApprovalBound = true
+				break
+			}
+		}
+		if !lifecycleApprovalBound {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references unknown lifecycle-proof approval %s", filepath.Base(path), review.Spec.LifecycleProofApprovalID)
+		}
+		attestationBound := false
+		for _, item := range result.IntegrationAttestations[review.Spec.AssertionRef] {
+			if item.Attestation.Metadata.AttestationID == review.Spec.IntegrationPublicationAttestationID {
+				attestationBound = true
+				break
+			}
+		}
+		if !attestationBound {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references unknown integration publication attestation %s", filepath.Base(path), review.Spec.IntegrationPublicationAttestationID)
+		}
+		auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
+		events, head, err := loadVerifiedAudit(auditPath)
+		if err != nil {
+			return evidenceIndex{}, err
+		}
+		if err := verifyPublicationChainRenewalReviewAudit(events, review, catalogDigest); err != nil {
+			return evidenceIndex{}, fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
+		}
+		terminal := events[len(events)-1]
+		result.PublicationChainRenewalReviews[review.Spec.AssertionRef] = append(result.PublicationChainRenewalReviews[review.Spec.AssertionRef], acceptedPublicationChainRenewalReview{
+			Review:     review,
+			AuditHead:  head,
+			OccurredAt: terminal.Metadata.OccurredAt,
+		})
+		result.AcceptedCount++
+		result.VerifiedAuditCount++
+	}
 	result.IntegrationIdentityCount = len(acceptedIntegrationByID)
 	return result, nil
 }
@@ -1423,6 +1649,26 @@ func verifyPublicationChainRehearsalAudit(events []audit.Event, rehearsal resour
 		if !hasSubject(terminal.Spec.Subjects, "ExecutionAuthorization", authorizationID) {
 			return errors.New("terminal event does not bind publication-chain rehearsal authorization identities")
 		}
+	}
+	return nil
+}
+
+func verifyPublicationChainRenewalReviewAudit(events []audit.Event, review resources.PublicationChainRenewalReview, catalogDigest string) error {
+	if len(events) != 2 {
+		return fmt.Errorf("expected two events, found %d", len(events))
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "publication.chain.renewal-review.completed" || terminal.Spec.Outcome != "success" || terminal.Spec.Target != "catalog:"+catalogDigest {
+		return errors.New("terminal action, outcome or target does not match publication-chain renewal review")
+	}
+	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) ||
+		!hasSubject(terminal.Spec.Subjects, "PublicationChainRenewalReview", review.Metadata.ReviewID) ||
+		!hasSubject(terminal.Spec.Subjects, "PublicationChainRehearsal", review.Spec.PublicationChainRehearsalID) ||
+		!hasSubject(terminal.Spec.Subjects, "PublicationChainRetentionDiagnosticsAudit", review.Spec.PublicationChainRetentionAuditHead) ||
+		!hasSubject(terminal.Spec.Subjects, "PromotionReview", review.Spec.PromotionReviewID) ||
+		!hasSubject(terminal.Spec.Subjects, "LifecycleProofApproval", review.Spec.LifecycleProofApprovalID) ||
+		!hasSubject(terminal.Spec.Subjects, "IntegrationPublicationAttestation", review.Spec.IntegrationPublicationAttestationID) {
+		return errors.New("terminal event does not bind publication-chain renewal review evidence identities")
 	}
 	return nil
 }
