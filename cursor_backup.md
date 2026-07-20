@@ -3,7 +3,7 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner with bounded lifecycle execution).
-- Branch baseline before this slice: `main` at `a092705` (`Add trust-policy signer transition diff evidence and bindings.`).
+- Branch baseline before this slice: `main` at `300717f` (`Require reviewed approval for destructive trust-policy transitions.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
   - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
@@ -11,7 +11,8 @@
   - `ArtifactScanReceipt` (`schemas/yara.dev/v1alpha1/artifact-scan-receipt.schema.json`);
   - `AirgapProvenanceGateResult` (`schemas/yara.dev/v1alpha1/airgap-provenance-gate-result.schema.json`);
   - `AirgapGateTrustPolicy` (`schemas/yara.dev/v1alpha1/airgap-gate-trust-policy.schema.json`);
-  - `AirgapGateTransitionReview` (`schemas/yara.dev/v1alpha1/airgap-gate-transition-review.schema.json`).
+  - `AirgapGateTransitionReview` (`schemas/yara.dev/v1alpha1/airgap-gate-transition-review.schema.json`);
+  - `LifecycleProofLedger` (`schemas/yara.dev/v1alpha1/lifecycle-proof-ledger.schema.json`).
 - Latest archived catalog coverage artifact remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`.
 
 ## Current product boundary
@@ -26,6 +27,9 @@
 - Promotion governance:
   - `promotion review record` emits immutable `PromotionReview` evidence and audit chains;
   - coverage compilation deterministically resolves `independent-promotion-review` from accepted review evidence.
+- Lifecycle proof kickoff:
+  - `lifecycle proof record` emits immutable `LifecycleProofLedger` evidence linking exact apply/retire/rollback receipt IDs into one reviewed lifecycle narrative;
+  - lifecycle proof recording is read-only and fail-closed on foreign chains (plan/bundle/target mismatch), stale receipt windows, invalid ordering, or incomplete/non-succeeded lifecycle stages.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -50,6 +54,7 @@
   - trust-policy diff evidence is content-addressed (`diffId`), sorted signer-delta projections, and deterministic highest-impact derivation (`review`/`destructive`);
   - trust-policy diff command fails closed when a single transition would replace every active signer identity in one step;
   - destructive transition review evidence is content-addressed (`reviewId`), bound to exact `policyDiffId`/`fromPolicyId`/`toPolicyId`/target identities, and required for destructive transition consumption in verify/apply;
+  - lifecycle proof ledger evidence is content-addressed (`ledgerId`), binds exact apply/retire/rollback receipt IDs plus execution correlations in strict stage order, and records reviewed operator intent without mutation authority;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -65,10 +70,12 @@
     - `airgap gate-trust-policy record`,
     - `airgap gate-trust-policy diff`,
     - `airgap gate-trust-policy review-transition`,
+    - `lifecycle proof record`,
     - `airgap provenance-gate verify`,
     - `airgap-gate-trust-policy validate`,
     - `airgap-gate-trust-policy-diff validate`,
-    - `airgap-gate-transition-review validate`.
+    - `airgap-gate-transition-review validate`,
+    - `lifecycle-proof-ledger validate`.
 - **Validated on live environment (historical evidence already present):**
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
@@ -80,35 +87,35 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by five committed slices before this uncommitted work).
-- Recent commits before this slice (newest first): `a092705`, `686920f`, `0c696a0`, `3539f29`, `8a4a7a9`.
-- This slice adds review-gated destructive trust-policy transition enforcement and explicit transition-review evidence bindings in verify/apply with aligned tests/docs.
+- Branch: `main` tracking `origin/main` (local ahead by six committed slices before this uncommitted work).
+- Recent commits before this slice (newest first): `300717f`, `a092705`, `686920f`, `0c696a0`, `3539f29`.
+- This slice adds the Phase 3 lifecycle-proof kickoff (`LifecycleProofLedger`) with deterministic receipt-linking evidence, read-only CLI recording, and fail-closed foreign/stale/incomplete chain checks.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## Open limitations and unproven claims
 
-- No live validation was executed for rollback, integration execution, promotion-review recording, transfer/scan receipt enforcement, trust-policy recording/diffing/review-transition, or trust-policy gate verification/enforcement in this run.
+- No live validation was executed for rollback, integration execution, promotion-review recording, lifecycle-proof ledger recording, transfer/scan receipt enforcement, trust-policy recording/diffing/review-transition, or trust-policy gate verification/enforcement in this run.
 - Air-gap completeness remains unproven end-to-end: acquisition execution, transfer medium attestation trust chain, and scanning attestations remain external.
 - Clean-cluster bootstrap (namespace/PVC/storage provisioning) remains out of scope.
 - Integration execution remains bounded to catalog/target contract checks and does not prove latency, throughput, availability, or production readiness.
 
 ## Next implementation slice
 
-Implement **Phase 3 major milestone kickoff: lifecycle proof execution ledger**:
+Implement **Phase 3 milestone continuation: lifecycle-proof contract linkage and freshness policy**:
 
-- begin the roadmap Phase 3 lifecycle-proof milestone by adding a deterministic lifecycle rehearsal ledger resource that links apply/retire/rollback receipts into one reviewed execution narrative identity;
-- add a bounded CLI command to record lifecycle-proof rehearsal evidence from exact existing receipt IDs, with mandatory audit chains and no mutation authority;
-- require lifecycle-proof ledger validation to fail closed on stale, foreign, or incomplete receipt chains;
+- add a bounded contract/lifecycle command path that consumes `LifecycleProofLedger` as explicit evidence input and fails closed when ledger identity, stage ordering or receipt bindings drift;
+- add explicit freshness-policy evidence binding (ledger max age + reviewed reason reference) into lifecycle-proof contract outputs;
+- add negative tests for stale-ledger replay and foreign receipt substitution in lifecycle-proof contract execution;
 - keep gate-evaluation signing authority independent from deployment authorization keys while preserving deterministic, content-addressed evidence;
 - preserve non-secret durable evidence boundaries (no raw scanner logs, payloads, secrets, kubeconfig, or host addresses).
 
 Acceptance criteria:
 
-- lifecycle-proof ledger artifacts are deterministic, content-addressed, auditable, and bound only to exact immutable lifecycle receipt identities;
-- ledger recording command has no mutation authority and fails closed on invalid/stale/incomplete lifecycle chains;
-- durable receipts/audit prove deterministic linkage across apply/retire/rollback rehearsal evidence under reviewed operator intent;
-- apply-side provenance remains fail-closed and unaffected unless explicit ledger consumption is introduced in a later reviewed slice;
+- lifecycle-proof contract execution consumes only validated ledger identities and fails closed on stale/foreign/incomplete lifecycle evidence;
+- lifecycle-proof outputs carry explicit freshness-policy and reviewed intent references without mutation authority changes;
+- durable audit chains prove deterministic linkage from lifecycle ledger to contract execution evidence;
+- apply-side provenance remains fail-closed and unaffected by lifecycle-proof contract-only additions;
 - schema validation and Go validation remain aligned with focused CLI and negative tests.
 
 ## Validation requirements

@@ -304,6 +304,27 @@ go run ./cmd/yara deployment rollback kubernetes \
 
 Rollback authorization requires fresh exact reviewed inputs and non-delete constraints bound to the reviewed action set and operation count. The executor rechecks ownership/state under lock, applies only reviewed `create`/`update` operations, and emits a content-addressed `RollbackReceipt`.
 
+## Lifecycle proof ledger
+
+Phase-3 rehearsal evidence can now be linked without granting mutation authority:
+
+```bash
+go run ./cmd/yara lifecycle proof record \
+  --apply-receipt reference-stack.receipt.yaml \
+  --retirement-receipt reference-stack.retirement.receipt.yaml \
+  --rollback-receipt reference-stack.rollback.receipt.yaml \
+  --reviewer-role platform-security \
+  --decision approved \
+  --reason-reference ticket-lifecycle-proof-123 \
+  --name reference-stack-lifecycle-proof \
+  --output reference-stack.lifecycle-proof-ledger.yaml \
+  --audit-output reference-stack.lifecycle-proof-ledger.audit.jsonl
+
+go run ./cmd/yara lifecycle-proof-ledger validate reference-stack.lifecycle-proof-ledger.yaml
+```
+
+`lifecycle proof record` fails closed unless all receipts are valid, belong to the same plan/bundle/target, are ordered apply->retire->rollback, succeeded, and remain within the configured freshness window.
+
 ## Audit and privacy
 
 Change-set generation and approval recording require audit output and remove generated resources if terminal audit persistence fails. Events bind immutable resource and pseudonymous target digests. They exclude kubeconfig paths, contexts, API endpoints and full Kubernetes objects. Approval reasons are non-secret references, not free-form justifications or credentials.

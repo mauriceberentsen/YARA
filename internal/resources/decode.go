@@ -123,6 +123,10 @@ func LoadAirgapGateTransitionReview(path string) (AirgapGateTransitionReview, er
 	return loadResource[AirgapGateTransitionReview](path)
 }
 
+func LoadLifecycleProofLedger(path string) (LifecycleProofLedger, error) {
+	return loadResource[LifecycleProofLedger](path)
+}
+
 func loadResource[T any](path string) (T, error) {
 	var resource T
 	data, err := readBounded(path)

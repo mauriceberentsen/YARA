@@ -257,6 +257,17 @@ go run ./cmd/yara deployment rollback kubernetes \
   --receipt-output reference-stack.rollback.receipt.yaml \
   --audit-output reference-stack.rollback.audit.jsonl
 go run ./cmd/yara rollback-receipt validate reference-stack.rollback.receipt.yaml
+go run ./cmd/yara lifecycle proof record \
+  --apply-receipt reference-stack.receipt.yaml \
+  --retirement-receipt reference-stack.retirement.receipt.yaml \
+  --rollback-receipt reference-stack.rollback.receipt.yaml \
+  --reviewer-role platform-security \
+  --decision approved \
+  --reason-reference ticket-lifecycle-proof-123 \
+  --name reference-stack-lifecycle-proof \
+  --output reference-stack.lifecycle-proof-ledger.yaml \
+  --audit-output reference-stack.lifecycle-proof-ledger.audit.jsonl
+go run ./cmd/yara lifecycle-proof-ledger validate reference-stack.lifecycle-proof-ledger.yaml
 go run ./cmd/yara plan diff docs/examples/platform-plan.yaml plan.yaml \
   --audit-output plan-diff.audit.jsonl
 go run ./cmd/yara debug bundle \
