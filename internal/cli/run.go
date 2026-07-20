@@ -160,6 +160,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 3 && args[0] == "publication" && args[1] == "chain" && args[2] == "rehearse" {
 		return rehearsePublicationChain(args[3:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "publication" && args[1] == "chain" && args[2] == "retention-diagnostics" {
+		return publicationChainRetentionDiagnostics(args[3:], stdout, stderr)
+	}
 	if len(args) >= 2 && args[0] == "integration" && args[1] == "component-smoke" {
 		return runIntegrationComponentSmoke(args[2:], stdout, stderr)
 	}
@@ -647,6 +650,7 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara lifecycle proof record --apply-receipt <file> --retirement-receipt <file> --rollback-receipt <file> --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --name <name> --output <file> --audit-output <file> [--max-receipt-age <duration>]")
 	fmt.Fprintln(output, "  yara lifecycle proof approve-publication --catalog <file> --assertion <id> --lifecycle-proof-ledger <file> --confirm-lifecycle-proof-ledger <sha256:id> --evidence <sha256:id> [--evidence <sha256:id> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --max-ledger-age <duration> [--valid-for <duration>] --name <name> --output <file> --audit-output <file>")
 	fmt.Fprintln(output, "  yara publication chain rehearse --catalog <file> --assertion <id> --lifecycle-proof-approval <file> --confirm-lifecycle-proof-approval <sha256:id> --integration-publication-attestation <file> --confirm-integration-publication-attestation <sha256:id> --coverage-report <file> --confirm-coverage-report <sha256:id> --trust-policy <file> --confirm-trust-policy <sha256:id> --signing-boundary-audit <file> --authorization <file> [--authorization <file> ...] --reviewer-role <role> --decision <approved|changes-required|abstained> --reason-reference <ref> --max-evidence-age <duration> --name <name> --output <file> --audit-output <file>")
+	fmt.Fprintln(output, "  yara publication chain retention-diagnostics --catalog <file> --assertion <id> --current-rehearsal <file> [--current-rehearsal <file> ...] [--candidate-rehearsal <file>] --audit-output <file>")
 	fmt.Fprintln(output, "  yara airgap-provenance-gate-result validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-gate-trust-policy validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara airgap-gate-trust-policy-diff validate <file> [--audit-output <file>]")

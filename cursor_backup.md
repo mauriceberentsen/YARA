@@ -69,6 +69,7 @@
   - assertion-scoped lifecycle publication policy diagnostics now fail closed when publication-chain rehearsal evidence is missing or non-passing for the selected assertion.
   - `promotion review record` now requires explicit publication-chain rehearsal binding for assertions requiring integration publication evidence;
   - promotion-review recording now fails closed on missing, stale, foreign, non-approved, or assertion-mismatched rehearsal evidence and requires selected evidence to include the bound rehearsal identity.
+  - `publication chain retention-diagnostics` now classifies assertion-scoped historical rehearsal evidence as renewable or non-renewable using bounded retention windows, preserves immutable historical rehearsal identities, and fails closed when candidate renewal inputs are stale, foreign, or identity-reusing.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -114,6 +115,7 @@
   - `publication chain rehearse` plus `publication-chain-rehearsal validate` provide bounded pre-live publication readiness checks with deterministic audit chains;
   - assertion-scoped lifecycle publication policy now reports deterministic publication-chain rehearsal readiness diagnostics (`status`, `blocker`, selected rehearsal ID) and rejects non-ready assertion scopes fail-closed;
   - promotion-review entry points now converge on publication-chain rehearsal identity evidence for integration-required assertions and record deterministic audit subjects for rehearsal bindings;
+  - publication-chain retention diagnostics classify historical rehearsal evidence identities as renewable/non-renewable and reject stale, foreign-scope, duplicate-identity, or predated candidate renewals before publication renewal decisions proceed;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -138,7 +140,8 @@
     - `airgap-gate-trust-policy-diff validate`,
     - `airgap-gate-transition-review validate`,
     - `lifecycle-proof-ledger validate`,
-    - `lifecycle-proof-approval validate`.
+    - `lifecycle-proof-approval validate`,
+    - `publication chain retention-diagnostics`.
 - **Validated on live environment (historical evidence already present):**
   - one successful authorized apply with receipt `sha256:e584d749052c4b389e9013745337d76ccf02862d5fda900eec6c90c8d634944f`;
   - one separately reviewed idempotent apply with 12 no-op operations and receipt `sha256:caa1d717287be833152da68101dc61a52ad0bac54509132413e93adab79c7e7d`.
@@ -150,13 +153,13 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by twelve commits before this uncommitted work).
-- Recent commits before this slice (newest first): `b1cfa4a`, `9c7414c`, `cdf8393`, `3ff1b5d`, `10de4ec`.
-- This slice closes Phase 5 publication-chain reviewer decision convergence for promotion-review entry points.
-- Phase 5 milestone plan now tracks three ordered slices:
-  - slice 1 completed: publication-chain rehearsal resource/command/validation closure with fail-closed chain binding checks;
-  - slice 2 completed: assertion-scoped publication-chain policy diagnostics parity in coverage policy output;
-  - slice 3 completed in this run: publication-chain reviewer decision convergence for promotion-review entry points.
+- Branch: `main` tracking `origin/main` (local ahead by thirteen commits before this uncommitted work).
+- Recent commits before this slice (newest first): `91e2e78`, `b1cfa4a`, `9c7414c`, `cdf8393`, `3ff1b5d`.
+- This slice closes Phase 6 milestone kickoff for publication-chain evidence retention and renewal diagnostics.
+- Phase 6 milestone currently tracks three ordered slices:
+  - slice 1 completed in this run: publication-chain retention diagnostics classify historical rehearsal identities and fail closed on malformed/stale/foreign/identity-reuse candidate renewal inputs;
+  - slice 2 pending: enforce explicit retention-diagnostics evidence binding at publication review entry points so renewal decisions cannot bypass immutable historical evidence;
+  - slice 3 pending: surface retention/renewal posture in lifecycle publication policy diagnostics and report limitations with deterministic explainability parity.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -169,16 +172,16 @@
 
 ## Next implementation slice
 
-Implement **Phase 6 milestone kickoff: publication-chain evidence retention and renewal diagnostics**:
+Implement **Phase 6 slice 2: publication-chain renewal binding enforcement at review entry points**:
 
-- add bounded diagnostics that classify publication-chain evidence as renewable or non-renewable before expiry while preserving immutable historical evidence;
-- fail closed when renewal inputs attempt to replace or overwrite reviewed historical publication-chain evidence identities;
-- preserve deterministic non-secret explainability and existing mutation-authority constraints.
+- require publication renewal/review command paths to bind accepted retention-diagnostics evidence IDs explicitly for assertion scopes that rely on publication-chain rehearsal history;
+- fail closed when renewal decisions are attempted without retention diagnostics, with stale diagnostics, or with diagnostics foreign to the selected catalog/assertion scope;
+- preserve immutable historical rehearsal identities by requiring renewal selections to include retained historical evidence references rather than replacement semantics.
 
 Acceptance criteria:
 
-- publication-chain renewal diagnostics fail closed when retention windows or renewal bindings are malformed, stale, or foreign to assertion scope;
-- publication-chain retention outputs remain deterministic and non-secret while preserving immutable historical evidence identities;
+- publication renewal/review commands fail closed when required retention diagnostics are missing, stale, malformed, or foreign to assertion scope;
+- publication renewal/review outputs and audits preserve immutable historical rehearsal identity bindings without overwrite semantics;
 - lifecycle and integration publication diagnostics remain deterministic and non-secret with no mutation authority added;
 - lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;

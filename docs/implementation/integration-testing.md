@@ -184,6 +184,17 @@ go run ./cmd/yara promotion review record \
   --audit-output promotion-review.audit.jsonl
 ```
 
+To classify publication-chain rehearsal evidence as renewable or non-renewable without mutating evidence:
+
+```bash
+go run ./cmd/yara publication chain retention-diagnostics \
+  --catalog catalog/v0.2/snapshot.yaml \
+  --assertion compat.vllm-qwen-coder-7b-awq-gb10 \
+  --current-rehearsal publication-chain-rehearsal.current.yaml \
+  --candidate-rehearsal publication-chain-rehearsal.candidate.yaml \
+  --audit-output publication-chain.retention.audit.jsonl
+```
+
 `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now emit a shared deterministic explainability surface across:
 
 - lifecycle publication readiness and blocker taxonomy;
