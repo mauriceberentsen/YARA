@@ -161,6 +161,11 @@ The boundary command fails closed when:
 - key-role reuse is ambiguous (for example the same key ID appears with different digests across role evidence);
 - trust-policy or authorization evidence is malformed.
 
+`catalog coverage lifecycle-publication-policy --assertion <id>` now also requires assertion-scoped publication-chain rehearsal readiness:
+
+- it surfaces `publicationChainRehearsal` diagnostics in policy output for each inspected assertion;
+- it fails closed for assertion-scoped diagnostics when rehearsal evidence for that assertion is missing, stale, foreign, or unbound.
+
 `catalog coverage create` and `catalog coverage lifecycle-publication-policy` now emit a shared deterministic explainability surface across:
 
 - lifecycle publication readiness and blocker taxonomy;

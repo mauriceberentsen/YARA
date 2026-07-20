@@ -60,6 +60,13 @@ type signingAuthorityBoundary struct {
 	AmbiguityDiagnostics     []string `json:"ambiguityDiagnostics,omitempty"`
 }
 
+type publicationChainRehearsalDiagnostics struct {
+	Assertion         string `json:"assertion"`
+	Status            string `json:"status"`
+	Blocker           string `json:"blocker,omitempty"`
+	SelectedRehearsal string `json:"selectedRehearsal,omitempty"`
+}
+
 func catalogCoverage(args []string, stdout, stderr io.Writer) int {
 	options, ok := parseCatalogCoverageOptions(args, stderr)
 	if !ok {
@@ -146,7 +153,21 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", err, ExitInternal)
 	}
 	blocked := []map[string]string{}
+	rehearsalDiagnostics := []publicationChainRehearsalDiagnostics{}
 	for _, assertion := range filtered {
+		rehearsalGate, found := findAssertionGate(assertion, "publication-chain-rehearsal")
+		if !found {
+			return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-500", fmt.Errorf("assertion %s does not include publication-chain rehearsal diagnostics gate", assertion.ID), ExitInternal)
+		}
+		rehearsalDiagnostics = append(rehearsalDiagnostics, publicationChainRehearsalDiagnostics{
+			Assertion:         assertion.ID,
+			Status:            rehearsalGate.Status,
+			Blocker:           rehearsalGate.Blocker,
+			SelectedRehearsal: rehearsalGate.SelectedResult,
+		})
+		if options.assertion != "" && rehearsalGate.Status != "passed" {
+			return writeCatalogCoveragePolicyFailure(stdout, options.auditPath, []audit.Subject{subject}, "YARA-COV-012", fmt.Errorf("assertion %s publication-chain rehearsal is not ready: %s", assertion.ID, rehearsalGate.Blocker), ExitInfeasible)
+		}
 		if assertion.LifecyclePublicationReady {
 			continue
 		}
@@ -162,6 +183,7 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		})
 	}
 	sort.Slice(blocked, func(i, j int) bool { return blocked[i]["assertion"] < blocked[j]["assertion"] })
+	sort.Slice(rehearsalDiagnostics, func(i, j int) bool { return rehearsalDiagnostics[i].Assertion < rehearsalDiagnostics[j].Assertion })
 	if err := persistOperationAudit(options.auditPath, "catalog.coverage.lifecycle-publication-policy", "completed", "success", []audit.Subject{subject}, nil); err != nil {
 		return writeLoadError(stdout, "YARA-AUD-005", err)
 	}
@@ -176,6 +198,7 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		"lifecyclePublicationBlockedAssertions": report.Spec.Summary.LifecyclePublicationBlockedAssertions,
 		"integrationEvidenceConvergence":        convergence,
 		"signingAuthorityBoundary":              signingBoundary,
+		"publicationChainRehearsal":             rehearsalDiagnostics,
 		"blockedAssertions":                     blocked,
 		"taxonomy":                              catalogcoverage.LifecyclePublicationBlockerTaxonomy(),
 		"auditOutput":                           options.auditPath,
@@ -183,6 +206,15 @@ func explainLifecyclePublicationPolicy(args []string, stdout, stderr io.Writer) 
 		return ExitInternal
 	}
 	return ExitSuccess
+}
+
+func findAssertionGate(assertion catalogcoverage.AssertionCoverage, gateID string) (catalogcoverage.GateCoverage, bool) {
+	for _, gate := range assertion.Gates {
+		if gate.ID == gateID {
+			return gate, true
+		}
+	}
+	return catalogcoverage.GateCoverage{}, false
 }
 
 func explainSigningAuthorityBoundaryPolicy(args []string, stdout, stderr io.Writer) int {

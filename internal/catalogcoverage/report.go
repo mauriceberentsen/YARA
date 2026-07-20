@@ -173,6 +173,12 @@ type acceptedIntegrationPublicationAttestation struct {
 	OccurredAt  string
 }
 
+type acceptedPublicationChainRehearsal struct {
+	Rehearsal  resources.PublicationChainRehearsal
+	AuditHead  string
+	OccurredAt string
+}
+
 type evidenceIndex struct {
 	Contracts                    map[string][]acceptedEvidence
 	ComponentEvidence            map[string][]acceptedIntegrationEvidence
@@ -180,6 +186,7 @@ type evidenceIndex struct {
 	PromotionReviews             map[string][]acceptedPromotionReview
 	LifecycleProofApprovals      map[string][]acceptedLifecycleProofApproval
 	IntegrationAttestations      map[string][]acceptedIntegrationPublicationAttestation
+	PublicationChainRehearsals   map[string][]acceptedPublicationChainRehearsal
 	AcceptedCount                int
 	VerifiedAuditCount           int
 	IntegrationIdentityCount     int
@@ -222,6 +229,7 @@ func Build(name string, snapshot catalog.Snapshot, evidenceDirectory string) (Re
 			evidence.PromotionReviews[assertion.ID],
 			evidence.LifecycleProofApprovals[assertion.ID],
 			evidence.IntegrationAttestations[assertion.ID],
+			evidence.PublicationChainRehearsals[assertion.ID],
 			catalogDigest,
 		)
 		report.Spec.Assertions = append(report.Spec.Assertions, coverage)
@@ -259,6 +267,7 @@ func assertionCoverage(
 	reviews []acceptedPromotionReview,
 	approvals []acceptedLifecycleProofApproval,
 	attestations []acceptedIntegrationPublicationAttestation,
+	rehearsals []acceptedPublicationChainRehearsal,
 	catalogDigest string,
 ) AssertionCoverage {
 	coverage := AssertionCoverage{
@@ -280,9 +289,11 @@ func assertionCoverage(
 	coverage.Gates = append(coverage.Gates, lifecycleGate)
 	integrationGate := integrationPublicationAttestationGate(integrationEvidence, attestations, catalogDigest)
 	coverage.Gates = append(coverage.Gates, integrationGate)
+	rehearsalGate := publicationChainRehearsalGate(approvals, attestations, rehearsals, catalogDigest)
+	coverage.Gates = append(coverage.Gates, rehearsalGate)
 	slices.SortFunc(coverage.Gates, func(left, right GateCoverage) int { return strings.Compare(left.ID, right.ID) })
 	for _, gate := range coverage.Gates {
-		if gate.Status != "passed" {
+		if gate.Status != "passed" && gate.ID != "publication-chain-rehearsal" {
 			coverage.Blockers = append(coverage.Blockers, gate.ID+":"+gate.Blocker)
 		}
 	}
@@ -555,6 +566,112 @@ func integrationPublicationAttestationGate(integrationEvidence []acceptedIntegra
 	return gate
 }
 
+func publicationChainRehearsalGate(approvals []acceptedLifecycleProofApproval, attestations []acceptedIntegrationPublicationAttestation, rehearsals []acceptedPublicationChainRehearsal, catalogDigest string) GateCoverage {
+	gate := GateCoverage{
+		ID:               "publication-chain-rehearsal",
+		Status:           "missing",
+		ObservedEvidence: []EvidenceBinding{},
+		Blocker:          "publication-chain-rehearsal-not-recorded",
+	}
+	if len(rehearsals) == 0 {
+		return gate
+	}
+	approvalByID := map[string]acceptedLifecycleProofApproval{}
+	for _, item := range approvals {
+		approvalByID[item.Approval.Metadata.ApprovalID] = item
+	}
+	attestationByID := map[string]acceptedIntegrationPublicationAttestation{}
+	for _, item := range attestations {
+		attestationByID[item.Attestation.Metadata.AttestationID] = item
+	}
+	sorted := slices.Clone(rehearsals)
+	slices.SortFunc(sorted, func(left, right acceptedPublicationChainRehearsal) int {
+		if comparison := strings.Compare(left.OccurredAt, right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.Rehearsal.Metadata.RehearsalID, right.Rehearsal.Metadata.RehearsalID)
+	})
+	for _, item := range sorted {
+		outcome := "failed"
+		if item.Rehearsal.Spec.Decision == resources.PromotionDecisionApproved {
+			outcome = "passed"
+		} else if item.Rehearsal.Spec.Decision == resources.PromotionDecisionAbstained {
+			outcome = "blocked"
+		}
+		gate.ObservedEvidence = append(gate.ObservedEvidence, EvidenceBinding{
+			ResultID:  item.Rehearsal.Metadata.RehearsalID,
+			Outcome:   outcome,
+			AuditHead: item.AuditHead,
+		})
+	}
+	selected := sorted[len(sorted)-1]
+	gate.SelectedResult = selected.Rehearsal.Metadata.RehearsalID
+	gate.SelectedAuditHead = selected.AuditHead
+	if selected.Rehearsal.Spec.CatalogDigest != catalogDigest {
+		gate.Status = "failed"
+		gate.Blocker = "selected-rehearsal-catalog-mismatch"
+		return gate
+	}
+	if selected.Rehearsal.Spec.Decision != resources.PromotionDecisionApproved {
+		if selected.Rehearsal.Spec.Decision == resources.PromotionDecisionAbstained {
+			gate.Status = "blocked"
+			gate.Blocker = "selected-rehearsal-decision-abstained"
+		} else {
+			gate.Status = "failed"
+			gate.Blocker = "selected-rehearsal-decision-changes-required"
+		}
+		return gate
+	}
+	approval, hasApproval := approvalByID[selected.Rehearsal.Spec.LifecycleProofApprovalID]
+	if !hasApproval {
+		gate.Status = "failed"
+		gate.Blocker = "selected-rehearsal-does-not-bind-lifecycle-proof-approval"
+		return gate
+	}
+	attestation, hasAttestation := attestationByID[selected.Rehearsal.Spec.IntegrationPublicationAttestationID]
+	if !hasAttestation {
+		gate.Status = "failed"
+		gate.Blocker = "selected-rehearsal-does-not-bind-integration-publication-attestation"
+		return gate
+	}
+	maxEvidenceAge, err := time.ParseDuration(selected.Rehearsal.Spec.MaxEvidenceAge)
+	if err != nil || maxEvidenceAge <= 0 {
+		gate.Status = "failed"
+		gate.Blocker = "selected-rehearsal-max-evidence-age-invalid"
+		return gate
+	}
+	rehearsedAt, err := time.Parse(time.RFC3339Nano, selected.Rehearsal.Spec.RehearsedAt)
+	if err != nil {
+		gate.Status = "failed"
+		gate.Blocker = "selected-rehearsal-recorded-at-invalid"
+		return gate
+	}
+	approvalObservedAt, err := time.Parse(time.RFC3339Nano, approval.OccurredAt)
+	if err != nil {
+		gate.Status = "failed"
+		gate.Blocker = "selected-rehearsal-approval-observed-at-invalid"
+		return gate
+	}
+	attestationObservedAt, err := time.Parse(time.RFC3339Nano, attestation.OccurredAt)
+	if err != nil {
+		gate.Status = "failed"
+		gate.Blocker = "selected-rehearsal-attestation-observed-at-invalid"
+		return gate
+	}
+	latestPrerequisite := approvalObservedAt
+	if attestationObservedAt.After(latestPrerequisite) {
+		latestPrerequisite = attestationObservedAt
+	}
+	if rehearsedAt.Before(latestPrerequisite) || rehearsedAt.Sub(latestPrerequisite) > maxEvidenceAge {
+		gate.Status = "failed"
+		gate.Blocker = "selected-rehearsal-stale-for-prerequisite-evidence"
+		return gate
+	}
+	gate.Status = "passed"
+	gate.Blocker = ""
+	return gate
+}
+
 func lifecyclePublicationBlocker(code string) string {
 	step, ok := lifecyclePublicationBlockerRemediations[code]
 	if !ok {
@@ -807,12 +924,13 @@ func structuralCoverage(manifests []catalog.ManifestDescriptor) []ManifestCovera
 
 func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest string) (evidenceIndex, error) {
 	result := evidenceIndex{
-		Contracts:               make(map[string][]acceptedEvidence),
-		ComponentEvidence:       make(map[string][]acceptedIntegrationEvidence),
-		TopologyEvidence:        make(map[string][]acceptedIntegrationEvidence),
-		PromotionReviews:        make(map[string][]acceptedPromotionReview),
-		LifecycleProofApprovals: make(map[string][]acceptedLifecycleProofApproval),
-		IntegrationAttestations: make(map[string][]acceptedIntegrationPublicationAttestation),
+		Contracts:                  make(map[string][]acceptedEvidence),
+		ComponentEvidence:          make(map[string][]acceptedIntegrationEvidence),
+		TopologyEvidence:           make(map[string][]acceptedIntegrationEvidence),
+		PromotionReviews:           make(map[string][]acceptedPromotionReview),
+		LifecycleProofApprovals:    make(map[string][]acceptedLifecycleProofApproval),
+		IntegrationAttestations:    make(map[string][]acceptedIntegrationPublicationAttestation),
+		PublicationChainRehearsals: make(map[string][]acceptedPublicationChainRehearsal),
 	}
 	assertions := make(map[string]catalog.AssertionDescriptor)
 	inventory := snapshot.ManifestInventory()
@@ -830,6 +948,7 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 	pendingPromotionReviewPaths := []string{}
 	pendingLifecycleProofApprovalPaths := []string{}
 	pendingIntegrationAttestationPaths := []string{}
+	pendingPublicationChainRehearsalPaths := []string{}
 	acceptedIntegrationByID := map[string]acceptedIntegrationEvidence{}
 	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -898,6 +1017,10 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		}
 		if kind == "IntegrationPublicationAttestation" {
 			pendingIntegrationAttestationPaths = append(pendingIntegrationAttestationPaths, path)
+			return nil
+		}
+		if kind == "PublicationChainRehearsal" {
+			pendingPublicationChainRehearsalPaths = append(pendingPublicationChainRehearsalPaths, path)
 			return nil
 		}
 		if kind != "ContractTestResult" {
@@ -1058,6 +1181,59 @@ func loadEvidence(directory string, snapshot catalog.Snapshot, catalogDigest str
 		result.AcceptedCount++
 		result.VerifiedAuditCount++
 	}
+	for _, path := range pendingPublicationChainRehearsalPaths {
+		rehearsal, err := resources.LoadPublicationChainRehearsal(path)
+		if err != nil {
+			return evidenceIndex{}, fmt.Errorf("load evidence %s: %w", filepath.Base(path), err)
+		}
+		if report := rehearsal.Validate(); !report.Valid || rehearsal.Spec.CatalogDigest != catalogDigest {
+			return evidenceIndex{}, fmt.Errorf("evidence %s is invalid or not bound to this catalog", filepath.Base(path))
+		}
+		if _, ok := assertions[rehearsal.Spec.AssertionRef]; !ok {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references an unknown assertion", filepath.Base(path))
+		}
+		approvalBound := false
+		for _, item := range result.LifecycleProofApprovals[rehearsal.Spec.AssertionRef] {
+			if item.Approval.Metadata.ApprovalID == rehearsal.Spec.LifecycleProofApprovalID {
+				approvalBound = true
+				break
+			}
+		}
+		if !approvalBound {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references unknown lifecycle-proof approval %s", filepath.Base(path), rehearsal.Spec.LifecycleProofApprovalID)
+		}
+		attestationBound := false
+		for _, item := range result.IntegrationAttestations[rehearsal.Spec.AssertionRef] {
+			if item.Attestation.Metadata.AttestationID == rehearsal.Spec.IntegrationPublicationAttestationID {
+				attestationBound = true
+				break
+			}
+		}
+		if !attestationBound {
+			return evidenceIndex{}, fmt.Errorf("evidence %s references unknown integration publication attestation %s", filepath.Base(path), rehearsal.Spec.IntegrationPublicationAttestationID)
+		}
+		for _, authorizationID := range rehearsal.Spec.AuthorizationIDs {
+			if !sha256Pattern.MatchString(authorizationID) {
+				return evidenceIndex{}, fmt.Errorf("evidence %s contains invalid authorization identity %s", filepath.Base(path), authorizationID)
+			}
+		}
+		auditPath := strings.TrimSuffix(path, ".yaml") + ".audit.jsonl"
+		events, head, err := loadVerifiedAudit(auditPath)
+		if err != nil {
+			return evidenceIndex{}, err
+		}
+		if err := verifyPublicationChainRehearsalAudit(events, rehearsal, catalogDigest); err != nil {
+			return evidenceIndex{}, fmt.Errorf("bind evidence audit %s: %w", filepath.Base(auditPath), err)
+		}
+		terminal := events[len(events)-1]
+		result.PublicationChainRehearsals[rehearsal.Spec.AssertionRef] = append(result.PublicationChainRehearsals[rehearsal.Spec.AssertionRef], acceptedPublicationChainRehearsal{
+			Rehearsal:  rehearsal,
+			AuditHead:  head,
+			OccurredAt: terminal.Metadata.OccurredAt,
+		})
+		result.AcceptedCount++
+		result.VerifiedAuditCount++
+	}
 	result.IntegrationIdentityCount = len(acceptedIntegrationByID)
 	return result, nil
 }
@@ -1193,6 +1369,25 @@ func verifyIntegrationPublicationAttestationAudit(events []audit.Event, attestat
 	for _, selected := range attestation.Spec.SelectedEvidence {
 		if !hasSubject(terminal.Spec.Subjects, "IntegrationTestResult", selected) {
 			return errors.New("terminal event does not bind selected integration evidence identities")
+		}
+	}
+	return nil
+}
+
+func verifyPublicationChainRehearsalAudit(events []audit.Event, rehearsal resources.PublicationChainRehearsal, catalogDigest string) error {
+	if len(events) != 2 {
+		return fmt.Errorf("expected two events, found %d", len(events))
+	}
+	terminal := events[len(events)-1]
+	if terminal.Spec.Action != "publication.chain.rehearse.completed" || terminal.Spec.Outcome != "success" || terminal.Spec.Target != "catalog:"+catalogDigest {
+		return errors.New("terminal action, outcome or target does not match publication-chain rehearsal")
+	}
+	if !hasSubject(terminal.Spec.Subjects, "CatalogSnapshot", catalogDigest) || !hasSubject(terminal.Spec.Subjects, "PublicationChainRehearsal", rehearsal.Metadata.RehearsalID) || !hasSubject(terminal.Spec.Subjects, "LifecycleProofApproval", rehearsal.Spec.LifecycleProofApprovalID) || !hasSubject(terminal.Spec.Subjects, "IntegrationPublicationAttestation", rehearsal.Spec.IntegrationPublicationAttestationID) || !hasSubject(terminal.Spec.Subjects, Kind, rehearsal.Spec.CoverageReportID) || !hasSubject(terminal.Spec.Subjects, "AirgapGateTrustPolicy", rehearsal.Spec.TrustPolicyID) {
+		return errors.New("terminal event does not bind publication-chain rehearsal evidence identities")
+	}
+	for _, authorizationID := range rehearsal.Spec.AuthorizationIDs {
+		if !hasSubject(terminal.Spec.Subjects, "ExecutionAuthorization", authorizationID) {
+			return errors.New("terminal event does not bind publication-chain rehearsal authorization identities")
 		}
 	}
 	return nil

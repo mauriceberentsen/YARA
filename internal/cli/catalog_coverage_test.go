@@ -163,6 +163,11 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 			AmbiguityCount int    `json:"ambiguityCount"`
 			Evaluated      bool   `json:"evaluated"`
 		} `json:"signingAuthorityBoundary"`
+		PublicationChainRehearsal []struct {
+			Assertion string `json:"assertion"`
+			Status    string `json:"status"`
+			Blocker   string `json:"blocker"`
+		} `json:"publicationChainRehearsal"`
 		Taxonomy []catalogcoverage.LifecyclePublicationBlockerDefinition `json:"taxonomy"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
@@ -188,6 +193,9 @@ func TestCatalogCoverageLifecyclePublicationPolicyReportsBlockedAssertions(t *te
 	}
 	if response.SigningAuthorityBoundary.Status != "not-evaluated" || response.SigningAuthorityBoundary.OverlapCount != 0 || response.SigningAuthorityBoundary.AmbiguityCount != 0 || response.SigningAuthorityBoundary.Evaluated {
 		t.Fatalf("unexpected signing authority boundary diagnostics for v0.2 policy response: %#v", response.SigningAuthorityBoundary)
+	}
+	if len(response.PublicationChainRehearsal) == 0 || response.PublicationChainRehearsal[0].Status != "missing" {
+		t.Fatalf("expected publication-chain rehearsal diagnostics in policy response: %#v", response.PublicationChainRehearsal)
 	}
 	events, err := audit.LoadJSONL(policyAuditPath)
 	if err != nil {
@@ -419,6 +427,26 @@ func TestCatalogCoverageLifecyclePublicationPolicyRejectsAmbiguousRemediationEnc
 	var stdout, stderr bytes.Buffer
 	if exitCode := Run([]string{"catalog", "coverage", "lifecycle-publication-policy", "--report", outputPath, "--audit-output", policyAuditPath}, &stdout, &stderr); exitCode != ExitInvalidInput {
 		t.Fatalf("expected invalid input for ambiguous remediation encoding, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCatalogCoverageLifecyclePublicationPolicyFailsClosedOnAssertionScopedMissingPublicationChainRehearsal(t *testing.T) {
+	temp := t.TempDir()
+	outputPath := filepath.Join(temp, "coverage.yaml")
+	createAuditPath := filepath.Join(temp, "create.audit.jsonl")
+	var createOutput, createError bytes.Buffer
+	if exitCode := Run(catalogCoverageArgs(outputPath, createAuditPath), &createOutput, &createError); exitCode != ExitSuccess {
+		t.Fatalf("create coverage failed: stdout=%s stderr=%s", createOutput.String(), createError.String())
+	}
+	policyAuditPath := filepath.Join(temp, "policy.audit.jsonl")
+	var stdout, stderr bytes.Buffer
+	if exitCode := Run([]string{
+		"catalog", "coverage", "lifecycle-publication-policy",
+		"--report", outputPath,
+		"--assertion", "compat.vllm-qwen-coder-7b-awq-gb10",
+		"--audit-output", policyAuditPath,
+	}, &stdout, &stderr); exitCode != ExitInfeasible {
+		t.Fatalf("expected infeasible on assertion-scoped missing publication-chain rehearsal, got %d: stdout=%s stderr=%s", exitCode, stdout.String(), stderr.String())
 	}
 }
 

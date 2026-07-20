@@ -65,6 +65,8 @@
   - policy diagnostics now fail closed when signing-authority boundary limitation records are missing, duplicated, malformed, or internally inconsistent.
   - `publication chain rehearse` now emits immutable `PublicationChainRehearsal` evidence for one assertion-scoped publication identity set (lifecycle approval + integration attestation + coverage report + trust policy + signing-boundary audit + authorization IDs) without mutation authority;
   - publication-chain rehearsal now fails closed on stale evidence windows, foreign catalog/assertion bindings, approval/attestation confirmation mismatches, malformed signing-boundary audits, or non-independent signer-boundary evidence.
+  - publication-policy diagnostics now include assertion-scoped `publication-chain-rehearsal` gate state sourced from immutable coverage evidence;
+  - assertion-scoped lifecycle publication policy diagnostics now fail closed when publication-chain rehearsal evidence is missing or non-passing for the selected assertion.
 - Air-gap provenance:
   - `artifact transfer record` emits immutable `ArtifactTransferReceipt` evidence bound to exact bundle/import identities;
   - `artifact scan record` emits immutable `ArtifactScanReceipt` evidence bound to exact transferred artifact identities and scanner policy/tool identities;
@@ -108,6 +110,7 @@
   - publication diagnostics now preserve deterministic parity between create and lifecycle-policy outputs for lifecycle, integration convergence, and signing-authority boundary explainability fields;
   - publication-chain rehearsals are content-addressed (`rehearsalId`), bind exact publication-chain identity subjects plus verified signing-boundary audit head, and record non-mutating reviewer readiness decisions;
   - `publication chain rehearse` plus `publication-chain-rehearsal validate` provide bounded pre-live publication readiness checks with deterministic audit chains;
+  - assertion-scoped lifecycle publication policy now reports deterministic publication-chain rehearsal readiness diagnostics (`status`, `blocker`, selected rehearsal ID) and rejects non-ready assertion scopes fail-closed;
   - apply-time provenance rejects missing, mismatched or unlinked transfer/scan chains for air-gapped policy bundles, and rejects non-passed/unsigned/untrusted/revoked/expired gate results when configured;
   - deployment receipts now carry optional `transferReceiptIds`, `scanReceiptIds`, `airgapGateResultId`, `airgapGateTrustPolicyId`, `airgapGateTrustPolicyDiffId`, and `airgapGateTransitionReviewId` provenance bindings;
   - separate command paths:
@@ -144,12 +147,12 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` (local ahead by ten commits before this uncommitted work).
-- Recent commits before this slice (newest first): `cdf8393`, `3ff1b5d`, `10de4ec`, `86c7a32`, `07b8dba`.
-- This slice starts Phase 5 by closing publication-chain active verification rehearsal kickoff.
+- Branch: `main` tracking `origin/main` (local ahead by eleven commits before this uncommitted work).
+- Recent commits before this slice (newest first): `9c7414c`, `cdf8393`, `3ff1b5d`, `10de4ec`, `86c7a32`.
+- This slice closes Phase 5 assertion-scoped publication-chain policy diagnostics parity.
 - Phase 5 milestone plan now tracks three ordered slices:
-  - slice 1 completed in this run: publication-chain rehearsal resource/command/validation closure with fail-closed chain binding checks;
-  - slice 2 pending: assertion-scoped publication-chain policy diagnostics parity in coverage policy output;
+  - slice 1 completed: publication-chain rehearsal resource/command/validation closure with fail-closed chain binding checks;
+  - slice 2 completed in this run: assertion-scoped publication-chain policy diagnostics parity in coverage policy output;
   - slice 3 pending: publication-chain reviewer decision convergence for promotion-review entry points.
 - Working tree is expected to be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
@@ -163,16 +166,16 @@
 
 ## Next implementation slice
 
-Implement **Phase 5 milestone continuation: assertion-scoped publication-chain policy diagnostics parity**:
+Implement **Phase 5 milestone completion: publication-chain reviewer decision convergence for promotion-review entry points**:
 
-- extend `catalog coverage lifecycle-publication-policy` diagnostics to include assertion-scoped publication-chain rehearsal readiness state for selected assertions;
-- fail closed when rehearsal evidence is missing, stale, foreign, or unbound to the selected assertion scope;
-- preserve deterministic non-secret explainability output parity with existing lifecycle/integration/signing-boundary diagnostics.
+- require an explicit publication-chain rehearsal identity binding when recording promotion reviews for assertions requiring integration publication evidence;
+- fail closed on stale/foreign/non-approved rehearsal evidence or assertion-scope mismatch at promotion-review recording time;
+- preserve deterministic non-secret evidence boundaries and existing mutation-authority constraints.
 
 Acceptance criteria:
 
-- policy diagnostics fail closed when assertion-scoped rehearsal evidence is missing, stale, foreign, or mismatched to selected assertion scope;
-- publication diagnostics remain deterministic and non-secret while exposing bounded assertion-scoped rehearsal readiness state for review;
+- promotion-review recording fails closed when required publication-chain rehearsal evidence is missing, stale, foreign, unapproved, or mismatched to selected assertion scope;
+- promotion entry-point diagnostics remain deterministic and non-secret while exposing bounded publication-chain rehearsal readiness binding state;
 - lifecycle and integration publication diagnostics remain deterministic and non-secret with no mutation authority added;
 - lifecycle publication taxonomy and diagnostics remain unchanged by executor work;
 - durable audit chains still prove deterministic linkage from lifecycle ledger to lifecycle approval and publication outputs;
