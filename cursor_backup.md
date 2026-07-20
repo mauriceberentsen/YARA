@@ -3,8 +3,8 @@
 ## Current repository state
 
 - Repository: `YARA` (audit-first deterministic planner plus bounded deployment path).
-- Branch baseline: `main` with local commits ahead of `origin/main`.
-- Current run state: local `main` is ahead of `origin/main` with unpushed commits.
+- Branch baseline: `main` at `8746cdf` (`Add separately authorized Kubernetes retirement path.`).
+- Current run state: local `main` is ahead of `origin/main` by one commit.
 - Accepted ADRs include `0001`-`0011`; direct apply boundary is in ADR-0011.
 - Latest archived coverage remains `catalog/v0.2/coverage.yaml` with report ID `sha256:b1f2379eb930d431b2cbe1543ec38fb243580213c76ca56be96def47883beb83`.
 
@@ -49,9 +49,9 @@
 
 ## Current branch and working tree
 
-- Branch: `main` tracking `origin/main` with local commits ahead.
-- Recent commits at run start (newest first): `fe846fb`, `a77fccf`, `8ae7502`, `08f774e`, `cc1f0a5`.
-- Working tree must be verified at session start with `git status --short --branch`; keep unrelated changes out of slice commits.
+- Branch: `main` tracking `origin/main` (`ahead 1`).
+- Recent commits (newest first): `8746cdf`, `fe846fb`, `a77fccf`, `8ae7502`, `08f774e`.
+- Working tree is clean after this slice commit.
 - Git author to use for new commit: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
 ## Open limitations and unproven claims
