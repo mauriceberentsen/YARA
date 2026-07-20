@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-YARA has an initial direct Kubernetes executor for the exact LiteLLM/vLLM bundle produced by `yara.kubernetes-gitops@0.1.0`. It is intentionally not a clean-cluster installer. Before execution, the exact YARA-owned namespace and a bound `yara-model` PVC containing the bundle-declared model files must already exist.
+YARA has an initial direct Kubernetes executor for the exact LiteLLM/vLLM bundle produced by `yara.kubernetes-gitops@0.1.0`. It is intentionally bounded: it never bootstraps by implication. Namespace and model PVC first-use setup now has a separate audited path (`deployment bootstrap kubernetes`) that must be run explicitly before apply.
 
 The executor can create or server-side-apply only the ConfigMap, Deployments, ClusterIP Services and NetworkPolicies present in the approved bundle. The Namespace must be an exact `no-op`. It cannot delete or prune managed resources, create storage, import models, adopt foreign resources, change architecture or bypass an observed change set.
 
@@ -105,7 +105,7 @@ Kubernetes RBAC cannot restrict `create` by resource name and does not prove adm
 
 ## Explicitly unsupported
 
-- namespace or PVC provisioning;
+- implicit namespace or PVC provisioning during apply;
 - connected/offline artifact acquisition or import execution workflows;
 - Secret creation or secret-value handling;
 - deletion, pruning, adoption and rollback;

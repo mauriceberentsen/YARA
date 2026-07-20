@@ -12,8 +12,8 @@ func TestPublicSchemasAreValidJSONDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find schemas: %v", err)
 	}
-	if len(paths) != 42 {
-		t.Fatalf("expected forty-two public schemas, found %d", len(paths))
+	if len(paths) != 43 {
+		t.Fatalf("expected forty-three public schemas, found %d", len(paths))
 	}
 	for _, path := range paths {
 		data, err := os.ReadFile(path)

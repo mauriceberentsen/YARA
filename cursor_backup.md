@@ -6,6 +6,7 @@
 - Branch baseline before this slice: `main` at `07b8dba` (`Converge integration evidence identities in catalog coverage.`).
 - ADR scope remains `0001`-`0011`; direct fail-closed Kubernetes mutation boundary remains ADR-0011.
 - Public resource schema set now includes:
+  - `BootstrapReceipt` (`schemas/yara.dev/v1alpha1/bootstrap-receipt.schema.json`);
   - `PromotionReview` (`schemas/yara.dev/v1alpha1/promotion-review.schema.json`);
   - `ArtifactTransferReceipt` (`schemas/yara.dev/v1alpha1/artifact-transfer-receipt.schema.json`);
   - `ArtifactScanReceipt` (`schemas/yara.dev/v1alpha1/artifact-scan-receipt.schema.json`);
@@ -94,12 +95,15 @@
   - `airgap provenance-gate verify` validates gate-result identity, signer status/bounds and signature validity against an immutable `AirgapGateTrustPolicy`, requires explicit `--confirm-policy`, and can bind reviewed policy-diff evidence via `--policy-diff --confirm-policy-diff`; destructive diffs now fail closed unless an approved `--transition-review --confirm-transition-review` artifact is provided;
   - `deployment apply kubernetes` can fail closed on `--airgap-gate-result` only when verification passes under `--airgap-gate-trust-policy` and explicit `--confirm-airgap-gate-trust-policy`, with optional policy-diff binding (`--airgap-gate-policy-diff --confirm-airgap-gate-policy-diff`); destructive diffs now fail closed unless approved transition review evidence is supplied (`--airgap-gate-transition-review --confirm-airgap-gate-transition-review`).
 - Apply remains explicit and bounded to exact rendered objects; it still does not implicitly delete/prune/adopt.
+- `deployment bootstrap kubernetes` now provides a separate bounded mutation path that can only create/verify one YARA-owned namespace plus one model PVC from explicit confirmed inputs and emits immutable `BootstrapReceipt` evidence;
+- bootstrap fails closed on target-confirmation drift, foreign ownership, storage-configuration drift, or durable audit/receipt persistence failure and never performs import/apply/retire/rollback side effects.
 - Mutating commands still require durable started audit before mutation and fail closed when terminal audit/receipt persistence cannot complete.
 
 ## Verified capabilities
 
 - **Implemented + locally validated in repository tests/schemas/docs:**
   - content-addressed resources and schema/Go validation for apply/import/transfer/scan/air-gap gate/retire/rollback/integration/promotion review;
+  - content-addressed `BootstrapReceipt` schema/Go validation + loader + validate command for bounded namespace/PVC provisioning evidence;
   - catalog coverage now loads and audit-verifies `ArtifactImportReceipt`, `ArtifactTransferReceipt`, and `ArtifactScanReceipt` evidence and binds assertion-scoped import-chain diagnostics deterministically;
   - transfer chain receipts bind exact immutable model artifact identities and prior receipt IDs;
   - scan receipts bind scanner name/version/profile + policy digest and non-secret verdict references to exact transferred model artifact identities;
@@ -184,6 +188,7 @@
 - Recent commits before this slice (newest first): `f3b9f6e`, `846cf28`, `6003e27`, `144309d`, `fe12a5c`.
 - M1 (Publication gating closure) is complete.
 - This slice completes M2 slice 3 by adding assertion-scoped artifact import-chain diagnostics and fail-closed limitation parity checks in catalog coverage create/policy outputs.
+- This slice completes M3 slice 1 by adding bounded Kubernetes bootstrap execution (`deployment bootstrap kubernetes`) with immutable `BootstrapReceipt` evidence and fail-closed started/terminal audit chaining.
 - Working tree should be clean after committing this slice.
 - Required git author for this stream remains: `Maurice Berentsen <mauriceberentsen@live.nl>`.
 
@@ -224,7 +229,7 @@ Exit: the acquisition-to-deployment artifact chain has immutable receipts at eve
 **Goal:** a new operator can go from zero to a deployed, receipted stack without undocumented manual steps.
 
 Slices:
-1. `deployment bootstrap kubernetes` command — create a YARA-owned namespace and annotated model PVC with a bounded, audited, explicitly confirmed command; emits a `BootstrapReceipt` (no implicit delete).
+1. Completed: `deployment bootstrap kubernetes` command now creates/verifies only a YARA-owned namespace plus model PVC from explicit confirmed inputs, emits immutable `BootstrapReceipt` evidence, and fails closed on target/ownership/storage drift.
 2. `deployment import kubernetes` command — stage a model artifact into the declared PVC from a local path or acquisition manifest, verify digest, emit an `ArtifactImportReceipt`.
 3. End-to-end reference walkthrough documented in `docs/implementation/quickstart.md`: PlatformRequest → plan → render → bootstrap → import → preflight → change-set → approval → apply → contract tests → receipt; every command listed with expected output.
 
@@ -278,23 +283,23 @@ These items are on the roadmap but are not required to go public honestly:
 
 - No live validation was executed for rollback, integration execution, promotion-review recording, lifecycle-proof ledger recording/consumption/publication approval, catalog-publication gating, transfer/scan receipt enforcement, trust-policy recording/diffing/review-transition, or trust-policy gate verification/enforcement in this run.
 - Air-gap completeness remains unproven end-to-end: acquisition execution, transfer medium attestation trust chain, and scanning attestations remain external.
-- Clean-cluster bootstrap (namespace/PVC/storage provisioning) remains out of scope.
+- Full clean-cluster installation remains out of scope; bootstrap currently provisions only one explicit YARA-owned namespace and one model PVC.
 - Integration execution remains bounded to catalog/target contract checks and does not prove latency, throughput, availability, or production readiness.
 
 ## Next implementation slice
 
-Implement **M3 slice 1: bounded bootstrap command and immutable bootstrap receipt**:
+Implement **M3 slice 2: bounded deployment import command into bootstrap PVC**:
 
-- add `deployment bootstrap kubernetes` command that creates only a YARA-owned namespace and model PVC via explicit confirmed inputs with no implicit prune/delete/adoption behavior;
-- emit immutable `BootstrapReceipt` and fail-closed audit chain for started/completed bootstrap operations, including deterministic identity binding to target, namespace, and storage configuration;
-- keep mutation authority narrow: bootstrap only, no import, no apply, no retirement/rollback side effects.
+- add `deployment import kubernetes` command that copies one explicit model artifact payload into the declared bootstrap PVC from explicit local input, verifies SHA-256 digest + size against expected bundle identities, and does not mutate deployment/apply/retire/rollback state;
+- emit immutable `ArtifactImportReceipt` through this command with deterministic per-file identity bindings to the PVC-local internal paths and fail-closed started/completed audit chaining;
+- keep mutation authority narrow: import only (no namespace/PVC create/delete/prune/adopt behavior and no deployment execution side effects).
 
 Acceptance criteria:
 
-- bootstrap command requires explicit `--name`, `--namespace`, `--model-pvc`, `--storage-class`, `--size`, `--target` confirmation inputs and rejects unsafe/malformed values fail-closed;
-- `BootstrapReceipt` resource + schema + validation + loader/validate command are deterministic and content-addressed;
-- bootstrap execution writes started + terminal audits and rolls back durable output when terminal audit persistence fails;
-- command remains bounded to namespace/PVC creation only and does not mutate deployment/apply/import/retire/rollback state paths;
+- import command requires explicit bundle/import target confirmation inputs, rejects unsafe host/PVC paths, and fails closed on digest/size mismatch before receipt emission;
+- command writes only immutable import receipt + audit evidence and never mutates namespace/PVC/bootstrap/apply/retire/rollback paths;
+- imported file bindings are deterministic, sorted, content-addressed, and match required bundle model-artifact identities exactly;
+- started and terminal import audits persist durably, with output rollback on terminal audit persistence failure;
 - focused CLI/resource tests and executor stale-state/order checks pass with required validation commands.
 
 ## Validation requirements

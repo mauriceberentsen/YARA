@@ -94,6 +94,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) >= 3 && args[0] == "deployment" && args[1] == "apply" && args[2] == "kubernetes" {
 		return applyKubernetesDeployment(args[3:], stdout, stderr)
 	}
+	if len(args) >= 3 && args[0] == "deployment" && args[1] == "bootstrap" && args[2] == "kubernetes" {
+		return bootstrapKubernetesDeployment(args[3:], stdout, stderr)
+	}
 	if len(args) >= 3 && args[0] == "deployment" && args[1] == "retire" && args[2] == "kubernetes" {
 		return retireKubernetesDeployment(args[3:], stdout, stderr)
 	}
@@ -381,6 +384,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			subject = audit.Subject{Kind: "DeploymentReceipt", Digest: result.Metadata.ReceiptID}
 		}
 		return writeValidationResultWithAudit(stdout, options.auditPath, "deployment.receipt.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
+	case "bootstrap-receipt":
+		result, err := resources.LoadBootstrapReceipt(options.inputPath)
+		if err != nil {
+			return writeAuditedLoadError(stdout, options.auditPath, "deployment.bootstrap-receipt.validate", "BootstrapReceipt", options.inputPath, "YARA-BST-004", err, nil)
+		}
+		report := result.Validate()
+		subject, err := canonicalSubject("BootstrapReceipt", result)
+		if err != nil {
+			return writeLoadError(stdout, "YARA-AUD-500", err)
+		}
+		if report.Valid {
+			subject = audit.Subject{Kind: "BootstrapReceipt", Digest: result.Metadata.ReceiptID}
+		}
+		return writeValidationResultWithAudit(stdout, options.auditPath, "deployment.bootstrap-receipt.validate", subject, result.APIVersion, result.Kind, result.Metadata.Name, report)
 	case "retirement-receipt":
 		result, err := resources.LoadRetirementReceipt(options.inputPath)
 		if err != nil {
@@ -641,9 +658,11 @@ func writeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  yara authorization issue-rollback --bundle <file> --preflight <file> --change-set <file> --approval <file> --private-key <file> --key-id <id> --name <name> --output <file> --audit-output <file> [--valid-for <duration>]")
 	fmt.Fprintln(output, "  yara authorization verify --authorization <file> --public-key <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara deployment apply kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --import-receipt <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--airgap-gate-result <file> --airgap-gate-trust-policy <file> --confirm-airgap-gate-trust-policy <sha256:id> --airgap-gate-policy-diff <file> --confirm-airgap-gate-policy-diff <sha256:id> --airgap-gate-transition-review <file> --confirm-airgap-gate-transition-review <sha256:id>] [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
+	fmt.Fprintln(output, "  yara deployment bootstrap kubernetes --name <name> --namespace <name> --model-pvc <name> --storage-class <name> --size <value> --target <sha256:id> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
 	fmt.Fprintln(output, "  yara deployment retire kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
 	fmt.Fprintln(output, "  yara deployment rollback kubernetes --bundle <file> --preflight <file> --change-set <file> --approval <file> --authorization <file> --public-key <file> --confirm-authorization <sha256:id> --name <name> --receipt-output <file> --audit-output <file> [--kubeconfig <file>] [--context <name>] [--timeout <duration>]")
 	fmt.Fprintln(output, "  yara receipt validate <file> [--audit-output <file>]")
+	fmt.Fprintln(output, "  yara bootstrap-receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara retirement-receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara rollback-receipt validate <file> [--audit-output <file>]")
 	fmt.Fprintln(output, "  yara scenario validate <file> [--audit-output <file>]")

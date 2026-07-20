@@ -488,8 +488,8 @@ func TestBuildRejectsStaleLifecycleProofApproval(t *testing.T) {
 		Kind:       "LifecycleProofApproval",
 		Metadata:   resources.LifecycleProofApprovalMeta{Name: "lifecycle-proof-approval-stale"},
 		Spec: resources.LifecycleProofApprovalSpec{
-			ReviewedAt:       time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339Nano),
-			ExpiresAt:        time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339Nano),
+			ReviewedAt:       "2000-01-01T00:00:00Z",
+			ExpiresAt:        "2000-01-02T00:00:00Z",
 			CatalogDigest:    catalogDigest,
 			AssertionRef:     lifecycleResult.Spec.AssertionRef,
 			LedgerID:         "sha256:" + strings.Repeat("a", 64),

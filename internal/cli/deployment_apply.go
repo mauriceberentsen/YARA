@@ -40,6 +40,7 @@ type deploymentApplyOptions struct {
 }
 
 type kubernetesExecutor interface {
+	Bootstrap(context.Context, executor.BootstrapConfig, time.Time) (executor.BootstrapResult, error)
 	Execute(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
 	Retire(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RetirementResult, error)
 	Rollback(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RollbackResult, error)

@@ -151,6 +151,28 @@ go run ./cmd/yara import-receipt validate reference-stack.import-receipt.yaml
 
 `deployment apply kubernetes` now requires this receipt and rejects mutation when its plan/bundle/target or file bindings drift from the reviewed bundle.
 
+`BootstrapReceipt` is a separate immutable contract for first-use namespace and model PVC provisioning. Record it through:
+
+```bash
+go run ./cmd/yara deployment bootstrap kubernetes \
+  --name reference-stack-bootstrap \
+  --namespace reference-stack \
+  --model-pvc yara-model \
+  --storage-class local-path \
+  --size 200Gi \
+  --target sha256:<target-reference-digest> \
+  --receipt-output reference-stack.bootstrap-receipt.yaml \
+  --audit-output reference-stack.bootstrap.audit.jsonl
+```
+
+Validate it through:
+
+```bash
+go run ./cmd/yara bootstrap-receipt validate reference-stack.bootstrap-receipt.yaml
+```
+
+Bootstrap remains bounded: it creates only the declared YARA-owned namespace and one model PVC, and fails closed on foreign ownership or storage-configuration drift. It does not run import, apply, retirement or rollback flows.
+
 `ArtifactTransferReceipt` is a separate immutable chain-of-custody contract for offline transfer stages between import and deployment contexts. Record it through:
 
 ```bash

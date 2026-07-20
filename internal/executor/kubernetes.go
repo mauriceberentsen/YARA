@@ -92,12 +92,192 @@ type RollbackResult struct {
 	Limitations     []string
 }
 
+type BootstrapConfig struct {
+	Namespace             string
+	ModelPVC              string
+	StorageClass          string
+	Size                  string
+	TargetReferenceDigest string
+}
+
+type BootstrapResult struct {
+	StartedAt       time.Time
+	CompletedAt     time.Time
+	Target          resources.TargetIdentity
+	MutationStarted bool
+	Operations      []resources.BootstrapOperationReceipt
+	Limitations     []string
+}
+
 func NewKubernetes(kubeconfig, contextName string) (Kubernetes, error) {
 	executable, err := exec.LookPath("kubectl")
 	if err != nil {
 		return Kubernetes{}, errors.New("kubectl executable is unavailable")
 	}
 	return Kubernetes{Executable: executable, Kubeconfig: kubeconfig, Context: contextName, Runner: ExecRunner{}}, nil
+}
+
+func (k Kubernetes) Bootstrap(ctx context.Context, config BootstrapConfig, startedAt time.Time) (result BootstrapResult, err error) {
+	result.StartedAt = startedAt.UTC()
+	if k.Executable == "" || k.Runner == nil {
+		return result, errors.New("Kubernetes executor is incomplete")
+	}
+	target, err := k.identify(ctx)
+	if err != nil {
+		return result, err
+	}
+	result.Target = target
+	if target.ReferenceDigest != config.TargetReferenceDigest {
+		return result, errors.New("target identity does not match explicit bootstrap confirmation")
+	}
+	result.MutationStarted = true
+	namespaceRef := resources.KubernetesObjectReference{APIVersion: "v1", Kind: "Namespace", Name: config.Namespace}
+	pvcRef := resources.KubernetesObjectReference{APIVersion: "v1", Kind: "PersistentVolumeClaim", Namespace: config.Namespace, Name: config.ModelPVC}
+	namespaceOperation := resources.BootstrapOperationReceipt{Resource: namespaceRef, Action: "create"}
+	namespaceObject, namespaceExists, err := k.fetchObject(ctx, namespaceRef)
+	if err != nil {
+		namespaceOperation.Outcome, namespaceOperation.DiagnosticCode = "failed", "YARA-BST-201"
+		result.Operations = append(result.Operations, namespaceOperation, resources.BootstrapOperationReceipt{Resource: pvcRef, Action: "create", Outcome: "skipped"})
+		completeBootstrapResult(&result)
+		return result, err
+	}
+	if namespaceExists {
+		if !ownedByYARA(namespaceObject) {
+			namespaceOperation.Outcome, namespaceOperation.DiagnosticCode = "failed", "YARA-BST-201"
+			result.Operations = append(result.Operations, namespaceOperation, resources.BootstrapOperationReceipt{Resource: pvcRef, Action: "create", Outcome: "skipped"})
+			completeBootstrapResult(&result)
+			return result, errors.New("namespace exists but is not YARA-owned")
+		}
+		digest, err := bootstrapObjectDigest(namespaceObject)
+		if err != nil {
+			namespaceOperation.Outcome, namespaceOperation.DiagnosticCode = "failed", "YARA-BST-202"
+			result.Operations = append(result.Operations, namespaceOperation, resources.BootstrapOperationReceipt{Resource: pvcRef, Action: "create", Outcome: "skipped"})
+			completeBootstrapResult(&result)
+			return result, err
+		}
+		namespaceOperation.Outcome, namespaceOperation.Action, namespaceOperation.AfterDigest = "unchanged", "no-op", digest
+		result.Operations = append(result.Operations, namespaceOperation)
+	} else {
+		namespaceManifest := map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Namespace",
+			"metadata": map[string]any{
+				"name": config.Namespace,
+				"labels": map[string]any{
+					"app.kubernetes.io/managed-by": "yara",
+					"yara.dev/bootstrap":           "true",
+				},
+			},
+		}
+		data, _ := yaml.Marshal(namespaceManifest)
+		if _, err := k.run(ctx, data, "create", "-f", "-"); err != nil {
+			namespaceOperation.Outcome, namespaceOperation.DiagnosticCode = "failed", "YARA-BST-202"
+			result.Operations = append(result.Operations, namespaceOperation, resources.BootstrapOperationReceipt{Resource: pvcRef, Action: "create", Outcome: "skipped"})
+			completeBootstrapResult(&result)
+			return result, errors.New("namespace creation failed")
+		}
+		createdNamespace, existsAfterCreate, err := k.fetchObject(ctx, namespaceRef)
+		if err != nil || !existsAfterCreate || !ownedByYARA(createdNamespace) {
+			namespaceOperation.Outcome, namespaceOperation.DiagnosticCode = "failed", "YARA-BST-202"
+			result.Operations = append(result.Operations, namespaceOperation, resources.BootstrapOperationReceipt{Resource: pvcRef, Action: "create", Outcome: "skipped"})
+			completeBootstrapResult(&result)
+			if err != nil {
+				return result, err
+			}
+			return result, errors.New("namespace could not be confirmed after creation")
+		}
+		digest, err := bootstrapObjectDigest(createdNamespace)
+		if err != nil {
+			namespaceOperation.Outcome, namespaceOperation.DiagnosticCode = "failed", "YARA-BST-202"
+			result.Operations = append(result.Operations, namespaceOperation, resources.BootstrapOperationReceipt{Resource: pvcRef, Action: "create", Outcome: "skipped"})
+			completeBootstrapResult(&result)
+			return result, err
+		}
+		namespaceOperation.Outcome, namespaceOperation.AfterDigest = "created", digest
+		result.Operations = append(result.Operations, namespaceOperation)
+	}
+	pvcOperation := resources.BootstrapOperationReceipt{Resource: pvcRef, Action: "create"}
+	pvcObject, pvcExists, err := k.fetchObject(ctx, pvcRef)
+	if err != nil {
+		pvcOperation.Outcome, pvcOperation.DiagnosticCode = "failed", "YARA-BST-203"
+		result.Operations = append(result.Operations, pvcOperation)
+		completeBootstrapResult(&result)
+		return result, err
+	}
+	if pvcExists {
+		if !ownedByYARA(pvcObject) {
+			pvcOperation.Outcome, pvcOperation.DiagnosticCode = "failed", "YARA-BST-203"
+			result.Operations = append(result.Operations, pvcOperation)
+			completeBootstrapResult(&result)
+			return result, errors.New("model PVC exists but is not YARA-owned")
+		}
+		if !pvcMatchesBootstrapConfig(pvcObject, config) {
+			pvcOperation.Outcome, pvcOperation.DiagnosticCode = "failed", "YARA-BST-204"
+			result.Operations = append(result.Operations, pvcOperation)
+			completeBootstrapResult(&result)
+			return result, errors.New("existing model PVC does not match requested bootstrap configuration")
+		}
+		digest, err := bootstrapObjectDigest(pvcObject)
+		if err != nil {
+			pvcOperation.Outcome, pvcOperation.DiagnosticCode = "failed", "YARA-BST-204"
+			result.Operations = append(result.Operations, pvcOperation)
+			completeBootstrapResult(&result)
+			return result, err
+		}
+		pvcOperation.Outcome, pvcOperation.Action, pvcOperation.AfterDigest = "unchanged", "no-op", digest
+		result.Operations = append(result.Operations, pvcOperation)
+		completeBootstrapResult(&result)
+		return result, nil
+	}
+	pvcManifest := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "PersistentVolumeClaim",
+		"metadata": map[string]any{
+			"name":      config.ModelPVC,
+			"namespace": config.Namespace,
+			"labels": map[string]any{
+				"app.kubernetes.io/managed-by": "yara",
+				"yara.dev/bootstrap":           "true",
+			},
+		},
+		"spec": map[string]any{
+			"accessModes": []any{"ReadWriteOnce"},
+			"resources": map[string]any{
+				"requests": map[string]any{
+					"storage": config.Size,
+				},
+			},
+			"storageClassName": config.StorageClass,
+		},
+	}
+	data, _ := yaml.Marshal(pvcManifest)
+	if _, err := k.run(ctx, data, "create", "-f", "-"); err != nil {
+		pvcOperation.Outcome, pvcOperation.DiagnosticCode = "failed", "YARA-BST-204"
+		result.Operations = append(result.Operations, pvcOperation)
+		completeBootstrapResult(&result)
+		return result, errors.New("model PVC creation failed")
+	}
+	createdPVC, existsAfterCreate, err := k.fetchObject(ctx, pvcRef)
+	if err != nil || !existsAfterCreate || !ownedByYARA(createdPVC) || !pvcMatchesBootstrapConfig(createdPVC, config) {
+		pvcOperation.Outcome, pvcOperation.DiagnosticCode = "failed", "YARA-BST-204"
+		result.Operations = append(result.Operations, pvcOperation)
+		completeBootstrapResult(&result)
+		if err != nil {
+			return result, err
+		}
+		return result, errors.New("model PVC could not be confirmed after creation")
+	}
+	digest, err := bootstrapObjectDigest(createdPVC)
+	if err != nil {
+		pvcOperation.Outcome, pvcOperation.DiagnosticCode = "failed", "YARA-BST-204"
+		result.Operations = append(result.Operations, pvcOperation)
+		completeBootstrapResult(&result)
+		return result, err
+	}
+	pvcOperation.Outcome, pvcOperation.AfterDigest = "created", digest
+	result.Operations = append(result.Operations, pvcOperation)
+	completeBootstrapResult(&result)
+	return result, nil
 }
 
 func (k Kubernetes) Retire(ctx context.Context, bundle resources.DeploymentBundle, approved resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, startedAt time.Time) (result RetirementResult, err error) {
@@ -545,6 +725,19 @@ func completeRollbackResult(result *RollbackResult, desired []changeset.DesiredO
 	result.CompletedAt = time.Now().UTC()
 }
 
+func completeBootstrapResult(result *BootstrapResult) {
+	slices.SortFunc(result.Operations, func(left, right resources.BootstrapOperationReceipt) int {
+		return strings.Compare(objectKey(left.Resource), objectKey(right.Resource))
+	})
+	result.Limitations = []string{
+		"Bootstrap creates only one YARA-owned namespace and one model PVC.",
+		"Bootstrap never adopts, updates, prunes or deletes existing resources.",
+		"Bootstrap does not import artifacts or execute apply, retirement or rollback workflows.",
+	}
+	slices.Sort(result.Limitations)
+	result.CompletedAt = time.Now().UTC()
+}
+
 func (k Kubernetes) assertApprovedState(ctx context.Context, desired []changeset.DesiredObject, approved resources.KubernetesChangeSet, planID string) error {
 	approvedByKey := map[string]resources.KubernetesChangeOperation{}
 	for _, operation := range approved.Spec.Operations {
@@ -587,6 +780,87 @@ func (k Kubernetes) observeObject(ctx context.Context, reference resources.Kuber
 		return changeset.ObjectObservation{}, err
 	}
 	return changeset.DecodeCurrentObject(data, reference, planID)
+}
+
+func (k Kubernetes) fetchObject(ctx context.Context, reference resources.KubernetesObjectReference) (map[string]any, bool, error) {
+	args := []string{"get", reference.Kind, reference.Name}
+	if reference.Namespace != "" {
+		args = append(args, "-n", reference.Namespace)
+	}
+	args = append(args, "-o", "json", "--ignore-not-found")
+	data, err := k.run(ctx, nil, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, false, nil
+	}
+	var object map[string]any
+	if err := json.Unmarshal(data, &object); err != nil {
+		return nil, false, errors.New("bootstrap object state is invalid")
+	}
+	return object, true, nil
+}
+
+func bootstrapObjectDigest(object map[string]any) (string, error) {
+	normalized := map[string]any{}
+	if apiVersion, ok := object["apiVersion"].(string); ok && apiVersion != "" {
+		normalized["apiVersion"] = apiVersion
+	}
+	if kind, ok := object["kind"].(string); ok && kind != "" {
+		normalized["kind"] = kind
+	}
+	metadata := map[string]any{}
+	if observedMetadata, ok := object["metadata"].(map[string]any); ok {
+		for _, field := range []string{"name", "namespace", "labels", "annotations"} {
+			if value, exists := observedMetadata[field]; exists {
+				metadata[field] = value
+			}
+		}
+	}
+	if len(metadata) > 0 {
+		normalized["metadata"] = metadata
+	}
+	if spec, ok := object["spec"]; ok {
+		normalized["spec"] = spec
+	}
+	return canonical.Digest(normalized)
+}
+
+func ownedByYARA(object map[string]any) bool {
+	metadata, _ := object["metadata"].(map[string]any)
+	labels, _ := metadata["labels"].(map[string]any)
+	value, _ := labels["app.kubernetes.io/managed-by"].(string)
+	return value == "yara"
+}
+
+func pvcMatchesBootstrapConfig(object map[string]any, config BootstrapConfig) bool {
+	spec, _ := object["spec"].(map[string]any)
+	if strings.TrimSpace(stringValue(spec["storageClassName"])) != config.StorageClass {
+		return false
+	}
+	accessModes, _ := spec["accessModes"].([]any)
+	if len(accessModes) == 0 {
+		return false
+	}
+	readWriteOnce := false
+	for _, mode := range accessModes {
+		if stringValue(mode) == "ReadWriteOnce" {
+			readWriteOnce = true
+			break
+		}
+	}
+	if !readWriteOnce {
+		return false
+	}
+	resourcesSpec, _ := spec["resources"].(map[string]any)
+	requests, _ := resourcesSpec["requests"].(map[string]any)
+	return strings.TrimSpace(stringValue(requests["storage"])) == config.Size
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
 }
 
 func (k Kubernetes) identify(ctx context.Context) (resources.TargetIdentity, error) {

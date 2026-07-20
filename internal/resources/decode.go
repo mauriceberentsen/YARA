@@ -79,6 +79,10 @@ func LoadDeploymentReceipt(path string) (DeploymentReceipt, error) {
 	return loadResource[DeploymentReceipt](path)
 }
 
+func LoadBootstrapReceipt(path string) (BootstrapReceipt, error) {
+	return loadResource[BootstrapReceipt](path)
+}
+
 func LoadArtifactImportReceipt(path string) (ArtifactImportReceipt, error) {
 	return loadResource[ArtifactImportReceipt](path)
 }

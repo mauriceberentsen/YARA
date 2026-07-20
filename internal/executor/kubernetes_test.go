@@ -78,6 +78,11 @@ func (f *fakeKubectl) Run(_ context.Context, _ string, stdin []byte, args ...str
 			}
 			return nil, nil
 		}
+		if kind == "Namespace" || kind == "PersistentVolumeClaim" {
+			ref := referenceOf(object)
+			f.objects[keyOf(ref)] = object
+			return nil, nil
+		}
 		return nil, errors.New("unexpected create: " + name)
 	case command == "apply --server-side --field-manager=yara-executor -f -":
 		var object map[string]any
@@ -258,6 +263,91 @@ func TestKubernetesExecutorRejectsChangeSetNotMatchingBundleBeforeTargetAccess(t
 	result, err := engine.Execute(t.Context(), bundle, changeSet, authorization, importReceipt, time.Now().UTC())
 	if err == nil || result.MutationStarted || len(fake.calls) != 0 {
 		t.Fatalf("mismatched change set reached target: result=%#v err=%v calls=%#v", result, err, fake.calls)
+	}
+}
+
+func TestKubernetesBootstrapCreatesOnlyNamespaceAndModelPVC(t *testing.T) {
+	fake := &fakeKubectl{objects: map[string]map[string]any{}}
+	engine := Kubernetes{Executable: "kubectl", Runner: fake}
+	targetDigest := expectedBootstrapTargetDigest(t)
+	result, err := engine.Bootstrap(t.Context(), BootstrapConfig{
+		Namespace:             "yara-bootstrap",
+		ModelPVC:              "yara-model",
+		StorageClass:          "local-path",
+		Size:                  "200Gi",
+		TargetReferenceDigest: targetDigest,
+	}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.MutationStarted || len(result.Operations) != 2 {
+		t.Fatalf("bootstrap did not produce full operation evidence: %#v", result)
+	}
+	createCalls := countCalls(fake.calls, "create -f -")
+	if createCalls != 2 {
+		t.Fatalf("bootstrap should create only namespace and PVC, got calls=%#v", fake.calls)
+	}
+	for _, call := range fake.calls {
+		if strings.HasPrefix(call, "apply --server-side") || strings.HasPrefix(call, "delete ") {
+			t.Fatalf("bootstrap used forbidden mutation path: %s", call)
+		}
+	}
+	if result.Operations[0].Resource.Kind != "Namespace" || result.Operations[1].Resource.Kind != "PersistentVolumeClaim" {
+		t.Fatalf("bootstrap operation ordering drifted: %#v", result.Operations)
+	}
+}
+
+func TestKubernetesBootstrapRejectsForeignNamespaceState(t *testing.T) {
+	namespace := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Namespace",
+		"metadata": map[string]any{
+			"name": "yara-bootstrap",
+			"labels": map[string]any{
+				"app.kubernetes.io/managed-by": "foreign",
+			},
+		},
+	}
+	fake := &fakeKubectl{
+		objects: map[string]map[string]any{
+			keyOf(resources.KubernetesObjectReference{APIVersion: "v1", Kind: "Namespace", Name: "yara-bootstrap"}): namespace,
+		},
+	}
+	engine := Kubernetes{Executable: "kubectl", Runner: fake}
+	targetDigest := expectedBootstrapTargetDigest(t)
+	result, err := engine.Bootstrap(t.Context(), BootstrapConfig{
+		Namespace:             "yara-bootstrap",
+		ModelPVC:              "yara-model",
+		StorageClass:          "local-path",
+		Size:                  "200Gi",
+		TargetReferenceDigest: targetDigest,
+	}, time.Now().UTC())
+	if err == nil || !result.MutationStarted {
+		t.Fatalf("foreign namespace should fail closed: result=%#v err=%v", result, err)
+	}
+	if countCalls(fake.calls, "create -f -") != 0 {
+		t.Fatalf("bootstrap created resources despite foreign namespace: %#v", fake.calls)
+	}
+	if len(result.Operations) == 0 || result.Operations[0].Outcome != "failed" || result.Operations[1].Outcome != "skipped" {
+		t.Fatalf("bootstrap stale-state receipt evidence incomplete: %#v", result.Operations)
+	}
+}
+
+func TestKubernetesBootstrapRejectsTargetConfirmationMismatch(t *testing.T) {
+	fake := &fakeKubectl{objects: map[string]map[string]any{}}
+	engine := Kubernetes{Executable: "kubectl", Runner: fake}
+	result, err := engine.Bootstrap(t.Context(), BootstrapConfig{
+		Namespace:             "yara-bootstrap",
+		ModelPVC:              "yara-model",
+		StorageClass:          "local-path",
+		Size:                  "200Gi",
+		TargetReferenceDigest: testDigest('f'),
+	}, time.Now().UTC())
+	if err == nil || result.MutationStarted {
+		t.Fatalf("target mismatch should fail before mutation: result=%#v err=%v", result, err)
+	}
+	if countCalls(fake.calls, "create -f -") != 0 {
+		t.Fatalf("bootstrap mutated resources with mismatched target confirmation: %#v", fake.calls)
 	}
 }
 
@@ -540,6 +630,8 @@ func referenceFromGet(args []string) (resources.KubernetesObjectReference, bool)
 		ref.APIVersion = "v1"
 	case "ConfigMap", "Service":
 		ref.APIVersion = "v1"
+	case "PersistentVolumeClaim":
+		ref.APIVersion = "v1"
 	case "Deployment":
 		ref.APIVersion = "apps/v1"
 	case "NetworkPolicy":
@@ -564,6 +656,8 @@ func referenceFromDelete(args []string) (resources.KubernetesObjectReference, bo
 	case "Namespace":
 		ref.APIVersion = "v1"
 	case "ConfigMap", "Service":
+		ref.APIVersion = "v1"
+	case "PersistentVolumeClaim":
 		ref.APIVersion = "v1"
 	case "Deployment":
 		ref.APIVersion = "apps/v1"
@@ -590,6 +684,17 @@ func countCalls(calls []string, prefix string) int {
 		}
 	}
 	return count
+}
+func expectedBootstrapTargetDigest(t *testing.T) string {
+	t.Helper()
+	digest, err := canonical.Digest(struct {
+		Server string `json:"server"`
+		UID    string `json:"systemNamespaceUid"`
+	}{Server: "https://cluster.invalid", UID: "system-uid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }
 func testDigest(character byte) string { return "sha256:" + strings.Repeat(string(character), 64) }
 func riskForTest(kind string) []string {

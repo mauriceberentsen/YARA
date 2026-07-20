@@ -19,9 +19,17 @@ import (
 )
 
 type fixedKubernetesExecutor struct {
-	execute  func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
-	retire   func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RetirementResult, error)
-	rollback func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RollbackResult, error)
+	bootstrap func(context.Context, executor.BootstrapConfig, time.Time) (executor.BootstrapResult, error)
+	execute   func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, resources.ArtifactImportReceipt, time.Time) (executor.ExecutionResult, error)
+	retire    func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RetirementResult, error)
+	rollback  func(context.Context, resources.DeploymentBundle, resources.KubernetesChangeSet, resources.ExecutionAuthorization, time.Time) (executor.RollbackResult, error)
+}
+
+func (f fixedKubernetesExecutor) Bootstrap(ctx context.Context, config executor.BootstrapConfig, started time.Time) (executor.BootstrapResult, error) {
+	if f.bootstrap == nil {
+		return executor.BootstrapResult{}, nil
+	}
+	return f.bootstrap(ctx, config, started)
 }
 
 func (f fixedKubernetesExecutor) Execute(ctx context.Context, bundle resources.DeploymentBundle, changeSet resources.KubernetesChangeSet, authorization resources.ExecutionAuthorization, importReceipt resources.ArtifactImportReceipt, started time.Time) (executor.ExecutionResult, error) {
