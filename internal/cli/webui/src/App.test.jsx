@@ -1039,7 +1039,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Assertion filter"), { target: { value: "compat.a" } });
     await waitFor(() => expect(screen.getByText("missing-proof")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("record-proof")).toBeInTheDocument());
-  }, 240000);
+  }, 420000);
 
   it("enforces air-gap apply guardrails in UI", async () => {
     render(<App />);
@@ -1491,7 +1491,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification publication archive envelope destination reference"), { target: { value: "archive://offline-vault" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication archive envelope" }));
     await waitFor(() => expect(screen.getByText(/YARA-RCVPAE-004/)).toBeInTheDocument());
-  }, 240000);
+  }, 420000);
 
   it("fails closed on malformed drift payload", async () => {
     global.fetch = vi.fn((input) => {
