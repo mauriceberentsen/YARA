@@ -1552,6 +1552,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-acknowledgment.export.audit.jsonl` : "",
   }));
   const [closureVerifyPublicationAcknowledgmentSubmitState, setClosureVerifyPublicationAcknowledgmentSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyPublicationArchiveIndexForm, setClosureVerifyPublicationArchiveIndexForm] = useState(() => ({
+    verificationPublicationArchiveIndexReference: "",
+    indexedByReference: "",
+    indexedTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-index.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-index.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyPublicationArchiveIndexSubmitState, setClosureVerifyPublicationArchiveIndexSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1710,6 +1718,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-acknowledgment.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-acknowledgment.export.audit.jsonl`,
+    }));
+    setClosureVerifyPublicationArchiveIndexForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-index.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-index.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2637,6 +2650,36 @@ function CapsuleView({ payload }) {
       setClosureVerifyPublicationAcknowledgmentSubmitState({ loading: false, error: error.message || "Rollout closure verify publication acknowledgment export failed", result: null });
     }
   };
+  const updateClosureVerifyPublicationArchiveIndex = (key) => (event) => {
+    setClosureVerifyPublicationArchiveIndexForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyPublicationArchiveIndex = closureVerifyPublicationArchiveIndexForm.verificationPublicationArchiveIndexReference.trim() !== "" &&
+    closureVerifyPublicationArchiveIndexForm.indexedByReference.trim() !== "" &&
+    closureVerifyPublicationArchiveIndexForm.indexedTimestamp.trim() !== "" &&
+    closureVerifyPublicationArchiveIndexForm.manifestPath !== "" &&
+    closureVerifyPublicationArchiveIndexForm.auditPath !== "" &&
+    closureVerifyPublicationArchiveIndexForm.manifestPath !== closureVerifyPublicationArchiveIndexForm.auditPath;
+  const submitClosureVerifyPublicationArchiveIndex = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyPublicationArchiveIndex) {
+      return;
+    }
+    setClosureVerifyPublicationArchiveIndexSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/publication-archive-index/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyPublicationArchiveIndexForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify publication archive index export failed");
+      }
+      setClosureVerifyPublicationArchiveIndexSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyPublicationArchiveIndexSubmitState({ loading: false, error: error.message || "Rollout closure verify publication archive index export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -3088,6 +3131,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureVerifyPublicationAcknowledgmentSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Acknowledgment state</dt><dd>{closureVerifyPublicationAcknowledgmentSubmitState.result.acknowledgmentState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyPublicationAcknowledgmentSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification publication archive index</h3>
+      <form onSubmit={submitClosureVerifyPublicationArchiveIndex}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-index-reference">Verification publication archive index reference</label>
+          <input id="closure-verify-publication-archive-index-reference" value={closureVerifyPublicationArchiveIndexForm.verificationPublicationArchiveIndexReference} onChange={updateClosureVerifyPublicationArchiveIndex("verificationPublicationArchiveIndexReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-indexed-by-reference">Verification publication archive indexed by reference</label>
+          <input id="closure-verify-publication-archive-indexed-by-reference" value={closureVerifyPublicationArchiveIndexForm.indexedByReference} onChange={updateClosureVerifyPublicationArchiveIndex("indexedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-indexed-timestamp">Verification publication archive indexed timestamp (RFC3339)</label>
+          <input id="closure-verify-publication-archive-indexed-timestamp" value={closureVerifyPublicationArchiveIndexForm.indexedTimestamp} onChange={updateClosureVerifyPublicationArchiveIndex("indexedTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-index-manifest-path">Verification publication archive index manifest output path</label>
+          <input id="closure-verify-publication-archive-index-manifest-path" value={closureVerifyPublicationArchiveIndexForm.manifestPath} onChange={updateClosureVerifyPublicationArchiveIndex("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-index-audit-path">Verification publication archive index audit output path</label>
+          <input id="closure-verify-publication-archive-index-audit-path" value={closureVerifyPublicationArchiveIndexForm.auditPath} onChange={updateClosureVerifyPublicationArchiveIndex("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyPublicationArchiveIndexSubmitState.loading || !canExportClosureVerifyPublicationArchiveIndex}>
+          {closureVerifyPublicationArchiveIndexSubmitState.loading ? "Exporting verification publication archive index..." : "Export closure verification publication archive index"}
+        </button>
+      </form>
+      {!canExportClosureVerifyPublicationArchiveIndex && <p className="error">Verification publication archive index export requires references, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyPublicationArchiveIndexSubmitState.error && <p className="error">Verification publication archive index: blocked ({closureVerifyPublicationArchiveIndexSubmitState.error})</p>}
+      {closureVerifyPublicationArchiveIndexSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyPublicationArchiveIndexSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyPublicationArchiveIndexSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Archive index state</dt><dd>{closureVerifyPublicationArchiveIndexSubmitState.result.archiveIndexState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyPublicationArchiveIndexSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>
