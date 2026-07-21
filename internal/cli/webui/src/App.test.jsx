@@ -610,6 +610,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/publication-archive-package/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            manifestPath: requestPayload.manifestPath,
+            auditPath: requestPayload.auditPath,
+            archivePackageState: "archive-package-ready",
+            blockerCode: "",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -985,6 +997,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification publication archive indexed timestamp (RFC3339)"), { target: { value: "2026-07-21T02:20:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication archive index" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.publication-archive-index.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Verification publication archive package reference"), { target: { value: "verify-publication-archive-package-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Verification publication archive packaged by reference"), { target: { value: "archive-packager-1" } });
+    fireEvent.change(screen.getByLabelText("Verification publication archive packaged timestamp (RFC3339)"), { target: { value: "2026-07-21T02:25:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication archive package" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.publication-archive-package.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -1239,6 +1256,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-059", message: "YARA-RCVPAX-004: latest closure verification export is blocked without archived blocked reason reference", severity: "error" }],
         }), { status: 422 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/publication-archive-package/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-060", message: "YARA-RCVPAP-004: latest closure verification export is blocked without archived blocked reason reference", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -1433,6 +1456,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification publication archive indexed timestamp (RFC3339)"), { target: { value: "2026-07-21T02:20:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication archive index" }));
     await waitFor(() => expect(screen.getByText(/YARA-RCVPAX-004/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Verification publication archive package reference"), { target: { value: "verify-publication-archive-package-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Verification publication archive packaged by reference"), { target: { value: "archive-packager-1" } });
+    fireEvent.change(screen.getByLabelText("Verification publication archive packaged timestamp (RFC3339)"), { target: { value: "2026-07-21T02:25:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication archive package" }));
+    await waitFor(() => expect(screen.getByText(/YARA-RCVPAP-004/)).toBeInTheDocument());
   }, 240000);
 
   it("fails closed on malformed drift payload", async () => {
