@@ -1493,6 +1493,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.attestation.export.audit.jsonl` : "",
   }));
   const [closureVerifyAttestationSubmitState, setClosureVerifyAttestationSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyAttestationIndexForm, setClosureVerifyAttestationIndexForm] = useState(() => ({
+    attestationIndexReference: "",
+    publishedByReference: "",
+    publishedTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.attestation.index.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.attestation.index.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyAttestationIndexSubmitState, setClosureVerifyAttestationIndexSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1616,6 +1624,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.attestation.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.attestation.export.audit.jsonl`,
+    }));
+    setClosureVerifyAttestationIndexForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.attestation.index.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.attestation.index.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2330,6 +2343,36 @@ function CapsuleView({ payload }) {
       setClosureVerifyAttestationSubmitState({ loading: false, error: error.message || "Rollout closure verify attestation export failed", result: null });
     }
   };
+  const updateClosureVerifyAttestationIndex = (key) => (event) => {
+    setClosureVerifyAttestationIndexForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyAttestationIndex = closureVerifyAttestationIndexForm.attestationIndexReference.trim() !== "" &&
+    closureVerifyAttestationIndexForm.publishedByReference.trim() !== "" &&
+    closureVerifyAttestationIndexForm.publishedTimestamp.trim() !== "" &&
+    closureVerifyAttestationIndexForm.manifestPath !== "" &&
+    closureVerifyAttestationIndexForm.auditPath !== "" &&
+    closureVerifyAttestationIndexForm.manifestPath !== closureVerifyAttestationIndexForm.auditPath;
+  const submitClosureVerifyAttestationIndex = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyAttestationIndex) {
+      return;
+    }
+    setClosureVerifyAttestationIndexSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/attest/index/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyAttestationIndexForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify attestation index export failed");
+      }
+      setClosureVerifyAttestationIndexSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyAttestationIndexSubmitState({ loading: false, error: error.message || "Rollout closure verify attestation index export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -2517,6 +2560,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureVerifyAttestationSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Attestation state</dt><dd>{closureVerifyAttestationSubmitState.result.attestationState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyAttestationSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification attestation index</h3>
+      <form onSubmit={submitClosureVerifyAttestationIndex}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-attestation-index-reference">Attestation index reference</label>
+          <input id="closure-verify-attestation-index-reference" value={closureVerifyAttestationIndexForm.attestationIndexReference} onChange={updateClosureVerifyAttestationIndex("attestationIndexReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-attestation-index-published-by-reference">Attestation index published by reference</label>
+          <input id="closure-verify-attestation-index-published-by-reference" value={closureVerifyAttestationIndexForm.publishedByReference} onChange={updateClosureVerifyAttestationIndex("publishedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-attestation-index-published-timestamp">Attestation index published timestamp (RFC3339)</label>
+          <input id="closure-verify-attestation-index-published-timestamp" value={closureVerifyAttestationIndexForm.publishedTimestamp} onChange={updateClosureVerifyAttestationIndex("publishedTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-attestation-index-manifest-path">Attestation index manifest output path</label>
+          <input id="closure-verify-attestation-index-manifest-path" value={closureVerifyAttestationIndexForm.manifestPath} onChange={updateClosureVerifyAttestationIndex("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-attestation-index-audit-path">Attestation index audit output path</label>
+          <input id="closure-verify-attestation-index-audit-path" value={closureVerifyAttestationIndexForm.auditPath} onChange={updateClosureVerifyAttestationIndex("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyAttestationIndexSubmitState.loading || !canExportClosureVerifyAttestationIndex}>
+          {closureVerifyAttestationIndexSubmitState.loading ? "Exporting verification attestation index..." : "Export closure verification attestation index"}
+        </button>
+      </form>
+      {!canExportClosureVerifyAttestationIndex && <p className="error">Verification attestation index export requires references, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyAttestationIndexSubmitState.error && <p className="error">Verification attestation index: blocked ({closureVerifyAttestationIndexSubmitState.error})</p>}
+      {closureVerifyAttestationIndexSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyAttestationIndexSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyAttestationIndexSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Index state</dt><dd>{closureVerifyAttestationIndexSubmitState.result.indexState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyAttestationIndexSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>
