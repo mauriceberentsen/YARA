@@ -550,6 +550,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/publication-index/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            manifestPath: requestPayload.manifestPath,
+            auditPath: requestPayload.auditPath,
+            indexState: "index-ready",
+            blockerCode: "",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -899,6 +911,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification publication location reference"), { target: { value: "registry://verification/release/2026-07-21" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication attestation" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.publication-attestation.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Verification publication index reference"), { target: { value: "verify-publication-index-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Verification publication index by reference"), { target: { value: "release-indexer-1" } });
+    fireEvent.change(screen.getByLabelText("Verification publication index timestamp (RFC3339)"), { target: { value: "2026-07-21T02:00:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication index" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.publication-index.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -1123,6 +1140,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-054", message: "YARA-RCVPA-004: latest closure verification export is blocked without archived blocked reason reference", severity: "error" }],
         }), { status: 422 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/publication-index/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-055", message: "YARA-RCVPI-004: latest closure verification export is blocked without archived blocked reason reference", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -1291,6 +1314,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification publication location reference"), { target: { value: "registry://verification/release/2026-07-21" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication attestation" }));
     await waitFor(() => expect(screen.getByText(/YARA-RCVPA-004/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Verification publication index reference"), { target: { value: "verify-publication-index-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Verification publication index by reference"), { target: { value: "release-indexer-1" } });
+    fireEvent.change(screen.getByLabelText("Verification publication index timestamp (RFC3339)"), { target: { value: "2026-07-21T02:00:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication index" }));
+    await waitFor(() => expect(screen.getByText(/YARA-RCVPI-004/)).toBeInTheDocument());
   }, 130000);
 
   it("fails closed on malformed drift payload", async () => {

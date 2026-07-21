@@ -1519,6 +1519,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-attestation.export.audit.jsonl` : "",
   }));
   const [closureVerifyPublicationAttestationSubmitState, setClosureVerifyPublicationAttestationSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyPublicationIndexForm, setClosureVerifyPublicationIndexForm] = useState(() => ({
+    verificationPublicationIndexReference: "",
+    indexedByReference: "",
+    indexedTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-index.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-index.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyPublicationIndexSubmitState, setClosureVerifyPublicationIndexSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1657,6 +1665,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-attestation.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-attestation.export.audit.jsonl`,
+    }));
+    setClosureVerifyPublicationIndexForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-index.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-index.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2463,6 +2476,36 @@ function CapsuleView({ payload }) {
       setClosureVerifyPublicationAttestationSubmitState({ loading: false, error: error.message || "Rollout closure verify publication attestation export failed", result: null });
     }
   };
+  const updateClosureVerifyPublicationIndex = (key) => (event) => {
+    setClosureVerifyPublicationIndexForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyPublicationIndex = closureVerifyPublicationIndexForm.verificationPublicationIndexReference.trim() !== "" &&
+    closureVerifyPublicationIndexForm.indexedByReference.trim() !== "" &&
+    closureVerifyPublicationIndexForm.indexedTimestamp.trim() !== "" &&
+    closureVerifyPublicationIndexForm.manifestPath !== "" &&
+    closureVerifyPublicationIndexForm.auditPath !== "" &&
+    closureVerifyPublicationIndexForm.manifestPath !== closureVerifyPublicationIndexForm.auditPath;
+  const submitClosureVerifyPublicationIndex = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyPublicationIndex) {
+      return;
+    }
+    setClosureVerifyPublicationIndexSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/publication-index/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyPublicationIndexForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify publication index export failed");
+      }
+      setClosureVerifyPublicationIndexSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyPublicationIndexSubmitState({ loading: false, error: error.message || "Rollout closure verify publication index export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -2766,6 +2809,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureVerifyPublicationAttestationSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Publication state</dt><dd>{closureVerifyPublicationAttestationSubmitState.result.publicationState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyPublicationAttestationSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification publication index</h3>
+      <form onSubmit={submitClosureVerifyPublicationIndex}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-index-reference">Verification publication index reference</label>
+          <input id="closure-verify-publication-index-reference" value={closureVerifyPublicationIndexForm.verificationPublicationIndexReference} onChange={updateClosureVerifyPublicationIndex("verificationPublicationIndexReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-indexed-by-reference">Verification publication index by reference</label>
+          <input id="closure-verify-publication-indexed-by-reference" value={closureVerifyPublicationIndexForm.indexedByReference} onChange={updateClosureVerifyPublicationIndex("indexedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-indexed-timestamp">Verification publication index timestamp (RFC3339)</label>
+          <input id="closure-verify-publication-indexed-timestamp" value={closureVerifyPublicationIndexForm.indexedTimestamp} onChange={updateClosureVerifyPublicationIndex("indexedTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-index-manifest-path">Verification publication index manifest output path</label>
+          <input id="closure-verify-publication-index-manifest-path" value={closureVerifyPublicationIndexForm.manifestPath} onChange={updateClosureVerifyPublicationIndex("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-index-audit-path">Verification publication index audit output path</label>
+          <input id="closure-verify-publication-index-audit-path" value={closureVerifyPublicationIndexForm.auditPath} onChange={updateClosureVerifyPublicationIndex("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyPublicationIndexSubmitState.loading || !canExportClosureVerifyPublicationIndex}>
+          {closureVerifyPublicationIndexSubmitState.loading ? "Exporting verification publication index..." : "Export closure verification publication index"}
+        </button>
+      </form>
+      {!canExportClosureVerifyPublicationIndex && <p className="error">Verification publication index export requires references, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyPublicationIndexSubmitState.error && <p className="error">Verification publication index: blocked ({closureVerifyPublicationIndexSubmitState.error})</p>}
+      {closureVerifyPublicationIndexSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyPublicationIndexSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyPublicationIndexSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Index state</dt><dd>{closureVerifyPublicationIndexSubmitState.result.indexState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyPublicationIndexSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>
