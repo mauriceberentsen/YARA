@@ -1527,6 +1527,15 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-index.export.audit.jsonl` : "",
   }));
   const [closureVerifyPublicationIndexSubmitState, setClosureVerifyPublicationIndexSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyPublicationEnvelopeForm, setClosureVerifyPublicationEnvelopeForm] = useState(() => ({
+    verificationPublicationEnvelopeReference: "",
+    deliveredByReference: "",
+    deliveryTimestamp: "",
+    deliveryDestinationReference: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-envelope.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-envelope.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyPublicationEnvelopeSubmitState, setClosureVerifyPublicationEnvelopeSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1670,6 +1679,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-index.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-index.export.audit.jsonl`,
+    }));
+    setClosureVerifyPublicationEnvelopeForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-envelope.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-envelope.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2506,6 +2520,37 @@ function CapsuleView({ payload }) {
       setClosureVerifyPublicationIndexSubmitState({ loading: false, error: error.message || "Rollout closure verify publication index export failed", result: null });
     }
   };
+  const updateClosureVerifyPublicationEnvelope = (key) => (event) => {
+    setClosureVerifyPublicationEnvelopeForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyPublicationEnvelope = closureVerifyPublicationEnvelopeForm.verificationPublicationEnvelopeReference.trim() !== "" &&
+    closureVerifyPublicationEnvelopeForm.deliveredByReference.trim() !== "" &&
+    closureVerifyPublicationEnvelopeForm.deliveryTimestamp.trim() !== "" &&
+    closureVerifyPublicationEnvelopeForm.deliveryDestinationReference.trim() !== "" &&
+    closureVerifyPublicationEnvelopeForm.manifestPath !== "" &&
+    closureVerifyPublicationEnvelopeForm.auditPath !== "" &&
+    closureVerifyPublicationEnvelopeForm.manifestPath !== closureVerifyPublicationEnvelopeForm.auditPath;
+  const submitClosureVerifyPublicationEnvelope = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyPublicationEnvelope) {
+      return;
+    }
+    setClosureVerifyPublicationEnvelopeSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/publication-envelope/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyPublicationEnvelopeForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify publication envelope export failed");
+      }
+      setClosureVerifyPublicationEnvelopeSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyPublicationEnvelopeSubmitState({ loading: false, error: error.message || "Rollout closure verify publication envelope export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -2845,6 +2890,46 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureVerifyPublicationIndexSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Index state</dt><dd>{closureVerifyPublicationIndexSubmitState.result.indexState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyPublicationIndexSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification publication envelope</h3>
+      <form onSubmit={submitClosureVerifyPublicationEnvelope}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-envelope-reference">Verification publication envelope reference</label>
+          <input id="closure-verify-publication-envelope-reference" value={closureVerifyPublicationEnvelopeForm.verificationPublicationEnvelopeReference} onChange={updateClosureVerifyPublicationEnvelope("verificationPublicationEnvelopeReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-envelope-delivered-by-reference">Verification publication envelope delivered by reference</label>
+          <input id="closure-verify-publication-envelope-delivered-by-reference" value={closureVerifyPublicationEnvelopeForm.deliveredByReference} onChange={updateClosureVerifyPublicationEnvelope("deliveredByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-envelope-delivery-timestamp">Verification publication envelope delivery timestamp (RFC3339)</label>
+          <input id="closure-verify-publication-envelope-delivery-timestamp" value={closureVerifyPublicationEnvelopeForm.deliveryTimestamp} onChange={updateClosureVerifyPublicationEnvelope("deliveryTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-envelope-destination-reference">Verification publication envelope destination reference</label>
+          <input id="closure-verify-publication-envelope-destination-reference" value={closureVerifyPublicationEnvelopeForm.deliveryDestinationReference} onChange={updateClosureVerifyPublicationEnvelope("deliveryDestinationReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-envelope-manifest-path">Verification publication envelope manifest output path</label>
+          <input id="closure-verify-publication-envelope-manifest-path" value={closureVerifyPublicationEnvelopeForm.manifestPath} onChange={updateClosureVerifyPublicationEnvelope("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-envelope-audit-path">Verification publication envelope audit output path</label>
+          <input id="closure-verify-publication-envelope-audit-path" value={closureVerifyPublicationEnvelopeForm.auditPath} onChange={updateClosureVerifyPublicationEnvelope("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyPublicationEnvelopeSubmitState.loading || !canExportClosureVerifyPublicationEnvelope}>
+          {closureVerifyPublicationEnvelopeSubmitState.loading ? "Exporting verification publication envelope..." : "Export closure verification publication envelope"}
+        </button>
+      </form>
+      {!canExportClosureVerifyPublicationEnvelope && <p className="error">Verification publication envelope export requires references, destination, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyPublicationEnvelopeSubmitState.error && <p className="error">Verification publication envelope: blocked ({closureVerifyPublicationEnvelopeSubmitState.error})</p>}
+      {closureVerifyPublicationEnvelopeSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyPublicationEnvelopeSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyPublicationEnvelopeSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Envelope state</dt><dd>{closureVerifyPublicationEnvelopeSubmitState.result.envelopeState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyPublicationEnvelopeSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>
