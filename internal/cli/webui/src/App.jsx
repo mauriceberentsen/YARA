@@ -1536,6 +1536,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-envelope.export.audit.jsonl` : "",
   }));
   const [closureVerifyPublicationEnvelopeSubmitState, setClosureVerifyPublicationEnvelopeSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyPublicationHandoffForm, setClosureVerifyPublicationHandoffForm] = useState(() => ({
+    verificationPublicationHandoffReference: "",
+    receivedByReference: "",
+    handoffTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-handoff.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-handoff.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyPublicationHandoffSubmitState, setClosureVerifyPublicationHandoffSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1684,6 +1692,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-envelope.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-envelope.export.audit.jsonl`,
+    }));
+    setClosureVerifyPublicationHandoffForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-handoff.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-handoff.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2551,6 +2564,36 @@ function CapsuleView({ payload }) {
       setClosureVerifyPublicationEnvelopeSubmitState({ loading: false, error: error.message || "Rollout closure verify publication envelope export failed", result: null });
     }
   };
+  const updateClosureVerifyPublicationHandoff = (key) => (event) => {
+    setClosureVerifyPublicationHandoffForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyPublicationHandoff = closureVerifyPublicationHandoffForm.verificationPublicationHandoffReference.trim() !== "" &&
+    closureVerifyPublicationHandoffForm.receivedByReference.trim() !== "" &&
+    closureVerifyPublicationHandoffForm.handoffTimestamp.trim() !== "" &&
+    closureVerifyPublicationHandoffForm.manifestPath !== "" &&
+    closureVerifyPublicationHandoffForm.auditPath !== "" &&
+    closureVerifyPublicationHandoffForm.manifestPath !== closureVerifyPublicationHandoffForm.auditPath;
+  const submitClosureVerifyPublicationHandoff = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyPublicationHandoff) {
+      return;
+    }
+    setClosureVerifyPublicationHandoffSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/publication-handoff/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyPublicationHandoffForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify publication handoff export failed");
+      }
+      setClosureVerifyPublicationHandoffSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyPublicationHandoffSubmitState({ loading: false, error: error.message || "Rollout closure verify publication handoff export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -2930,6 +2973,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureVerifyPublicationEnvelopeSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Envelope state</dt><dd>{closureVerifyPublicationEnvelopeSubmitState.result.envelopeState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyPublicationEnvelopeSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification publication handoff</h3>
+      <form onSubmit={submitClosureVerifyPublicationHandoff}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-handoff-reference">Verification publication handoff reference</label>
+          <input id="closure-verify-publication-handoff-reference" value={closureVerifyPublicationHandoffForm.verificationPublicationHandoffReference} onChange={updateClosureVerifyPublicationHandoff("verificationPublicationHandoffReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-handoff-received-by-reference">Verification publication handoff received by reference</label>
+          <input id="closure-verify-publication-handoff-received-by-reference" value={closureVerifyPublicationHandoffForm.receivedByReference} onChange={updateClosureVerifyPublicationHandoff("receivedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-handoff-timestamp">Verification publication handoff timestamp (RFC3339)</label>
+          <input id="closure-verify-publication-handoff-timestamp" value={closureVerifyPublicationHandoffForm.handoffTimestamp} onChange={updateClosureVerifyPublicationHandoff("handoffTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-handoff-manifest-path">Verification publication handoff manifest output path</label>
+          <input id="closure-verify-publication-handoff-manifest-path" value={closureVerifyPublicationHandoffForm.manifestPath} onChange={updateClosureVerifyPublicationHandoff("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-handoff-audit-path">Verification publication handoff audit output path</label>
+          <input id="closure-verify-publication-handoff-audit-path" value={closureVerifyPublicationHandoffForm.auditPath} onChange={updateClosureVerifyPublicationHandoff("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyPublicationHandoffSubmitState.loading || !canExportClosureVerifyPublicationHandoff}>
+          {closureVerifyPublicationHandoffSubmitState.loading ? "Exporting verification publication handoff..." : "Export closure verification publication handoff"}
+        </button>
+      </form>
+      {!canExportClosureVerifyPublicationHandoff && <p className="error">Verification publication handoff export requires references, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyPublicationHandoffSubmitState.error && <p className="error">Verification publication handoff: blocked ({closureVerifyPublicationHandoffSubmitState.error})</p>}
+      {closureVerifyPublicationHandoffSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyPublicationHandoffSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyPublicationHandoffSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Handoff state</dt><dd>{closureVerifyPublicationHandoffSubmitState.result.handoffState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyPublicationHandoffSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>
