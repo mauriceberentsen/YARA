@@ -1568,6 +1568,15 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-package.export.audit.jsonl` : "",
   }));
   const [closureVerifyPublicationArchivePackageSubmitState, setClosureVerifyPublicationArchivePackageSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyPublicationArchiveEnvelopeForm, setClosureVerifyPublicationArchiveEnvelopeForm] = useState(() => ({
+    verificationPublicationArchiveEnvelopeReference: "",
+    deliveredByReference: "",
+    deliveryTimestamp: "",
+    deliveryDestinationReference: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-envelope.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-envelope.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyPublicationArchiveEnvelopeSubmitState, setClosureVerifyPublicationArchiveEnvelopeSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1736,6 +1745,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-package.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-package.export.audit.jsonl`,
+    }));
+    setClosureVerifyPublicationArchiveEnvelopeForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-envelope.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-envelope.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2723,6 +2737,37 @@ function CapsuleView({ payload }) {
       setClosureVerifyPublicationArchivePackageSubmitState({ loading: false, error: error.message || "Rollout closure verify publication archive package export failed", result: null });
     }
   };
+  const updateClosureVerifyPublicationArchiveEnvelope = (key) => (event) => {
+    setClosureVerifyPublicationArchiveEnvelopeForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyPublicationArchiveEnvelope = closureVerifyPublicationArchiveEnvelopeForm.verificationPublicationArchiveEnvelopeReference.trim() !== "" &&
+    closureVerifyPublicationArchiveEnvelopeForm.deliveredByReference.trim() !== "" &&
+    closureVerifyPublicationArchiveEnvelopeForm.deliveryTimestamp.trim() !== "" &&
+    closureVerifyPublicationArchiveEnvelopeForm.deliveryDestinationReference.trim() !== "" &&
+    closureVerifyPublicationArchiveEnvelopeForm.manifestPath !== "" &&
+    closureVerifyPublicationArchiveEnvelopeForm.auditPath !== "" &&
+    closureVerifyPublicationArchiveEnvelopeForm.manifestPath !== closureVerifyPublicationArchiveEnvelopeForm.auditPath;
+  const submitClosureVerifyPublicationArchiveEnvelope = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyPublicationArchiveEnvelope) {
+      return;
+    }
+    setClosureVerifyPublicationArchiveEnvelopeSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/publication-archive-envelope/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyPublicationArchiveEnvelopeForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify publication archive envelope export failed");
+      }
+      setClosureVerifyPublicationArchiveEnvelopeSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyPublicationArchiveEnvelopeSubmitState({ loading: false, error: error.message || "Rollout closure verify publication archive envelope export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -3246,6 +3291,46 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureVerifyPublicationArchivePackageSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Archive package state</dt><dd>{closureVerifyPublicationArchivePackageSubmitState.result.archivePackageState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyPublicationArchivePackageSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification publication archive envelope</h3>
+      <form onSubmit={submitClosureVerifyPublicationArchiveEnvelope}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-envelope-reference">Verification publication archive envelope reference</label>
+          <input id="closure-verify-publication-archive-envelope-reference" value={closureVerifyPublicationArchiveEnvelopeForm.verificationPublicationArchiveEnvelopeReference} onChange={updateClosureVerifyPublicationArchiveEnvelope("verificationPublicationArchiveEnvelopeReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-envelope-delivered-by-reference">Verification publication archive envelope delivered by reference</label>
+          <input id="closure-verify-publication-archive-envelope-delivered-by-reference" value={closureVerifyPublicationArchiveEnvelopeForm.deliveredByReference} onChange={updateClosureVerifyPublicationArchiveEnvelope("deliveredByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-envelope-delivery-timestamp">Verification publication archive envelope delivery timestamp (RFC3339)</label>
+          <input id="closure-verify-publication-archive-envelope-delivery-timestamp" value={closureVerifyPublicationArchiveEnvelopeForm.deliveryTimestamp} onChange={updateClosureVerifyPublicationArchiveEnvelope("deliveryTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-envelope-destination-reference">Verification publication archive envelope destination reference</label>
+          <input id="closure-verify-publication-archive-envelope-destination-reference" value={closureVerifyPublicationArchiveEnvelopeForm.deliveryDestinationReference} onChange={updateClosureVerifyPublicationArchiveEnvelope("deliveryDestinationReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-envelope-manifest-path">Verification publication archive envelope manifest output path</label>
+          <input id="closure-verify-publication-archive-envelope-manifest-path" value={closureVerifyPublicationArchiveEnvelopeForm.manifestPath} onChange={updateClosureVerifyPublicationArchiveEnvelope("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-envelope-audit-path">Verification publication archive envelope audit output path</label>
+          <input id="closure-verify-publication-archive-envelope-audit-path" value={closureVerifyPublicationArchiveEnvelopeForm.auditPath} onChange={updateClosureVerifyPublicationArchiveEnvelope("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyPublicationArchiveEnvelopeSubmitState.loading || !canExportClosureVerifyPublicationArchiveEnvelope}>
+          {closureVerifyPublicationArchiveEnvelopeSubmitState.loading ? "Exporting verification publication archive envelope..." : "Export closure verification publication archive envelope"}
+        </button>
+      </form>
+      {!canExportClosureVerifyPublicationArchiveEnvelope && <p className="error">Verification publication archive envelope export requires references, destination, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyPublicationArchiveEnvelopeSubmitState.error && <p className="error">Verification publication archive envelope: blocked ({closureVerifyPublicationArchiveEnvelopeSubmitState.error})</p>}
+      {closureVerifyPublicationArchiveEnvelopeSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyPublicationArchiveEnvelopeSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyPublicationArchiveEnvelopeSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Archive envelope state</dt><dd>{closureVerifyPublicationArchiveEnvelopeSubmitState.result.archiveEnvelopeState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyPublicationArchiveEnvelopeSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>
