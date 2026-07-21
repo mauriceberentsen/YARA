@@ -1577,6 +1577,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-envelope.export.audit.jsonl` : "",
   }));
   const [closureVerifyPublicationArchiveEnvelopeSubmitState, setClosureVerifyPublicationArchiveEnvelopeSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyPublicationArchiveHandoffForm, setClosureVerifyPublicationArchiveHandoffForm] = useState(() => ({
+    verificationPublicationArchiveHandoffReference: "",
+    receivedByReference: "",
+    handoffTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-handoff.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-handoff.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyPublicationArchiveHandoffSubmitState, setClosureVerifyPublicationArchiveHandoffSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1750,6 +1758,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-envelope.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-envelope.export.audit.jsonl`,
+    }));
+    setClosureVerifyPublicationArchiveHandoffForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-handoff.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-handoff.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2768,6 +2781,36 @@ function CapsuleView({ payload }) {
       setClosureVerifyPublicationArchiveEnvelopeSubmitState({ loading: false, error: error.message || "Rollout closure verify publication archive envelope export failed", result: null });
     }
   };
+  const updateClosureVerifyPublicationArchiveHandoff = (key) => (event) => {
+    setClosureVerifyPublicationArchiveHandoffForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyPublicationArchiveHandoff = closureVerifyPublicationArchiveHandoffForm.verificationPublicationArchiveHandoffReference.trim() !== "" &&
+    closureVerifyPublicationArchiveHandoffForm.receivedByReference.trim() !== "" &&
+    closureVerifyPublicationArchiveHandoffForm.handoffTimestamp.trim() !== "" &&
+    closureVerifyPublicationArchiveHandoffForm.manifestPath !== "" &&
+    closureVerifyPublicationArchiveHandoffForm.auditPath !== "" &&
+    closureVerifyPublicationArchiveHandoffForm.manifestPath !== closureVerifyPublicationArchiveHandoffForm.auditPath;
+  const submitClosureVerifyPublicationArchiveHandoff = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyPublicationArchiveHandoff) {
+      return;
+    }
+    setClosureVerifyPublicationArchiveHandoffSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/publication-archive-handoff/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyPublicationArchiveHandoffForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify publication archive handoff export failed");
+      }
+      setClosureVerifyPublicationArchiveHandoffSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyPublicationArchiveHandoffSubmitState({ loading: false, error: error.message || "Rollout closure verify publication archive handoff export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -3331,6 +3374,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureVerifyPublicationArchiveEnvelopeSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Archive envelope state</dt><dd>{closureVerifyPublicationArchiveEnvelopeSubmitState.result.archiveEnvelopeState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyPublicationArchiveEnvelopeSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification publication archive handoff</h3>
+      <form onSubmit={submitClosureVerifyPublicationArchiveHandoff}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-handoff-reference">Verification publication archive handoff reference</label>
+          <input id="closure-verify-publication-archive-handoff-reference" value={closureVerifyPublicationArchiveHandoffForm.verificationPublicationArchiveHandoffReference} onChange={updateClosureVerifyPublicationArchiveHandoff("verificationPublicationArchiveHandoffReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-handoff-received-by-reference">Verification publication archive handoff received by reference</label>
+          <input id="closure-verify-publication-archive-handoff-received-by-reference" value={closureVerifyPublicationArchiveHandoffForm.receivedByReference} onChange={updateClosureVerifyPublicationArchiveHandoff("receivedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-handoff-timestamp">Verification publication archive handoff timestamp (RFC3339)</label>
+          <input id="closure-verify-publication-archive-handoff-timestamp" value={closureVerifyPublicationArchiveHandoffForm.handoffTimestamp} onChange={updateClosureVerifyPublicationArchiveHandoff("handoffTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-handoff-manifest-path">Verification publication archive handoff manifest output path</label>
+          <input id="closure-verify-publication-archive-handoff-manifest-path" value={closureVerifyPublicationArchiveHandoffForm.manifestPath} onChange={updateClosureVerifyPublicationArchiveHandoff("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-handoff-audit-path">Verification publication archive handoff audit output path</label>
+          <input id="closure-verify-publication-archive-handoff-audit-path" value={closureVerifyPublicationArchiveHandoffForm.auditPath} onChange={updateClosureVerifyPublicationArchiveHandoff("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyPublicationArchiveHandoffSubmitState.loading || !canExportClosureVerifyPublicationArchiveHandoff}>
+          {closureVerifyPublicationArchiveHandoffSubmitState.loading ? "Exporting verification publication archive handoff..." : "Export closure verification publication archive handoff"}
+        </button>
+      </form>
+      {!canExportClosureVerifyPublicationArchiveHandoff && <p className="error">Verification publication archive handoff export requires references, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyPublicationArchiveHandoffSubmitState.error && <p className="error">Verification publication archive handoff: blocked ({closureVerifyPublicationArchiveHandoffSubmitState.error})</p>}
+      {closureVerifyPublicationArchiveHandoffSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyPublicationArchiveHandoffSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyPublicationArchiveHandoffSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Archive handoff state</dt><dd>{closureVerifyPublicationArchiveHandoffSubmitState.result.archiveHandoffState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyPublicationArchiveHandoffSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>
