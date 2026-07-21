@@ -1501,6 +1501,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.attestation.index.export.audit.jsonl` : "",
   }));
   const [closureVerifyAttestationIndexSubmitState, setClosureVerifyAttestationIndexSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyPublicationPackageForm, setClosureVerifyPublicationPackageForm] = useState(() => ({
+    verificationPackageReference: "",
+    packagedByReference: "",
+    packagedTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-package.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-package.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyPublicationPackageSubmitState, setClosureVerifyPublicationPackageSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1629,6 +1637,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.attestation.index.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.attestation.index.export.audit.jsonl`,
+    }));
+    setClosureVerifyPublicationPackageForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-package.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-package.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2373,6 +2386,36 @@ function CapsuleView({ payload }) {
       setClosureVerifyAttestationIndexSubmitState({ loading: false, error: error.message || "Rollout closure verify attestation index export failed", result: null });
     }
   };
+  const updateClosureVerifyPublicationPackage = (key) => (event) => {
+    setClosureVerifyPublicationPackageForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyPublicationPackage = closureVerifyPublicationPackageForm.verificationPackageReference.trim() !== "" &&
+    closureVerifyPublicationPackageForm.packagedByReference.trim() !== "" &&
+    closureVerifyPublicationPackageForm.packagedTimestamp.trim() !== "" &&
+    closureVerifyPublicationPackageForm.manifestPath !== "" &&
+    closureVerifyPublicationPackageForm.auditPath !== "" &&
+    closureVerifyPublicationPackageForm.manifestPath !== closureVerifyPublicationPackageForm.auditPath;
+  const submitClosureVerifyPublicationPackage = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyPublicationPackage) {
+      return;
+    }
+    setClosureVerifyPublicationPackageSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/publication-package/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyPublicationPackageForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify publication package export failed");
+      }
+      setClosureVerifyPublicationPackageSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyPublicationPackageSubmitState({ loading: false, error: error.message || "Rollout closure verify publication package export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -2596,6 +2639,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureVerifyAttestationIndexSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Index state</dt><dd>{closureVerifyAttestationIndexSubmitState.result.indexState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyAttestationIndexSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification publication package</h3>
+      <form onSubmit={submitClosureVerifyPublicationPackage}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-package-reference">Verification package reference</label>
+          <input id="closure-verify-publication-package-reference" value={closureVerifyPublicationPackageForm.verificationPackageReference} onChange={updateClosureVerifyPublicationPackage("verificationPackageReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-package-packaged-by-reference">Verification package packaged by reference</label>
+          <input id="closure-verify-publication-package-packaged-by-reference" value={closureVerifyPublicationPackageForm.packagedByReference} onChange={updateClosureVerifyPublicationPackage("packagedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-package-packaged-timestamp">Verification package timestamp (RFC3339)</label>
+          <input id="closure-verify-publication-package-packaged-timestamp" value={closureVerifyPublicationPackageForm.packagedTimestamp} onChange={updateClosureVerifyPublicationPackage("packagedTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-package-manifest-path">Verification package manifest output path</label>
+          <input id="closure-verify-publication-package-manifest-path" value={closureVerifyPublicationPackageForm.manifestPath} onChange={updateClosureVerifyPublicationPackage("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-package-audit-path">Verification package audit output path</label>
+          <input id="closure-verify-publication-package-audit-path" value={closureVerifyPublicationPackageForm.auditPath} onChange={updateClosureVerifyPublicationPackage("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyPublicationPackageSubmitState.loading || !canExportClosureVerifyPublicationPackage}>
+          {closureVerifyPublicationPackageSubmitState.loading ? "Exporting verification publication package..." : "Export closure verification publication package"}
+        </button>
+      </form>
+      {!canExportClosureVerifyPublicationPackage && <p className="error">Verification publication package export requires references, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyPublicationPackageSubmitState.error && <p className="error">Verification publication package: blocked ({closureVerifyPublicationPackageSubmitState.error})</p>}
+      {closureVerifyPublicationPackageSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyPublicationPackageSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyPublicationPackageSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Package state</dt><dd>{closureVerifyPublicationPackageSubmitState.result.packageState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyPublicationPackageSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>
