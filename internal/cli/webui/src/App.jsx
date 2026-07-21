@@ -1593,6 +1593,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-acknowledgment.export.audit.jsonl` : "",
   }));
   const [closureVerifyPublicationArchiveAcknowledgmentSubmitState, setClosureVerifyPublicationArchiveAcknowledgmentSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyPublicationArchiveAttestationForm, setClosureVerifyPublicationArchiveAttestationForm] = useState(() => ({
+    verificationPublicationArchiveAttestationReference: "",
+    attestedByReference: "",
+    attestationTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-attestation.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-archive-attestation.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyPublicationArchiveAttestationSubmitState, setClosureVerifyPublicationArchiveAttestationSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1776,6 +1784,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-acknowledgment.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-acknowledgment.export.audit.jsonl`,
+    }));
+    setClosureVerifyPublicationArchiveAttestationForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-attestation.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-archive-attestation.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2854,6 +2867,36 @@ function CapsuleView({ payload }) {
       setClosureVerifyPublicationArchiveAcknowledgmentSubmitState({ loading: false, error: error.message || "Rollout closure verify publication archive acknowledgment export failed", result: null });
     }
   };
+  const updateClosureVerifyPublicationArchiveAttestation = (key) => (event) => {
+    setClosureVerifyPublicationArchiveAttestationForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyPublicationArchiveAttestation = closureVerifyPublicationArchiveAttestationForm.verificationPublicationArchiveAttestationReference.trim() !== "" &&
+    closureVerifyPublicationArchiveAttestationForm.attestedByReference.trim() !== "" &&
+    closureVerifyPublicationArchiveAttestationForm.attestationTimestamp.trim() !== "" &&
+    closureVerifyPublicationArchiveAttestationForm.manifestPath !== "" &&
+    closureVerifyPublicationArchiveAttestationForm.auditPath !== "" &&
+    closureVerifyPublicationArchiveAttestationForm.manifestPath !== closureVerifyPublicationArchiveAttestationForm.auditPath;
+  const submitClosureVerifyPublicationArchiveAttestation = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyPublicationArchiveAttestation) {
+      return;
+    }
+    setClosureVerifyPublicationArchiveAttestationSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/publication-archive-attestation/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyPublicationArchiveAttestationForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify publication archive attestation export failed");
+      }
+      setClosureVerifyPublicationArchiveAttestationSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyPublicationArchiveAttestationSubmitState({ loading: false, error: error.message || "Rollout closure verify publication archive attestation export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -3489,6 +3532,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureVerifyPublicationArchiveAcknowledgmentSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Archive acknowledgment state</dt><dd>{closureVerifyPublicationArchiveAcknowledgmentSubmitState.result.archiveAcknowledgmentState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyPublicationArchiveAcknowledgmentSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification publication archive attestation</h3>
+      <form onSubmit={submitClosureVerifyPublicationArchiveAttestation}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-attestation-reference">Verification publication archive attestation reference</label>
+          <input id="closure-verify-publication-archive-attestation-reference" value={closureVerifyPublicationArchiveAttestationForm.verificationPublicationArchiveAttestationReference} onChange={updateClosureVerifyPublicationArchiveAttestation("verificationPublicationArchiveAttestationReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-attested-by-reference">Verification publication archive attested by reference</label>
+          <input id="closure-verify-publication-archive-attested-by-reference" value={closureVerifyPublicationArchiveAttestationForm.attestedByReference} onChange={updateClosureVerifyPublicationArchiveAttestation("attestedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-attestation-timestamp">Verification publication archive attestation timestamp (RFC3339)</label>
+          <input id="closure-verify-publication-archive-attestation-timestamp" value={closureVerifyPublicationArchiveAttestationForm.attestationTimestamp} onChange={updateClosureVerifyPublicationArchiveAttestation("attestationTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-attestation-manifest-path">Verification publication archive attestation manifest output path</label>
+          <input id="closure-verify-publication-archive-attestation-manifest-path" value={closureVerifyPublicationArchiveAttestationForm.manifestPath} onChange={updateClosureVerifyPublicationArchiveAttestation("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-archive-attestation-audit-path">Verification publication archive attestation audit output path</label>
+          <input id="closure-verify-publication-archive-attestation-audit-path" value={closureVerifyPublicationArchiveAttestationForm.auditPath} onChange={updateClosureVerifyPublicationArchiveAttestation("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyPublicationArchiveAttestationSubmitState.loading || !canExportClosureVerifyPublicationArchiveAttestation}>
+          {closureVerifyPublicationArchiveAttestationSubmitState.loading ? "Exporting verification publication archive attestation..." : "Export closure verification publication archive attestation"}
+        </button>
+      </form>
+      {!canExportClosureVerifyPublicationArchiveAttestation && <p className="error">Verification publication archive attestation export requires references, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyPublicationArchiveAttestationSubmitState.error && <p className="error">Verification publication archive attestation: blocked ({closureVerifyPublicationArchiveAttestationSubmitState.error})</p>}
+      {closureVerifyPublicationArchiveAttestationSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyPublicationArchiveAttestationSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyPublicationArchiveAttestationSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Archive attestation state</dt><dd>{closureVerifyPublicationArchiveAttestationSubmitState.result.archiveAttestationState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyPublicationArchiveAttestationSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>

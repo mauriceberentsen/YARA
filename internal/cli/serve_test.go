@@ -5553,6 +5553,139 @@ func TestServeWorkflowRolloutClosureVerifyPublicationArchiveAcknowledgmentExport
 	}
 }
 
+func TestServeWorkflowRolloutClosureVerifyPublicationArchiveAttestationExportWritesManifestAndAudit(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	writeReleasePublicationAcknowledgmentFixture(t, workspacePath)
+	writeRolloutClosureSummaryFixture(t, workspacePath)
+	writeRolloutClosureDeliveryFixture(t, workspacePath)
+	writeRolloutClosureAcceptanceFixture(t, workspacePath)
+	writeRolloutClosureCertificateFixture(t, workspacePath)
+	writeRolloutClosureLedgerFixture(t, workspacePath)
+	writeRolloutClosureDocketFixture(t, workspacePath)
+	writeRolloutClosureBulletinFixture(t, workspacePath)
+	writeRolloutClosurePacketFixture(t, workspacePath)
+	writeRolloutClosureRecipientPackageFixture(t, workspacePath)
+	writeRolloutClosureVerifyExportFixture(t, workspacePath, true, "")
+	writeRolloutClosureVerifyAttestationFixture(t, workspacePath, "attestation-ready")
+	writeRolloutClosureVerifyAttestationIndexFixture(t, workspacePath, "index-ready")
+	writeRolloutClosureVerifyPublicationPackageFixture(t, workspacePath, "package-ready")
+	writeRolloutClosureVerifyPublicationAttestationFixture(t, workspacePath, "publication-ready")
+	writeRolloutClosureVerifyPublicationIndexFixture(t, workspacePath, "index-ready")
+	writeRolloutClosureVerifyPublicationEnvelopeFixture(t, workspacePath, "envelope-ready")
+	writeRolloutClosureVerifyPublicationHandoffFixture(t, workspacePath, "handoff-ready")
+	writeRolloutClosureVerifyPublicationAcknowledgmentFixture(t, workspacePath, "acknowledgment-ready")
+	writeRolloutClosureVerifyPublicationArchiveIndexFixture(t, workspacePath, "archive-index-ready")
+	writeRolloutClosureVerifyPublicationArchivePackageFixture(t, workspacePath, "archive-package-ready")
+	writeRolloutClosureVerifyPublicationArchiveEnvelopeFixture(t, workspacePath, "archive-envelope-ready")
+	writeRolloutClosureVerifyPublicationArchiveHandoffFixture(t, workspacePath, "archive-handoff-ready")
+	writeRolloutClosureVerifyPublicationArchiveAcknowledgmentFixture(t, workspacePath, "archive-acknowledgment-ready")
+	handler := serveHandlerFixture(t, false, workspacePath)
+	manifestPath := filepath.Join(workspacePath, "workflow.rollout-closure-verify.publication-archive-attestation.json")
+	auditPath := filepath.Join(workspacePath, "workflow.rollout-closure-verify.publication-archive-attestation.export.audit.jsonl")
+	requestBody := fmt.Sprintf(`{"verificationPublicationArchiveAttestationReference":"verify-publication-archive-attestation-2026-07-21","attestedByReference":"archive-attester-1","attestationTimestamp":"2026-07-21T02:45:00Z","manifestPath":%q,"auditPath":%q}`, manifestPath, auditPath)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/rollout-closure/verify/publication-archive-attestation/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for verify publication archive attestation export, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read verify publication archive attestation manifest: %v", err)
+	}
+	manifest := workflowRolloutClosureVerifyPublicationArchiveAttestationManifest{}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode verify publication archive attestation manifest: %v", err)
+	}
+	if manifest.ArchiveAttestation.ArchiveAttestationState != "archive-attestation-ready" {
+		t.Fatalf("expected archive-attestation-ready state, got %#v", manifest.ArchiveAttestation)
+	}
+	events, err := audit.LoadJSONL(auditPath)
+	if err != nil {
+		t.Fatalf("read verify publication archive attestation audit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("expected verify publication archive attestation audit events")
+	}
+}
+
+func TestServeWorkflowRolloutClosureVerifyPublicationArchiveAttestationExportRejectsContinuityMismatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	populateWorkflowWorkspace(t, workspacePath)
+	writeClosurePackageFixtures(t, workspacePath)
+	writeReleaseDecisionFixture(t, workspacePath, "approved")
+	writeReleasePublicationFixture(t, workspacePath)
+	writeReleasePublicationIndexFixture(t, workspacePath)
+	writeReleasePublicationPackageFixture(t, workspacePath)
+	writeReleasePublicationEnvelopeFixture(t, workspacePath)
+	writeReleasePublicationHandoffReceiptFixture(t, workspacePath)
+	writeReleasePublicationAcknowledgmentFixture(t, workspacePath)
+	writeRolloutClosureSummaryFixture(t, workspacePath)
+	writeRolloutClosureDeliveryFixture(t, workspacePath)
+	writeRolloutClosureAcceptanceFixture(t, workspacePath)
+	writeRolloutClosureCertificateFixture(t, workspacePath)
+	writeRolloutClosureLedgerFixture(t, workspacePath)
+	writeRolloutClosureDocketFixture(t, workspacePath)
+	writeRolloutClosureBulletinFixture(t, workspacePath)
+	writeRolloutClosurePacketFixture(t, workspacePath)
+	writeRolloutClosureRecipientPackageFixture(t, workspacePath)
+	writeRolloutClosureVerifyExportFixture(t, workspacePath, true, "")
+	writeRolloutClosureVerifyAttestationFixture(t, workspacePath, "attestation-ready")
+	writeRolloutClosureVerifyAttestationIndexFixture(t, workspacePath, "index-ready")
+	writeRolloutClosureVerifyPublicationPackageFixture(t, workspacePath, "package-ready")
+	writeRolloutClosureVerifyPublicationAttestationFixture(t, workspacePath, "publication-ready")
+	writeRolloutClosureVerifyPublicationIndexFixture(t, workspacePath, "index-ready")
+	writeRolloutClosureVerifyPublicationEnvelopeFixture(t, workspacePath, "envelope-ready")
+	writeRolloutClosureVerifyPublicationHandoffFixture(t, workspacePath, "handoff-ready")
+	writeRolloutClosureVerifyPublicationAcknowledgmentFixture(t, workspacePath, "acknowledgment-ready")
+	writeRolloutClosureVerifyPublicationArchiveIndexFixture(t, workspacePath, "archive-index-ready")
+	writeRolloutClosureVerifyPublicationArchivePackageFixture(t, workspacePath, "archive-package-ready")
+	writeRolloutClosureVerifyPublicationArchiveEnvelopeFixture(t, workspacePath, "archive-envelope-ready")
+	writeRolloutClosureVerifyPublicationArchiveHandoffFixture(t, workspacePath, "archive-handoff-ready")
+	archiveAckPath := writeRolloutClosureVerifyPublicationArchiveAcknowledgmentFixture(t, workspacePath, "archive-acknowledgment-ready")
+	archiveAckBytes, err := os.ReadFile(archiveAckPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiveAckManifest := workflowRolloutClosureVerifyPublicationArchiveAcknowledgmentManifest{}
+	if err := json.Unmarshal(archiveAckBytes, &archiveAckManifest); err != nil {
+		t.Fatal(err)
+	}
+	archiveAckManifest.ArchiveAcknowledgment.Continuity.TargetDigest = "sha256:diverged-target"
+	updatedBytes, err := json.MarshalIndent(archiveAckManifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedBytes = append(updatedBytes, '\n')
+	if err := os.WriteFile(archiveAckPath, updatedBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := serveHandlerFixture(t, false, workspacePath)
+	requestBody := fmt.Sprintf(`{"verificationPublicationArchiveAttestationReference":"verify-publication-archive-attestation-2026-07-21","attestedByReference":"archive-attester-1","attestationTimestamp":"2026-07-21T02:45:00Z","manifestPath":%q,"auditPath":%q}`,
+		filepath.Join(workspacePath, "workflow.rollout-closure-verify.publication-archive-attestation.json"),
+		filepath.Join(workspacePath, "workflow.rollout-closure-verify.publication-archive-attestation.export.audit.jsonl"),
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workflow/rollout-closure/verify/publication-archive-attestation/export", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for verify publication archive attestation continuity mismatch, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "YARA-RCVPAT-006") {
+		t.Fatalf("expected YARA-RCVPAT-006 error, got %s", recorder.Body.String())
+	}
+}
+
 func TestServeDriftPostureSupportsAssertionFilter(t *testing.T) {
 	handler := serveHandlerFixture(t, false, t.TempDir())
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/drift-posture?assertion=compat.vllm-qwen-coder-7b-awq-gb10", nil)
@@ -6628,6 +6761,32 @@ func writeRolloutClosureVerifyPublicationArchiveHandoffFixture(t *testing.T, wor
 	manifestBytes = append(manifestBytes, '\n')
 	if err := os.WriteFile(manifestPath, manifestBytes, 0o600); err != nil {
 		t.Fatalf("write verify publication archive handoff fixture: %v", err)
+	}
+	return manifestPath
+}
+
+func writeRolloutClosureVerifyPublicationArchiveAcknowledgmentFixture(t *testing.T, workspacePath, state string) string {
+	t.Helper()
+	manifestPath := filepath.Join(workspacePath, "workflow.rollout-closure-verify.publication-archive-acknowledgment.json")
+	payload := workflowRolloutClosureVerifyPublicationArchiveAcknowledgmentExportRequest{
+		VerificationPublicationArchiveAcknowledgmentReference: "verify-publication-archive-acknowledgment-2026-07-21",
+		AcknowledgedByReference:                               "archive-reviewer-1",
+		AcknowledgmentTimestamp:                               "2026-07-21T02:40:00Z",
+	}
+	manifest, _, err := buildWorkflowRolloutClosureVerifyPublicationArchiveAcknowledgmentManifest(workspacePath, payload)
+	if err != nil {
+		t.Fatalf("build verify publication archive acknowledgment fixture: %v", err)
+	}
+	if state != "" {
+		manifest.ArchiveAcknowledgment.ArchiveAcknowledgmentState = state
+	}
+	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal verify publication archive acknowledgment fixture: %v", err)
+	}
+	manifestBytes = append(manifestBytes, '\n')
+	if err := os.WriteFile(manifestPath, manifestBytes, 0o600); err != nil {
+		t.Fatalf("write verify publication archive acknowledgment fixture: %v", err)
 	}
 	return manifestPath
 }
