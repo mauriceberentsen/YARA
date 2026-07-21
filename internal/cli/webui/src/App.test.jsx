@@ -538,6 +538,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/publication-attestation/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            manifestPath: requestPayload.manifestPath,
+            auditPath: requestPayload.auditPath,
+            publicationState: "publication-ready",
+            blockerCode: "",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -880,6 +892,13 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification package timestamp (RFC3339)"), { target: { value: "2026-07-21T01:50:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication package" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.publication-package.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Verification publication reference"), { target: { value: "verify-publication-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Verification publication published by reference"), { target: { value: "release-ops-1" } });
+    fireEvent.change(screen.getByLabelText("Verification publication timestamp (RFC3339)"), { target: { value: "2026-07-21T01:55:00Z" } });
+    fireEvent.change(screen.getByLabelText("Verification publication channel"), { target: { value: "internal-release-registry" } });
+    fireEvent.change(screen.getByLabelText("Verification publication location reference"), { target: { value: "registry://verification/release/2026-07-21" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication attestation" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.publication-attestation.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -899,7 +918,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Assertion filter"), { target: { value: "compat.a" } });
     await waitFor(() => expect(screen.getByText("missing-proof")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("record-proof")).toBeInTheDocument());
-  }, 90000);
+  }, 130000);
 
   it("enforces air-gap apply guardrails in UI", async () => {
     render(<App />);
@@ -1098,6 +1117,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-053", message: "YARA-RCVP-004: latest closure verification export is blocked without archived blocked reason reference", severity: "error" }],
         }), { status: 422 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/publication-attestation/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-054", message: "YARA-RCVPA-004: latest closure verification export is blocked without archived blocked reason reference", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -1259,7 +1284,14 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification package timestamp (RFC3339)"), { target: { value: "2026-07-21T01:50:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication package" }));
     await waitFor(() => expect(screen.getByText(/YARA-RCVP-004/)).toBeInTheDocument());
-  }, 90000);
+    fireEvent.change(screen.getByLabelText("Verification publication reference"), { target: { value: "verify-publication-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Verification publication published by reference"), { target: { value: "release-ops-1" } });
+    fireEvent.change(screen.getByLabelText("Verification publication timestamp (RFC3339)"), { target: { value: "2026-07-21T01:55:00Z" } });
+    fireEvent.change(screen.getByLabelText("Verification publication channel"), { target: { value: "internal-release-registry" } });
+    fireEvent.change(screen.getByLabelText("Verification publication location reference"), { target: { value: "registry://verification/release/2026-07-21" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication attestation" }));
+    await waitFor(() => expect(screen.getByText(/YARA-RCVPA-004/)).toBeInTheDocument());
+  }, 130000);
 
   it("fails closed on malformed drift payload", async () => {
     global.fetch = vi.fn((input) => {
