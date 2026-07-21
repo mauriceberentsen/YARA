@@ -646,6 +646,18 @@ describe("App", () => {
           },
         }), { status: 200 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/publication-archive-acknowledgment/export" && (init.method || "GET").toUpperCase() === "POST") {
+        const requestPayload = JSON.parse(String(init.body || "{}"));
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: true,
+          export: {
+            manifestPath: requestPayload.manifestPath,
+            auditPath: requestPayload.auditPath,
+            archiveAcknowledgmentState: "archive-acknowledgment-ready",
+            blockerCode: "",
+          },
+        }), { status: 200 }));
+      }
       const payloads = {
         "/api/v1/assertions": { valid: true, assertions: [{ id: "compat.a" }, { id: "compat.b" }] },
         "/api/v1/workspace?refresh=0": {
@@ -1037,6 +1049,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification publication archive handoff timestamp (RFC3339)"), { target: { value: "2026-07-21T02:35:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication archive handoff" }));
     await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.publication-archive-handoff.json")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Verification publication archive acknowledgment reference"), { target: { value: "verify-publication-archive-acknowledgment-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Verification publication archive acknowledgment by reference"), { target: { value: "archive-reviewer-1" } });
+    fireEvent.change(screen.getByLabelText("Verification publication archive acknowledgment timestamp (RFC3339)"), { target: { value: "2026-07-21T02:40:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication archive acknowledgment" }));
+    await waitFor(() => expect(screen.getByText(".yara/workspaces/default/workflow.rollout-closure-verify.publication-archive-acknowledgment.json")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Catalog" }));
     await waitFor(() => expect(screen.getByText("sha256:test")).toBeInTheDocument());
@@ -1309,6 +1326,12 @@ describe("App", () => {
           diagnostics: [{ code: "YARA-SRV-062", message: "YARA-RCVPAH-004: latest closure verification export is blocked without archived blocked reason reference", severity: "error" }],
         }), { status: 422 }));
       }
+      if (parsed.pathname === "/api/v1/workflow/rollout-closure/verify/publication-archive-acknowledgment/export" && (init.method || "GET").toUpperCase() === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({
+          valid: false,
+          diagnostics: [{ code: "YARA-SRV-063", message: "YARA-RCVPAA-004: latest closure verification export is blocked without archived blocked reason reference", severity: "error" }],
+        }), { status: 422 }));
+      }
       if (endpoint === "/api/v1/assertions") {
         return Promise.resolve(new Response(JSON.stringify({ valid: true, assertions: [{ id: "compat.a" }] }), { status: 200 }));
       }
@@ -1519,6 +1542,11 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Verification publication archive handoff timestamp (RFC3339)"), { target: { value: "2026-07-21T02:35:00Z" } });
     fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication archive handoff" }));
     await waitFor(() => expect(screen.getByText(/YARA-RCVPAH-004/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Verification publication archive acknowledgment reference"), { target: { value: "verify-publication-archive-acknowledgment-2026-07-21" } });
+    fireEvent.change(screen.getByLabelText("Verification publication archive acknowledgment by reference"), { target: { value: "archive-reviewer-1" } });
+    fireEvent.change(screen.getByLabelText("Verification publication archive acknowledgment timestamp (RFC3339)"), { target: { value: "2026-07-21T02:40:00Z" } });
+    fireEvent.click(screen.getByRole("button", { name: "Export closure verification publication archive acknowledgment" }));
+    await waitFor(() => expect(screen.getByText(/YARA-RCVPAA-004/)).toBeInTheDocument());
   }, 420000);
 
   it("fails closed on malformed drift payload", async () => {
