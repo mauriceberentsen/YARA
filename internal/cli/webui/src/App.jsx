@@ -1544,6 +1544,14 @@ function CapsuleView({ payload }) {
     auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-handoff.export.audit.jsonl` : "",
   }));
   const [closureVerifyPublicationHandoffSubmitState, setClosureVerifyPublicationHandoffSubmitState] = useState({ loading: false, error: "", result: null });
+  const [closureVerifyPublicationAcknowledgmentForm, setClosureVerifyPublicationAcknowledgmentForm] = useState(() => ({
+    verificationPublicationAcknowledgmentReference: "",
+    acknowledgedByReference: "",
+    acknowledgmentTimestamp: "",
+    manifestPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-acknowledgment.json` : "",
+    auditPath: workspacePath ? `${workspacePath}/workflow.rollout-closure-verify.publication-acknowledgment.export.audit.jsonl` : "",
+  }));
+  const [closureVerifyPublicationAcknowledgmentSubmitState, setClosureVerifyPublicationAcknowledgmentSubmitState] = useState({ loading: false, error: "", result: null });
 
   useEffect(() => {
     if (!workspacePath) {
@@ -1697,6 +1705,11 @@ function CapsuleView({ payload }) {
       ...previous,
       manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-handoff.json`,
       auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-handoff.export.audit.jsonl`,
+    }));
+    setClosureVerifyPublicationAcknowledgmentForm((previous) => ({
+      ...previous,
+      manifestPath: previous.manifestPath || `${workspacePath}/workflow.rollout-closure-verify.publication-acknowledgment.json`,
+      auditPath: previous.auditPath || `${workspacePath}/workflow.rollout-closure-verify.publication-acknowledgment.export.audit.jsonl`,
     }));
   }, [workspacePath]);
 
@@ -2594,6 +2607,36 @@ function CapsuleView({ payload }) {
       setClosureVerifyPublicationHandoffSubmitState({ loading: false, error: error.message || "Rollout closure verify publication handoff export failed", result: null });
     }
   };
+  const updateClosureVerifyPublicationAcknowledgment = (key) => (event) => {
+    setClosureVerifyPublicationAcknowledgmentForm((previous) => ({ ...previous, [key]: event.target.value }));
+  };
+  const canExportClosureVerifyPublicationAcknowledgment = closureVerifyPublicationAcknowledgmentForm.verificationPublicationAcknowledgmentReference.trim() !== "" &&
+    closureVerifyPublicationAcknowledgmentForm.acknowledgedByReference.trim() !== "" &&
+    closureVerifyPublicationAcknowledgmentForm.acknowledgmentTimestamp.trim() !== "" &&
+    closureVerifyPublicationAcknowledgmentForm.manifestPath !== "" &&
+    closureVerifyPublicationAcknowledgmentForm.auditPath !== "" &&
+    closureVerifyPublicationAcknowledgmentForm.manifestPath !== closureVerifyPublicationAcknowledgmentForm.auditPath;
+  const submitClosureVerifyPublicationAcknowledgment = async (event) => {
+    event.preventDefault();
+    if (!canExportClosureVerifyPublicationAcknowledgment) {
+      return;
+    }
+    setClosureVerifyPublicationAcknowledgmentSubmitState({ loading: true, error: "", result: null });
+    try {
+      const response = await fetch("/api/v1/workflow/rollout-closure/verify/publication-acknowledgment/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(closureVerifyPublicationAcknowledgmentForm),
+      });
+      const responsePayload = await response.json();
+      if (!response.ok) {
+        throw new Error(responsePayload?.diagnostics?.[0]?.message || "Rollout closure verify publication acknowledgment export failed");
+      }
+      setClosureVerifyPublicationAcknowledgmentSubmitState({ loading: false, error: "", result: responsePayload.export || null });
+    } catch (error) {
+      setClosureVerifyPublicationAcknowledgmentSubmitState({ loading: false, error: error.message || "Rollout closure verify publication acknowledgment export failed", result: null });
+    }
+  };
   return (
     <>
       <p>Workspace: {workspacePath || "unknown"}</p>
@@ -3009,6 +3052,42 @@ function CapsuleView({ payload }) {
           <div><dt>Audit path</dt><dd>{closureVerifyPublicationHandoffSubmitState.result.auditPath || "n/a"}</dd></div>
           <div><dt>Handoff state</dt><dd>{closureVerifyPublicationHandoffSubmitState.result.handoffState || "n/a"}</dd></div>
           <div><dt>Blocker code</dt><dd>{closureVerifyPublicationHandoffSubmitState.result.blockerCode || "none"}</dd></div>
+        </dl>
+      )}
+      <h3>Export closure verification publication acknowledgment</h3>
+      <form onSubmit={submitClosureVerifyPublicationAcknowledgment}>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-acknowledgment-reference">Verification publication acknowledgment reference</label>
+          <input id="closure-verify-publication-acknowledgment-reference" value={closureVerifyPublicationAcknowledgmentForm.verificationPublicationAcknowledgmentReference} onChange={updateClosureVerifyPublicationAcknowledgment("verificationPublicationAcknowledgmentReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-acknowledged-by-reference">Verification publication acknowledgment acknowledged by reference</label>
+          <input id="closure-verify-publication-acknowledged-by-reference" value={closureVerifyPublicationAcknowledgmentForm.acknowledgedByReference} onChange={updateClosureVerifyPublicationAcknowledgment("acknowledgedByReference")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-acknowledgment-timestamp">Verification publication acknowledgment timestamp (RFC3339)</label>
+          <input id="closure-verify-publication-acknowledgment-timestamp" value={closureVerifyPublicationAcknowledgmentForm.acknowledgmentTimestamp} onChange={updateClosureVerifyPublicationAcknowledgment("acknowledgmentTimestamp")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-acknowledgment-manifest-path">Verification publication acknowledgment manifest output path</label>
+          <input id="closure-verify-publication-acknowledgment-manifest-path" value={closureVerifyPublicationAcknowledgmentForm.manifestPath} onChange={updateClosureVerifyPublicationAcknowledgment("manifestPath")} />
+        </div>
+        <div className="formRow">
+          <label htmlFor="closure-verify-publication-acknowledgment-audit-path">Verification publication acknowledgment audit output path</label>
+          <input id="closure-verify-publication-acknowledgment-audit-path" value={closureVerifyPublicationAcknowledgmentForm.auditPath} onChange={updateClosureVerifyPublicationAcknowledgment("auditPath")} />
+        </div>
+        <button type="submit" disabled={closureVerifyPublicationAcknowledgmentSubmitState.loading || !canExportClosureVerifyPublicationAcknowledgment}>
+          {closureVerifyPublicationAcknowledgmentSubmitState.loading ? "Exporting verification publication acknowledgment..." : "Export closure verification publication acknowledgment"}
+        </button>
+      </form>
+      {!canExportClosureVerifyPublicationAcknowledgment && <p className="error">Verification publication acknowledgment export requires references, timestamp, and distinct manifest/audit paths.</p>}
+      {closureVerifyPublicationAcknowledgmentSubmitState.error && <p className="error">Verification publication acknowledgment: blocked ({closureVerifyPublicationAcknowledgmentSubmitState.error})</p>}
+      {closureVerifyPublicationAcknowledgmentSubmitState.result && (
+        <dl className="grid">
+          <div><dt>Manifest path</dt><dd>{closureVerifyPublicationAcknowledgmentSubmitState.result.manifestPath || "n/a"}</dd></div>
+          <div><dt>Audit path</dt><dd>{closureVerifyPublicationAcknowledgmentSubmitState.result.auditPath || "n/a"}</dd></div>
+          <div><dt>Acknowledgment state</dt><dd>{closureVerifyPublicationAcknowledgmentSubmitState.result.acknowledgmentState || "n/a"}</dd></div>
+          <div><dt>Blocker code</dt><dd>{closureVerifyPublicationAcknowledgmentSubmitState.result.blockerCode || "none"}</dd></div>
         </dl>
       )}
       <h3>Export capsule snapshot</h3>

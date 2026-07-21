@@ -3008,6 +3008,68 @@ func newServeAPIHandler(snapshot catalog.Snapshot, catalogDigest string, report 
 		response.Export.BlockerCode = manifest.Handoff.BlockerCode
 		writeServeJSON(writer, http.StatusOK, response)
 	})
+	apiMux.HandleFunc("/api/v1/workflow/rollout-closure/verify/publication-acknowledgment/export", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writeServeNotFound(writer)
+			return
+		}
+		if workspacePath == "" {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-009", "workflow rollout closure verify publication acknowledgment export requires --workspace")
+			return
+		}
+		payload, err := decodeWorkflowRolloutClosureVerifyPublicationAcknowledgmentExportRequest(request)
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-058", err.Error())
+			return
+		}
+		manifestPath, err := ensureWorkspaceFilePath(workspacePath, payload.ManifestPath, "manifestPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-058", err.Error())
+			return
+		}
+		auditPath, err := ensureWorkspaceFilePath(workspacePath, payload.AuditPath, "auditPath")
+		if err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-058", err.Error())
+			return
+		}
+		if manifestPath == auditPath {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-058", "manifestPath and auditPath must be different files")
+			return
+		}
+		manifest, subjects, err := buildWorkflowRolloutClosureVerifyPublicationAcknowledgmentManifest(workspacePath, payload)
+		if err != nil {
+			status := http.StatusBadRequest
+			if gateErr, ok := err.(workflowGateError); ok {
+				status = gateErr.Status
+			}
+			writeServeError(writer, status, "YARA-SRV-058", err.Error())
+			return
+		}
+		manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			writeServeError(writer, http.StatusInternalServerError, "YARA-SRV-500", fmt.Sprintf("encode rollout closure verify publication acknowledgment: %v", err))
+			return
+		}
+		manifestBytes = append(manifestBytes, '\n')
+		if err := writeExclusive(manifestPath, manifestBytes); err != nil {
+			writeServeError(writer, http.StatusBadRequest, "YARA-SRV-058", err.Error())
+			return
+		}
+		exportSubjects := append(append([]audit.Subject(nil), subjects...),
+			audit.Subject{Kind: "WorkflowRolloutClosureVerifyPublicationAcknowledgment", Digest: digestBytes(manifestBytes)},
+		)
+		if err := persistOperationAuditForTarget(auditPath, "workflow.rollout-closure.verify.publication-acknowledgment.export", "completed", manifest.Acknowledgment.AcknowledgmentState, "kubernetes:"+manifest.Acknowledgment.Continuity.TargetDigest, exportSubjects, nil); err != nil {
+			_ = os.Remove(manifestPath)
+			writeServeError(writer, http.StatusInternalServerError, "YARA-AUD-005", err.Error())
+			return
+		}
+		response := workflowRolloutClosureVerifyPublicationAcknowledgmentExportResponse{Valid: true}
+		response.Export.ManifestPath = manifestPath
+		response.Export.AuditPath = auditPath
+		response.Export.AcknowledgmentState = manifest.Acknowledgment.AcknowledgmentState
+		response.Export.BlockerCode = manifest.Acknowledgment.BlockerCode
+		writeServeJSON(writer, http.StatusOK, response)
+	})
 	var (
 		uiFileSystem fs.FS
 		uiFiles      http.Handler
@@ -4547,6 +4609,59 @@ type workflowRolloutClosureVerifyPublicationHandoffManifest struct {
 	} `json:"rolloutClosureVerifyPublicationHandoff"`
 }
 
+type workflowRolloutClosureVerifyPublicationAcknowledgmentExportRequest struct {
+	VerificationPublicationAcknowledgmentReference string `json:"verificationPublicationAcknowledgmentReference"`
+	AcknowledgedByReference                        string `json:"acknowledgedByReference"`
+	AcknowledgmentTimestamp                        string `json:"acknowledgmentTimestamp"`
+	ManifestPath                                   string `json:"manifestPath"`
+	AuditPath                                      string `json:"auditPath"`
+}
+
+type workflowRolloutClosureVerifyPublicationAcknowledgmentExportResponse struct {
+	Valid  bool `json:"valid"`
+	Export struct {
+		ManifestPath        string `json:"manifestPath"`
+		AuditPath           string `json:"auditPath"`
+		AcknowledgmentState string `json:"acknowledgmentState"`
+		BlockerCode         string `json:"blockerCode,omitempty"`
+	} `json:"export"`
+}
+
+type workflowRolloutClosureVerifyPublicationAcknowledgmentManifest struct {
+	Valid          bool `json:"valid"`
+	Acknowledgment struct {
+		WorkspacePath                                  string                    `json:"workspacePath"`
+		VerificationPublicationAcknowledgmentReference string                    `json:"verificationPublicationAcknowledgmentReference"`
+		AcknowledgedByReference                        string                    `json:"acknowledgedByReference"`
+		AcknowledgmentTimestamp                        string                    `json:"acknowledgmentTimestamp"`
+		AcknowledgmentState                            string                    `json:"acknowledgmentState"`
+		BlockerCode                                    string                    `json:"blockerCode,omitempty"`
+		Continuity                                     workflowClosureContinuity `json:"continuity"`
+		VerificationPublicationHandoff                 workflowClosureArtifact   `json:"verificationPublicationHandoff"`
+		VerificationPublicationEnvelope                workflowClosureArtifact   `json:"verificationPublicationEnvelope"`
+		VerificationPublicationIndex                   workflowClosureArtifact   `json:"verificationPublicationIndex"`
+		VerificationPublicationAttestation             workflowClosureArtifact   `json:"verificationPublicationAttestation"`
+		VerificationPublicationPackage                 workflowClosureArtifact   `json:"verificationPublicationPackage"`
+		VerificationAttestationIndex                   workflowClosureArtifact   `json:"verificationAttestationIndex"`
+		VerificationAttestation                        workflowClosureArtifact   `json:"verificationAttestation"`
+		VerificationExportJSON                         workflowClosureArtifact   `json:"verificationExportJson"`
+		VerificationExportMarkdown                     workflowClosureArtifact   `json:"verificationExportMarkdown"`
+		VerificationPublicationHandoffReference        string                    `json:"verificationPublicationHandoffReference"`
+		VerificationPublicationEnvelopeReference       string                    `json:"verificationPublicationEnvelopeReference"`
+		VerificationPublicationIndexReference          string                    `json:"verificationPublicationIndexReference"`
+		VerificationPublicationReference               string                    `json:"verificationPublicationReference"`
+		VerificationPackageReference                   string                    `json:"verificationPackageReference"`
+		AttestationIndexReference                      string                    `json:"attestationIndexReference"`
+		AttestationReference                           string                    `json:"attestationReference"`
+		VerificationReference                          string                    `json:"verificationReference"`
+		OperatorReference                              string                    `json:"operatorReference"`
+		VerificationTimestamp                          string                    `json:"verificationTimestamp"`
+		PublicationChannel                             string                    `json:"publicationChannel"`
+		PublicationLocationReference                   string                    `json:"publicationLocationReference"`
+		DeliveryDestinationReference                   string                    `json:"deliveryDestinationReference"`
+	} `json:"rolloutClosureVerifyPublicationAcknowledgment"`
+}
+
 func workspacePipelineStages(workspacePath string) ([]workspaceStageStatus, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -5613,6 +5728,33 @@ func decodeWorkflowRolloutClosureVerifyPublicationHandoffExportRequest(request *
 	}
 	if _, err := time.Parse(time.RFC3339Nano, payload.HandoffTimestamp); err != nil {
 		return payload, errors.New("handoffTimestamp must be a valid RFC3339 timestamp")
+	}
+	return payload, nil
+}
+
+func decodeWorkflowRolloutClosureVerifyPublicationAcknowledgmentExportRequest(request *http.Request) (workflowRolloutClosureVerifyPublicationAcknowledgmentExportRequest, error) {
+	var payload workflowRolloutClosureVerifyPublicationAcknowledgmentExportRequest
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return payload, fmt.Errorf("decode request body: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return payload, errors.New("request body must contain exactly one JSON object")
+	}
+	if strings.TrimSpace(payload.VerificationPublicationAcknowledgmentReference) == "" ||
+		strings.TrimSpace(payload.AcknowledgedByReference) == "" ||
+		strings.TrimSpace(payload.AcknowledgmentTimestamp) == "" ||
+		strings.TrimSpace(payload.ManifestPath) == "" ||
+		strings.TrimSpace(payload.AuditPath) == "" {
+		return payload, errors.New("verificationPublicationAcknowledgmentReference, acknowledgedByReference, acknowledgmentTimestamp, manifestPath and auditPath are required")
+	}
+	if payload.ManifestPath == payload.AuditPath {
+		return payload, errors.New("manifestPath and auditPath must be different files")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.AcknowledgmentTimestamp); err != nil {
+		return payload, errors.New("acknowledgmentTimestamp must be a valid RFC3339 timestamp")
 	}
 	return payload, nil
 }
@@ -8337,6 +8479,26 @@ func loadLatestRolloutClosureVerifyPublicationEnvelope(workspacePath string) (wo
 	return manifest, latestPath, digestBytes(content), nil
 }
 
+func loadLatestRolloutClosureVerifyPublicationHandoff(workspacePath string) (workflowRolloutClosureVerifyPublicationHandoffManifest, string, string, error) {
+	paths := discoverRolloutClosureVerifyPublicationHandoffExports(workspacePath)
+	if len(paths) == 0 {
+		return workflowRolloutClosureVerifyPublicationHandoffManifest{}, "", "", errors.New("YARA-RCVPAK-001: verification publication acknowledgment export requires at least one closure verification publication handoff manifest")
+	}
+	latestPath := paths[len(paths)-1]
+	content, err := os.ReadFile(latestPath)
+	if err != nil {
+		return workflowRolloutClosureVerifyPublicationHandoffManifest{}, "", "", fmt.Errorf("read latest verification publication handoff %s: %w", filepath.Base(latestPath), err)
+	}
+	manifest := workflowRolloutClosureVerifyPublicationHandoffManifest{}
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return workflowRolloutClosureVerifyPublicationHandoffManifest{}, "", "", fmt.Errorf("decode latest verification publication handoff %s: %w", filepath.Base(latestPath), err)
+	}
+	if !manifest.Valid {
+		return workflowRolloutClosureVerifyPublicationHandoffManifest{}, "", "", errors.New("YARA-RCVPAK-002: latest closure verification publication handoff manifest is invalid")
+	}
+	return manifest, latestPath, digestBytes(content), nil
+}
+
 func verifyWorkflowRolloutClosureChain(workspacePath string) workflowRolloutClosureVerifyResponse {
 	response := workflowRolloutClosureVerifyResponse{Valid: true}
 	response.Verification.WorkspacePath = workspacePath
@@ -9551,6 +9713,198 @@ func buildWorkflowRolloutClosureVerifyPublicationHandoffManifest(workspacePath s
 	return manifest, subjects, nil
 }
 
+func buildWorkflowRolloutClosureVerifyPublicationAcknowledgmentManifest(workspacePath string, payload workflowRolloutClosureVerifyPublicationAcknowledgmentExportRequest) (workflowRolloutClosureVerifyPublicationAcknowledgmentManifest, []audit.Subject, error) {
+	publicationHandoff, publicationHandoffPath, publicationHandoffDigest, err := loadLatestRolloutClosureVerifyPublicationHandoff(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	publicationEnvelope, publicationEnvelopePath, publicationEnvelopeDigest, err := loadLatestRolloutClosureVerifyPublicationEnvelope(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	publicationIndex, publicationIndexPath, publicationIndexDigest, err := loadLatestRolloutClosureVerifyPublicationIndex(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	publicationAttestation, publicationAttestationPath, publicationAttestationDigest, err := loadLatestRolloutClosureVerifyPublicationAttestation(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	publicationPackage, publicationPackagePath, publicationPackageDigest, err := loadLatestRolloutClosureVerifyPublicationPackage(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	attestationIndex, attestationIndexPath, attestationIndexDigest, err := loadLatestRolloutClosureVerifyAttestationIndex(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	attestation, attestationPath, attestationDigest, err := loadLatestRolloutClosureVerifyAttestation(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	verifyExport, verifyExportPath, verifyExportDigest, err := loadLatestRolloutClosureVerifyExportBundle(workspacePath)
+	if err != nil {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{Status: http.StatusUnprocessableEntity, Err: err.Error()}
+	}
+	verifyMarkdownPath := strings.TrimSuffix(verifyExportPath, ".json") + ".md"
+	verifyMarkdownBytes, err := os.ReadFile(verifyMarkdownPath)
+	if err != nil {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-003: latest closure verification markdown export is missing or unreadable",
+		}
+	}
+	if !verifyExport.Export.Ready && strings.TrimSpace(verifyExport.Export.AllowBlockedReasonReference) == "" {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-004: latest closure verification export is blocked without archived blocked reason reference",
+		}
+	}
+	if publicationHandoff.Handoff.HandoffState == "handoff-blocked" && strings.TrimSpace(verifyExport.Export.AllowBlockedReasonReference) == "" {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-005: latest verification publication handoff is blocked without archived blocked reason reference",
+		}
+	}
+	currentVerification := verifyWorkflowRolloutClosureChain(workspacePath)
+	if publicationHandoff.Handoff.Continuity != publicationEnvelope.Envelope.Continuity ||
+		publicationHandoff.Handoff.Continuity != publicationIndex.Index.Continuity ||
+		publicationHandoff.Handoff.Continuity != publicationAttestation.Publication.Continuity ||
+		publicationHandoff.Handoff.Continuity != publicationPackage.Package.Continuity ||
+		publicationHandoff.Handoff.Continuity != attestationIndex.Index.Continuity ||
+		publicationHandoff.Handoff.Continuity != attestation.Attestation.Continuity ||
+		publicationHandoff.Handoff.Continuity != verifyExport.Export.Continuity ||
+		publicationHandoff.Handoff.Continuity != currentVerification.Verification.Continuity {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-006: latest publication-handoff/envelope/index/attestation/package/attestation-index/attestation/export continuity diverges from current closure verification chain",
+		}
+	}
+	if publicationHandoff.Handoff.VerificationPublicationEnvelope.Digest != publicationEnvelopeDigest {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-007: latest verification publication handoff does not bind the latest publication envelope digest",
+		}
+	}
+	if publicationHandoff.Handoff.VerificationPublicationIndex.Digest != publicationIndexDigest {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-008: latest verification publication handoff does not bind the latest publication index digest",
+		}
+	}
+	if publicationHandoff.Handoff.VerificationPublicationAttestation.Digest != publicationAttestationDigest {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-009: latest verification publication handoff does not bind the latest publication attestation digest",
+		}
+	}
+	if publicationHandoff.Handoff.VerificationPublicationPackage.Digest != publicationPackageDigest {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-010: latest verification publication handoff does not bind the latest publication package digest",
+		}
+	}
+	if publicationHandoff.Handoff.VerificationAttestationIndex.Digest != attestationIndexDigest {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-011: latest verification publication handoff does not bind the latest attestation index digest",
+		}
+	}
+	if publicationHandoff.Handoff.VerificationAttestation.Digest != attestationDigest {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-012: latest verification publication handoff does not bind the latest verification attestation digest",
+		}
+	}
+	if publicationHandoff.Handoff.VerificationExportJSON.Digest != verifyExportDigest {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-013: latest verification publication handoff does not bind the latest verification export json digest",
+		}
+	}
+	verifyMarkdownDigest := digestBytes(verifyMarkdownBytes)
+	if publicationHandoff.Handoff.VerificationExportMarkdown.Digest != verifyMarkdownDigest {
+		return workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{}, nil, workflowGateError{
+			Status: http.StatusUnprocessableEntity,
+			Err:    "YARA-RCVPAK-014: latest verification publication handoff does not bind the latest verification export markdown digest",
+		}
+	}
+	acknowledgmentState := "acknowledgment-ready"
+	blockerCode := ""
+	if publicationHandoff.Handoff.HandoffState == "handoff-blocked" ||
+		publicationEnvelope.Envelope.EnvelopeState == "envelope-blocked" ||
+		publicationIndex.Index.IndexState == "index-blocked" ||
+		publicationAttestation.Publication.PublicationState == "publication-blocked" ||
+		publicationPackage.Package.PackageState == "package-blocked" ||
+		attestationIndex.Index.IndexState == "index-blocked" ||
+		attestation.Attestation.AttestationState == "attested-blocked" ||
+		!verifyExport.Export.Ready {
+		acknowledgmentState = "acknowledgment-blocked"
+		blockerCode = mapValueOrDefault(publicationHandoff.Handoff.BlockerCode, mapValueOrDefault(verifyExport.Export.BlockerCode, "YARA-RCVPAK-004"))
+	}
+	manifest := workflowRolloutClosureVerifyPublicationAcknowledgmentManifest{Valid: true}
+	manifest.Acknowledgment.WorkspacePath = workspacePath
+	manifest.Acknowledgment.VerificationPublicationAcknowledgmentReference = strings.TrimSpace(payload.VerificationPublicationAcknowledgmentReference)
+	manifest.Acknowledgment.AcknowledgedByReference = strings.TrimSpace(payload.AcknowledgedByReference)
+	manifest.Acknowledgment.AcknowledgmentTimestamp = strings.TrimSpace(payload.AcknowledgmentTimestamp)
+	manifest.Acknowledgment.AcknowledgmentState = acknowledgmentState
+	manifest.Acknowledgment.BlockerCode = blockerCode
+	manifest.Acknowledgment.Continuity = publicationHandoff.Handoff.Continuity
+	manifest.Acknowledgment.VerificationPublicationHandoff = workflowClosureArtifact{Path: publicationHandoffPath, Digest: publicationHandoffDigest}
+	manifest.Acknowledgment.VerificationPublicationEnvelope = workflowClosureArtifact{Path: publicationEnvelopePath, Digest: publicationEnvelopeDigest}
+	manifest.Acknowledgment.VerificationPublicationIndex = workflowClosureArtifact{Path: publicationIndexPath, Digest: publicationIndexDigest}
+	manifest.Acknowledgment.VerificationPublicationAttestation = workflowClosureArtifact{Path: publicationAttestationPath, Digest: publicationAttestationDigest}
+	manifest.Acknowledgment.VerificationPublicationPackage = workflowClosureArtifact{Path: publicationPackagePath, Digest: publicationPackageDigest}
+	manifest.Acknowledgment.VerificationAttestationIndex = workflowClosureArtifact{Path: attestationIndexPath, Digest: attestationIndexDigest}
+	manifest.Acknowledgment.VerificationAttestation = workflowClosureArtifact{Path: attestationPath, Digest: attestationDigest}
+	manifest.Acknowledgment.VerificationExportJSON = workflowClosureArtifact{Path: verifyExportPath, Digest: verifyExportDigest}
+	manifest.Acknowledgment.VerificationExportMarkdown = workflowClosureArtifact{Path: verifyMarkdownPath, Digest: verifyMarkdownDigest}
+	manifest.Acknowledgment.VerificationPublicationHandoffReference = publicationHandoff.Handoff.VerificationPublicationHandoffReference
+	manifest.Acknowledgment.VerificationPublicationEnvelopeReference = publicationHandoff.Handoff.VerificationPublicationEnvelopeReference
+	manifest.Acknowledgment.VerificationPublicationIndexReference = publicationHandoff.Handoff.VerificationPublicationIndexReference
+	manifest.Acknowledgment.VerificationPublicationReference = publicationHandoff.Handoff.VerificationPublicationReference
+	manifest.Acknowledgment.VerificationPackageReference = publicationHandoff.Handoff.VerificationPackageReference
+	manifest.Acknowledgment.AttestationIndexReference = publicationHandoff.Handoff.AttestationIndexReference
+	manifest.Acknowledgment.AttestationReference = publicationHandoff.Handoff.AttestationReference
+	manifest.Acknowledgment.VerificationReference = publicationHandoff.Handoff.VerificationReference
+	manifest.Acknowledgment.OperatorReference = publicationHandoff.Handoff.OperatorReference
+	manifest.Acknowledgment.VerificationTimestamp = publicationHandoff.Handoff.VerificationTimestamp
+	manifest.Acknowledgment.PublicationChannel = publicationHandoff.Handoff.PublicationChannel
+	manifest.Acknowledgment.PublicationLocationReference = publicationHandoff.Handoff.PublicationLocationReference
+	manifest.Acknowledgment.DeliveryDestinationReference = publicationHandoff.Handoff.DeliveryDestinationReference
+	subjects := []audit.Subject{
+		{Kind: "WorkflowRolloutClosureVerifyPublicationHandoff", Digest: publicationHandoffDigest},
+		{Kind: "WorkflowRolloutClosureVerifyPublicationEnvelope", Digest: publicationEnvelopeDigest},
+		{Kind: "WorkflowRolloutClosureVerifyPublicationIndex", Digest: publicationIndexDigest},
+		{Kind: "WorkflowRolloutClosureVerifyPublicationAttestation", Digest: publicationAttestationDigest},
+		{Kind: "WorkflowRolloutClosureVerifyPublicationPackage", Digest: publicationPackageDigest},
+		{Kind: "WorkflowRolloutClosureVerifyAttestationIndexManifest", Digest: attestationIndexDigest},
+		{Kind: "WorkflowRolloutClosureVerifyAttestation", Digest: attestationDigest},
+		{Kind: "WorkflowRolloutClosureVerifyJSON", Digest: verifyExportDigest},
+		{Kind: "WorkflowRolloutClosureVerifyMarkdown", Digest: verifyMarkdownDigest},
+		{
+			Kind: "WorkflowRolloutClosureVerifyPublicationAcknowledgmentReference",
+			Digest: digestBytes([]byte(strings.Join([]string{
+				manifest.Acknowledgment.VerificationPublicationAcknowledgmentReference,
+				manifest.Acknowledgment.AcknowledgedByReference,
+				manifest.Acknowledgment.AcknowledgmentTimestamp,
+				manifest.Acknowledgment.VerificationPublicationHandoffReference,
+				manifest.Acknowledgment.VerificationPublicationEnvelopeReference,
+				manifest.Acknowledgment.VerificationPublicationIndexReference,
+				manifest.Acknowledgment.VerificationPublicationReference,
+				manifest.Acknowledgment.VerificationPackageReference,
+				manifest.Acknowledgment.AttestationIndexReference,
+				manifest.Acknowledgment.AttestationReference,
+				manifest.Acknowledgment.VerificationReference,
+				manifest.Acknowledgment.Continuity.AuthorizationID,
+				manifest.Acknowledgment.Continuity.TargetDigest,
+				manifest.Acknowledgment.BlockerCode,
+			}, "|"))),
+		},
+	}
+	return manifest, subjects, nil
+}
+
 func workflowCoreArtifacts(workspacePath string) (map[string]string, []string, error) {
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {
@@ -10339,6 +10693,25 @@ func discoverRolloutClosureVerifyPublicationEnvelopeExports(workspacePath string
 		}
 		name := entry.Name()
 		if strings.HasSuffix(name, ".rollout-closure-verify.publication-envelope.json") {
+			paths = append(paths, filepath.Join(workspacePath, name))
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func discoverRolloutClosureVerifyPublicationHandoffExports(workspacePath string) []string {
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return []string{}
+	}
+	paths := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".rollout-closure-verify.publication-handoff.json") {
 			paths = append(paths, filepath.Join(workspacePath, name))
 		}
 	}
